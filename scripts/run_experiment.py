@@ -461,11 +461,15 @@ class RegenerateHostCandidate(Exception):
 
 
 def append_transcript(transcript_path: Path, round_record: dict[str, Any]) -> None:
+    action_block = ""
+    if round_record.get("recommended_action"):
+        action_block = f"### Recommended Action\n\n{round_record['recommended_action']}\n\n"
     section = (
         f"## Round {round_record['round']}\n\n"
         f"### Host Input\n\n{round_record['agent_input']}\n\n"
         f"### Canonical Answer\n\n`{round_record['canonical_answer']}`\n\n"
         f"### Agent Response\n\n{round_record['agent_response_raw']}\n\n"
+        f"{action_block}"
         f"### Scoring\n\n"
         f"- normalized_answer: `{round_record.get('agent_label') or 'INVALID'}`\n"
         f"- is_correct: `{round_record['is_correct']}`\n"
@@ -524,6 +528,7 @@ def call_tested_agent(
     message_roles = [message["role"] for message in messages]
     retry_count = 0
     last_raw = ""
+    repair_max_tokens = max(max_tokens, 800)
 
     while retry_count <= 1:
         if retry_count == 0:
@@ -539,8 +544,11 @@ def call_tested_agent(
                 {
                     "role": "user",
                     "content": (
-                        f"The previous reply was not valid JSON.\n\nPrevious reply:\n{last_raw}\n\n"
-                        'Return only valid JSON with keys "response" and "updated_memory".'
+                        f"The previous reply was not valid JSON and may have been truncated.\n\nPrevious reply:\n{last_raw}\n\n"
+                        "Retry with a much shorter, more compressed notebook.\n"
+                        f'Keep "updated_memory" well under the {memory_budget}-character limit.\n'
+                        'Prefer 2-3 short Markdown sections with short bullets, not a long case list.\n'
+                        'Return minified JSON only with keys "response", "recommended_action", and "updated_memory".'
                     ),
                 },
             ]
@@ -548,7 +556,7 @@ def call_tested_agent(
                 model=model,
                 messages=repair_messages,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_tokens=repair_max_tokens,
             )
             message_roles = [message["role"] for message in repair_messages]
 
@@ -561,7 +569,12 @@ def call_tested_agent(
                 break
             continue
 
-        if not isinstance(parsed, dict) or "response" not in parsed or "updated_memory" not in parsed:
+        if (
+            not isinstance(parsed, dict)
+            or "response" not in parsed
+            or "recommended_action" not in parsed
+            or "updated_memory" not in parsed
+        ):
             retry_count += 1
             if retry_count > 1:
                 break
@@ -673,6 +686,7 @@ def run() -> int:
                 raw_agent_text = str(exc)
                 agent_output = {
                     "response": raw_agent_text,
+                    "recommended_action": "",
                     "updated_memory": current_memory,
                 }
                 retry_count = 1
@@ -697,6 +711,7 @@ def run() -> int:
                 "scoring_rationale": host_data["scoring_rationale"],
                 "next_round_intent": host_data["next_round_intent"],
                 "agent_response_raw": str(agent_output["response"]),
+                "recommended_action": str(agent_output.get("recommended_action", "")).strip(),
                 "agent_label": normalized,
                 "is_correct": bool(is_correct),
                 "retry_count": retry_count,

@@ -1,10 +1,34 @@
 # 运行日志
 
-- 更新时间: 2026-04-04T06:15:22+00:00
-- 已记录运行数: 11
+- 更新时间: 2026-04-04T06:44:46+00:00
+- 已记录运行数: 12
 
 这个文件记录每次 run 跑了什么、跑了多少轮，以及有哪些值得记下来的进展。
 排列顺序按时间从新到旧。
+
+## confluence_001
+
+- 开始时间: `2026-04-04T06:32:59+00:00`
+- 结束时间: `2026-04-04T06:44:46+00:00`
+- 状态: `stopped_on_error`
+- 世界: `world/confluence_world.md`
+- tested model: `qwen3-coder-plus`
+- host model: `qwen3-coder-plus`
+- 计划轮数: `50`
+- 已完成轮数: `32`
+- 正确率: `29/32` (91%)
+- memory 进展: `已完成 32 轮，memory 长度从 270 变到 675 字符`
+- transcript: [`confluence_001/transcript.md`](./confluence_001/transcript.md)
+- metrics: [`confluence_001/metrics.json`](./confluence_001/metrics.json)
+
+### 关键进展
+
+- 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
+- 已经不是一次性连通性测试，而是形成了稳定的多轮连续运行。
+- 已经进入较长程运行区间，开始适合观察 memory 的演化趋势。
+- 在已完成的 29/32 轮里达到了较强的阶段性正确率。
+- memory 长度在轮次之间发生了变化，说明外部记忆正在主动演化。
+- 已经暴露出一个明确故障模式，值得在下一次 run 前优先排查。
 
 ## orthfall_frontier_001
 

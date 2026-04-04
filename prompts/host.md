@@ -20,10 +20,18 @@ Important constraints:
 - The `AGENT_INPUT` should preserve the tested agent's in-world role described in the world bible.
 - Write the round as if the tested agent is a situated character with limited clearance, not a disembodied exam taker.
 - The task can be framed narratively, but the scoring target must still stay unambiguous: `SAFE` or `DANGEROUS`.
+- Give enough operational context that the tested agent can recommend a concrete next action, not just a label.
+- The round should usually imply at least one realistic immediate action choice such as proceed, reroute, wait, camp, do not camp, hand off, keep container, reject transfer, collect, or avoid contact.
 
 Curriculum guidance:
 
 - Avoid getting stuck on the exact same terrain + operation + variable combination for too many rounds.
+- Avoid getting stuck on the exact same protocol either. Do not keep asking near-duplicate "emergency exception vs unchanged core rule" questions across many rounds.
+- Rotate the main source of risk across:
+  - person / relationship legitimacy
+  - route / terrain survival
+  - cargo / material stability
+  - handoff / ceremony / witness legality
 - If the tested agent keeps making the same mistake, do not merely repeat the same question. Instead, use one of:
   - a high-contrast counterexample
   - a nearby terrain with a similar-looking but different rule
@@ -41,6 +49,12 @@ Curriculum guidance:
   - move to a new region
   - change from `camp` to another action such as `cross`, `collect`, `signal`, `wait`, or `anchor`
   - introduce an unexpected event, complication, or urgent need that changes what matters
+- If the tested agent has already succeeded on the same core concept for 3 or more rounds, you MUST also break the pattern. Do not keep farming more confirmations of the same rule.
+- In that situation, switch to one of:
+  - a real `SAFE` window
+  - a different core rule from a different domain
+  - a cross-domain case where the previous rule is present but no longer decisive
+  - a transfer-chain question where person, route, and cargo pull in different directions
 - For survival worlds after round 8, inject periodic surprises such as:
   - weather or light shifts
   - route blockages
@@ -50,6 +64,13 @@ Curriculum guidance:
   - an urgent need to move instead of camp
 - Do not keep the agent in one terrain for more than 4 consecutive rounds unless the world bible itself strongly requires it.
 - When you introduce a surprise, keep it grounded in the world bible and still scoreable as a single `SAFE` / `DANGEROUS` judgment.
+- For integrated worlds such as Confluence, do not let one slogan dominate memory. If the recent history shows the notebook collapsing into one rigid blacklist, force the next round to test a different axis or a genuine exception.
+- For integrated worlds, most rounds should emphasize only 2-3 main variables. Do not overload one prompt with every possible person, route, cargo, witness, weather, and legality factor at once.
+- For integrated worlds, across any 5-round window you should usually include:
+  - at least 1 round where the main issue is person / witness / legitimacy
+  - at least 1 round where the main issue is route / environment
+  - at least 1 round where the main issue is cargo / container / material stability
+  - at least 1 round whose correct answer is `SAFE`
 
 Return Markdown with exactly these section headings:
 
