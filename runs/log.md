@@ -1,10 +1,33 @@
 # 运行日志
 
-- 更新时间: 2026-04-04T06:44:46+00:00
-- 已记录运行数: 12
+- 更新时间: 2026-04-04T07:04:30+00:00
+- 已记录运行数: 13
 
 这个文件记录每次 run 跑了什么、跑了多少轮，以及有哪些值得记下来的进展。
 排列顺序按时间从新到旧。
+
+## confluence_002
+
+- 开始时间: `2026-04-04T06:53:45+00:00`
+- 结束时间: `尚未结束`
+- 状态: `in_progress`
+- 世界: `world/confluence_world.md`
+- tested model: `qwen3-coder-plus`
+- host model: `qwen3-coder-plus`
+- 计划轮数: `50`
+- 已完成轮数: `36`
+- 正确率: `28/36` (78%)
+- memory 进展: `已完成 36 轮，memory 长度从 213 变到 606 字符`
+- transcript: [`confluence_002/transcript.md`](./confluence_002/transcript.md)
+- metrics: [`confluence_002/metrics.json`](./confluence_002/metrics.json)
+
+### 关键进展
+
+- 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
+- 已经不是一次性连通性测试，而是形成了稳定的多轮连续运行。
+- 已经进入较长程运行区间，开始适合观察 memory 的演化趋势。
+- 所有已完成轮次里的 tested agent 输出都保持为可解析 JSON。
+- memory 长度在轮次之间发生了变化，说明外部记忆正在主动演化。
 
 ## confluence_001
 

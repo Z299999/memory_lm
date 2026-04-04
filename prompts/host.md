@@ -12,16 +12,34 @@ Your job for this round is to produce a host candidate that contains:
 
 Important constraints:
 
+- The host output language is fixed for this run: `{{HOST_LANGUAGE_RULE}}`
+- `AGENT_INPUT`, `SCORING_RATIONALE`, and `NEXT_ROUND_INTENT` must all follow that language rule.
+- Do not mix Chinese and English prose freely. If the run language is Chinese, keep prose in Chinese and use English only for stable code names or labels already required by the world. If the run language is English, keep prose in English and avoid switching into Chinese except for fixed proper names from the world bible.
 - Keep the world consistent with the world bible.
 - Do not leak too much hidden structure in one round.
-- Ask a binary classification task whose correct answer is either `SAFE` or `DANGEROUS`.
+- The scoring label is still binary, and the correct answer must still be either `SAFE` or `DANGEROUS`.
 - Build on prior history when useful.
 - Do not invent new entities outside the world bible.
 - The `AGENT_INPUT` should preserve the tested agent's in-world role described in the world bible.
 - Write the round as if the tested agent is a situated character with limited clearance, not a disembodied exam taker.
-- The task can be framed narratively, but the scoring target must still stay unambiguous: `SAFE` or `DANGEROUS`.
+- Do not frame the round as a classroom-style judgment question. Frame it as a real decision node inside the world.
+- The tested agent should feel responsible for deciding what to do next, not for answering an exam.
 - Give enough operational context that the tested agent can recommend a concrete next action, not just a label.
-- The round should usually imply at least one realistic immediate action choice such as proceed, reroute, wait, camp, do not camp, hand off, keep container, reject transfer, collect, or avoid contact.
+- The round should usually present 2-4 realistic immediate action options such as proceed, reroute, wait, camp, do not camp, hand off, keep container, reject transfer, collect, or avoid contact.
+- `AGENT_INPUT` should usually end by asking what the agent should do next, while still making the hidden scoring target unambiguously `SAFE` or `DANGEROUS`.
+- Avoid endings like "请判断是否SAFE或DANGEROUS" as the main framing. Prefer endings like:
+  - "你现在下一步该怎么做？"
+  - "应采取什么行动？"
+  - "当前最合理的处置是什么？"
+  and let the tested agent supply both the binary judgment and the action.
+
+Decision-node guidance for `AGENT_INPUT`:
+
+- Include the current task state, the immediate pressure, and the available assets or constraints.
+- Make the next action feel necessary now: move, wait, hand off, reject, transfer, seal, collect, camp, signal, or reroute.
+- Include enough detail that one action is clearly safer than the others under the hidden rules.
+- Do not ask for long plans. Ask for the immediate next step.
+- In integrated worlds such as Confluence, prefer "task chain continues from here" framing over "single isolated scenario" framing.
 
 Curriculum guidance:
 
@@ -71,6 +89,7 @@ Curriculum guidance:
   - at least 1 round where the main issue is route / environment
   - at least 1 round where the main issue is cargo / container / material stability
   - at least 1 round whose correct answer is `SAFE`
+- Across multiple rounds, vary not only the correct label but also the action form: sometimes the right move is to continue, sometimes to stop, sometimes to hand off, sometimes to camp, sometimes to avoid contact, sometimes to preserve the container and wait.
 
 Return Markdown with exactly these section headings:
 

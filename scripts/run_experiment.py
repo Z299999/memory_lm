@@ -28,6 +28,8 @@ HOST_SECTION_PATTERN = re.compile(
 )
 JSON_BLOCK_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
 LABEL_PATTERN = re.compile(r"\b(SAFE|DANGEROUS)\b", re.IGNORECASE)
+ASCII_WORD_PATTERN = re.compile(r"\b[A-Za-z]{4,}\b")
+CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--memory-budget", type=int, default=1000)
     parser.add_argument("--tested-model", default="qwen-plus")
     parser.add_argument("--host-model", default="qwen-plus")
+    parser.add_argument("--host-language", choices=["zh", "en"], default="zh")
     parser.add_argument("--host-temperature", type=float, default=0.3)
     parser.add_argument("--tested-temperature", type=float, default=0.2)
     parser.add_argument("--host-max-tokens", type=int, default=1000)
@@ -78,7 +81,21 @@ def normalize_answer(answer_text: str) -> str | None:
     return match.group(1).upper()
 
 
-def parse_host_candidate(candidate_text: str) -> dict[str, str]:
+def language_rule_text(host_language: str) -> str:
+    if host_language == "en":
+        return "English only for host prose."
+    return "中文为主，host 文本只使用中文表达；英文仅可用于固定代号、标签或必要术语。"
+
+
+def host_language_looks_valid(text: str, host_language: str) -> bool:
+    ascii_words = len(ASCII_WORD_PATTERN.findall(text))
+    cjk_chars = len(CJK_PATTERN.findall(text))
+    if host_language == "en":
+        return ascii_words >= max(12, cjk_chars // 4)
+    return cjk_chars >= max(20, ascii_words * 2)
+
+
+def parse_host_candidate(candidate_text: str, host_language: str = "zh") -> dict[str, str]:
     match = HOST_SECTION_PATTERN.search(candidate_text.strip())
     if not match:
         raise ValueError("Host candidate is missing one or more required sections.")
@@ -86,6 +103,10 @@ def parse_host_candidate(candidate_text: str) -> dict[str, str]:
     canonical_label = normalize_answer(canonical_answer)
     if canonical_label not in {"SAFE", "DANGEROUS"}:
         raise ValueError("Host candidate must include a canonical answer of SAFE or DANGEROUS.")
+    combined_text = "\n".join([agent_input, rationale, next_intent])
+    if not host_language_looks_valid(combined_text, host_language):
+        expected = "English" if host_language == "en" else "Chinese"
+        raise ValueError(f"Host candidate does not appear to follow the required {expected}-only language rule.")
     return {
         "agent_input": agent_input,
         "canonical_answer": canonical_label,
@@ -204,6 +225,7 @@ def initialize_new_run(run_dir: Path, config: dict[str, Any], paths: dict[str, P
             f"- created_at: {utc_now()}\n"
             f"- tested_model: {config['tested_model']}\n"
             f"- host_model: {config['host_model']}\n"
+            f"- host_language: {config.get('host_language', 'zh')}\n"
             f"- rounds: {config['rounds']}\n"
             f"- memory_budget: {config['memory_budget']}\n\n"
         ),
@@ -244,6 +266,7 @@ def load_or_create_run(args: argparse.Namespace) -> tuple[Path, dict[str, Path],
         "memory_budget": args.memory_budget,
         "tested_model": args.tested_model,
         "host_model": args.host_model,
+        "host_language": args.host_language,
         "host_temperature": args.host_temperature,
         "tested_temperature": args.tested_temperature,
         "host_max_tokens": args.host_max_tokens,
@@ -360,6 +383,7 @@ def build_runs_log() -> str:
                 f"- 世界: `{world_path}`",
                 f"- tested model: `{config.get('tested_model', 'unknown')}`",
                 f"- host model: `{config.get('host_model', 'unknown')}`",
+                f"- host 语言: `{config.get('host_language', 'zh')}`",
                 f"- 计划轮数: `{config.get('rounds', 'unknown')}`",
                 f"- 已完成轮数: `{completed}`",
                 f"- 正确率: `{correct}/{completed}` ({accuracy:.0%})" if completed else "- 正确率: `0/0`（暂无）",
@@ -602,6 +626,7 @@ def generate_host_candidate(
         host_prompt,
         {
             "WORLD": world_text.strip(),
+            "HOST_LANGUAGE_RULE": language_rule_text(str(config.get("host_language", "zh"))),
             "ROUND_ID": str(round_id),
             "HISTORY_SUMMARY": history_summary.strip(),
             "PREVIOUS_ANSWER": previous_answer.strip() or "None",
@@ -658,7 +683,7 @@ def run() -> int:
                         host_path=round_host_path(paths["host_dir"], round_id),
                         auto_accept=args.auto_accept_host,
                     )
-                    host_data = parse_host_candidate(approved_text)
+                    host_data = parse_host_candidate(approved_text, str(config.get("host_language", "zh")))
                     host_file = round_host_path(paths["host_dir"], round_id)
                     host_file.write_text(approved_text.rstrip() + "\n", encoding="utf-8")
                     break

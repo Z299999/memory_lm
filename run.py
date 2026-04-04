@@ -11,6 +11,7 @@ from scripts.run_cli import run_defaults
 #   ACTION = "new"
 #   WORLD_PATH = "world/orthfall_frontier_world.md"
 #   ROUNDS = 30
+#   HOST_LANGUAGE = "zh"
 # - Continue one specific run:
 #   ACTION = "resume"
 #   RUN_ID = "run_001"
@@ -23,12 +24,13 @@ from scripts.run_cli import run_defaults
 # - "world/orthfall_frontier_world.md"
 
 ACTION = "new"  # "new" | "resume" | "resume_latest" | "smoke" | "status"
-RUN_ID = "confluence_001"  # only used when ACTION is "resume", or when you want to name a new run
+RUN_ID = "confluence_002"  # only used when ACTION is "resume", or when you want to name a new run
 WORLD_PATH = "world/confluence_world.md"  # only used for "new" and "smoke"
 ROUNDS = 50  # only used for "new" and "smoke"
 MEMORY_BUDGET = 1000  # only used for "new"
 TESTED_MODEL = "qwen3-coder-plus"  # only used for "new"
 HOST_MODEL = "qwen3-coder-plus"  # only used for "new"
+HOST_LANGUAGE = "zh"  # "zh" = host writes Chinese only, "en" = host writes English only
 AUTO_ACCEPT_HOST = True  # True = do not pause for host review
 STUB_LLM = False  # True = offline fake model for smoke testing
 
@@ -41,6 +43,7 @@ raise SystemExit(
         memory_budget=MEMORY_BUDGET,
         tested_model=TESTED_MODEL,
         host_model=HOST_MODEL,
+        host_language=HOST_LANGUAGE,
         auto_accept_host=AUTO_ACCEPT_HOST,
         stub_llm=STUB_LLM,
     )
