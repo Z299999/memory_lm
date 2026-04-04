@@ -9,6 +9,25 @@
 - 它唯一能跨轮保留的状态，是逐轮写入 `runs/.../memory/round_XXX.md` 的外部 memory
 - 我们自己扮演 `host`
 - host 持有完整 world、历史、评分逻辑和教学轨迹
+- tested agent 可以在 world 里扮演一个明确角色，但这种角色扮演不能破坏可判分性
+
+## 角色扮演
+
+这个项目现在支持 tested agent 的 in-world role-playing，但方式是“有约束的角色扮演”。
+
+- tested agent 不是抽象答题器，而是 world 里的某个低权限角色
+- 这个角色只能看到局部信息和自己的外部 memory
+- host 出题时应保持这个角色视角，让每轮任务更像真实情境
+- 但最终判分目标仍然必须稳定，第一版仍以 `SAFE / DANGEROUS` 为主
+
+目前三个 world 都已经带了 tested agent role：
+
+- [`world/asterion_lab.md`](/Users/shzhang/Documents/Codes/memory_lm/world/asterion_lab.md)
+  - 低权限夜班实验记录员
+- [`world/court_of_veils_world.md`](/Users/shzhang/Documents/Codes/memory_lm/world/court_of_veils_world.md)
+  - 低阶流转记录官
+- [`world/orthfall_frontier_world.md`](/Users/shzhang/Documents/Codes/memory_lm/world/orthfall_frontier_world.md)
+  - 前哨生存勘测员
 
 ## 当前目录
 
@@ -74,45 +93,33 @@ SSL_CERT_FILE=/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/
 python3 run.py
 ```
 
-会自动续跑最近一次 run。
+会按 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py) 顶部当前填写的配置执行。
 
-如果你想改默认行为，可以直接编辑 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py) 顶部这些常量：
+你通常只需要改这些值：
 
-- `DEFAULT_ACTION`
-- `DEFAULT_RUN_ID`
-- `DEFAULT_ROUNDS`
-- `DEFAULT_TESTED_MODEL`
-- `DEFAULT_HOST_MODEL`
+- `ACTION`
+- `RUN_ID`
+- `WORLD_PATH`
+- `ROUNDS`
+- `TESTED_MODEL`
+- `HOST_MODEL`
 
-新建并开始一个 run：
+常见用法：
 
-```bash
-python3 run.py --new --run-id run_story_001 --rounds 30
-```
-
-中断后继续：
-
-```bash
-python3 run.py --resume run_story_001
-```
-
-看所有 run 的总览：
-
-```bash
-python3 run.py --status
-```
-
-看某个 run 的状态：
-
-```bash
-python3 run.py --status run_story_001
-```
-
-离线 smoke test：
-
-```bash
-python3 run.py --smoke --run-id smoke_001 --rounds 3
-```
+- 续跑最近一次未完成 run：
+  - `ACTION = "resume_latest"`
+- 新开一个 run：
+  - `ACTION = "new"`
+  - `WORLD_PATH = "world/court_of_veils_world.md"`
+  - `ROUNDS = 30`
+- 续跑指定 run：
+  - `ACTION = "resume"`
+  - `RUN_ID = "run_001"`
+- 只看状态：
+  - `ACTION = "status"`
+- 离线 smoke test：
+  - `ACTION = "smoke"`
+  - `STUB_LLM = True`
 
 如果你想用命令式入口，也可以：
 
@@ -150,6 +157,7 @@ python3 scripts/run_experiment.py --stub-llm --auto-accept-host --rounds 3
 - world 必须复杂到记不完
 - memory 必须是“有限且会被迫压缩”的
 - 我们真正想观察的是 memory 如何从案例摘录逐步变成规则摘要
+- 角色扮演只能增强情境感，不能让评分目标变模糊
 
 ## Runs Log
 
