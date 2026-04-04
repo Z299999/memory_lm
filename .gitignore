@@ -1,5 +1,6 @@
 runs/*
 !runs/.gitkeep
+!runs/log.md
 __pycache__/
 *.pyc
 .env

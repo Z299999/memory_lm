@@ -1,0 +1,47 @@
+from scripts.run_cli import run_defaults
+
+# How to use:
+# 1. Edit the values below.
+# 2. Run `python3 run.py`.
+#
+# Most common setups:
+# - Continue the latest unfinished run:
+#   ACTION = "resume_latest"
+# - Start a brand-new run:
+#   ACTION = "new"
+#   WORLD_PATH = "world/court_of_veils_world.md"
+#   ROUNDS = 30
+# - Continue one specific run:
+#   ACTION = "resume"
+#   RUN_ID = "run_001"
+# - Check status only:
+#   ACTION = "status"
+#
+# Available worlds:
+# - "world/asterion_lab.md"
+# - "world/court_of_veils_world.md"
+# - "world/orthfall_frontier_world.md"
+
+ACTION = "resume_latest"  # "new" | "resume" | "resume_latest" | "smoke" | "status"
+RUN_ID = None  # only used when ACTION is "resume", or when you want to name a new run
+WORLD_PATH = "world/asterion_lab.md"  # only used for "new" and "smoke"
+ROUNDS = 30  # only used for "new" and "smoke"
+MEMORY_BUDGET = 1000  # only used for "new"
+TESTED_MODEL = "qwen3-coder-plus"  # only used for "new"
+HOST_MODEL = "qwen3-coder-plus"  # only used for "new"
+AUTO_ACCEPT_HOST = False  # True = do not pause for host review
+STUB_LLM = False  # True = offline fake model for smoke testing
+
+raise SystemExit(
+    run_defaults(
+        action=ACTION,
+        run_id=RUN_ID,
+        world_path=WORLD_PATH,
+        rounds=ROUNDS,
+        memory_budget=MEMORY_BUDGET,
+        tested_model=TESTED_MODEL,
+        host_model=HOST_MODEL,
+        auto_accept_host=AUTO_ACCEPT_HOST,
+        stub_llm=STUB_LLM,
+    )
+)

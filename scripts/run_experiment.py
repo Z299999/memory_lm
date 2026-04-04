@@ -16,10 +16,11 @@ from memory_io import clip_memory, read_memory, round_memory_path, write_memory
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WORLD_PATH = ROOT / "world" / "asterion_lab.md"
+DEFAULT_WORLD_PATH = ROOT / "world" / "asterion_lab.md"
 HOST_PROMPT_PATH = ROOT / "prompts" / "host.md"
 TESTED_PROMPT_PATH = ROOT / "prompts" / "tested_agent.md"
 RUNS_DIR = ROOT / "runs"
+RUNS_LOG_PATH = RUNS_DIR / "log.md"
 
 HOST_SECTION_PATTERN = re.compile(
     r"## AGENT_INPUT\s*(.*?)\s*## CANONICAL_ANSWER\s*(.*?)\s*## SCORING_RATIONALE\s*(.*?)\s*## NEXT_ROUND_INTENT\s*(.*)",
@@ -32,6 +33,7 @@ LABEL_PATTERN = re.compile(r"\b(SAFE|DANGEROUS)\b", re.IGNORECASE)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the memory evolution experiment.")
     parser.add_argument("--run-id", help="Existing or new run id, e.g. run_001.")
+    parser.add_argument("--world-path", default=str(DEFAULT_WORLD_PATH.relative_to(ROOT)))
     parser.add_argument("--rounds", type=int, default=30)
     parser.add_argument("--memory-budget", type=int, default=1000)
     parser.add_argument("--tested-model", default="qwen-plus")
@@ -47,6 +49,19 @@ def parse_args() -> argparse.Namespace:
 
 def load_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def resolve_world_path(world_path: str) -> Path:
+    candidate = ROOT / world_path
+    if candidate.exists():
+        return candidate
+    legacy_map = {
+        "world/world.md": DEFAULT_WORLD_PATH,
+    }
+    fallback = legacy_map.get(world_path)
+    if fallback and fallback.exists():
+        return fallback
+    return candidate
 
 
 def render_template(template: str, values: dict[str, str]) -> str:
@@ -179,6 +194,7 @@ def initialize_new_run(run_dir: Path, config: dict[str, Any], paths: dict[str, P
         },
     }
     write_json(paths["metrics_path"], metrics)
+    refresh_runs_log()
     return metrics
 
 
@@ -193,7 +209,7 @@ def load_or_create_run(args: argparse.Namespace) -> tuple[Path, dict[str, Path],
         return run_dir, paths, metrics
 
     config = {
-        "world_path": str(WORLD_PATH.relative_to(ROOT)),
+        "world_path": args.world_path,
         "rounds": args.rounds,
         "memory_budget": args.memory_budget,
         "tested_model": args.tested_model,
@@ -214,6 +230,127 @@ def utc_now() -> str:
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def compute_accuracy(metrics: dict[str, Any]) -> tuple[int, int, float]:
+    totals = metrics.get("totals", {})
+    completed = int(totals.get("completed_rounds", 0))
+    correct = int(totals.get("correct_rounds", 0))
+    accuracy = (correct / completed) if completed else 0.0
+    return correct, completed, accuracy
+
+
+def summarize_memory_progress(metrics: dict[str, Any]) -> str:
+    rounds = metrics.get("rounds", [])
+    if not rounds:
+        return "还没有写出任何 memory。"
+    first = rounds[0]["clipped_memory_length"]
+    last = rounds[-1]["clipped_memory_length"]
+    return f"已完成 {len(rounds)} 轮，memory 长度从 {first} 变到 {last} 字符"
+
+
+def detect_breakthroughs(metrics: dict[str, Any]) -> list[str]:
+    rounds = metrics.get("rounds", [])
+    totals = metrics.get("totals", {})
+    completed = int(totals.get("completed_rounds", 0))
+    invalid = int(totals.get("invalid_agent_json_rounds", 0))
+    correct, _, accuracy = compute_accuracy(metrics)
+    breakthroughs: list[str] = []
+
+    if completed >= 1:
+        breakthroughs.append("至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。")
+    if completed >= 3:
+        breakthroughs.append("已经不是一次性连通性测试，而是形成了稳定的多轮连续运行。")
+    if completed >= 10:
+        breakthroughs.append("已经进入较长程运行区间，开始适合观察 memory 的演化趋势。")
+    if completed and invalid == 0:
+        breakthroughs.append("所有已完成轮次里的 tested agent 输出都保持为可解析 JSON。")
+    if completed and accuracy == 1.0:
+        breakthroughs.append(f"在已完成的 {correct}/{completed} 轮中保持了 100% 正确率。")
+    elif completed >= 5 and accuracy >= 0.8:
+        breakthroughs.append(f"在已完成的 {correct}/{completed} 轮里达到了较强的阶段性正确率。")
+    if rounds and rounds[0]["clipped_memory_length"] != rounds[-1]["clipped_memory_length"]:
+        breakthroughs.append("memory 长度在轮次之间发生了变化，说明外部记忆正在主动演化。")
+    if metrics.get("status") == "completed":
+        breakthroughs.append("已经跑完了这次计划中的全部轮数。")
+    if metrics.get("status") == "stopped_on_error":
+        breakthroughs.append("已经暴露出一个明确故障模式，值得在下一次 run 前优先排查。")
+
+    return breakthroughs or ["目前还没有明显突破，这次 run 还处在很早期或尚未完成。"]
+
+
+def build_runs_log() -> str:
+    run_metrics: list[dict[str, Any]] = []
+    for child in sorted(RUNS_DIR.iterdir()):
+        if not child.is_dir():
+            continue
+        metrics_path = child / "metrics.json"
+        if not metrics_path.exists():
+            continue
+        try:
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        run_metrics.append(metrics)
+
+    run_metrics.sort(key=lambda item: (item.get("started_at") or "", item.get("run_id") or ""), reverse=True)
+
+    lines = [
+        "# 运行日志",
+        "",
+        f"- 更新时间: {utc_now()}",
+        f"- 已记录运行数: {len(run_metrics)}",
+        "",
+        "这个文件记录每次 run 跑了什么、跑了多少轮，以及有哪些值得记下来的进展。",
+        "排列顺序按时间从新到旧。",
+        "",
+    ]
+
+    if not run_metrics:
+        lines.append("暂无 run 记录。")
+        return "\n".join(lines) + "\n"
+
+    for metrics in run_metrics:
+        config = metrics.get("config", {})
+        run_id = metrics.get("run_id", "unknown_run")
+        status = metrics.get("status", "unknown")
+        correct, completed, accuracy = compute_accuracy(metrics)
+        world_path = config.get("world_path", "unknown_world")
+        breakthroughs = detect_breakthroughs(metrics)
+        started_at = metrics.get("started_at") or "未知"
+        ended_at = metrics.get("ended_at") or "尚未结束"
+
+        lines.extend(
+            [
+                f"## {run_id}",
+                "",
+                f"- 开始时间: `{started_at}`",
+                f"- 结束时间: `{ended_at}`",
+                f"- 状态: `{status}`",
+                f"- 世界: `{world_path}`",
+                f"- tested model: `{config.get('tested_model', 'unknown')}`",
+                f"- host model: `{config.get('host_model', 'unknown')}`",
+                f"- 计划轮数: `{config.get('rounds', 'unknown')}`",
+                f"- 已完成轮数: `{completed}`",
+                f"- 正确率: `{correct}/{completed}` ({accuracy:.0%})" if completed else "- 正确率: `0/0`（暂无）",
+                f"- memory 进展: `{summarize_memory_progress(metrics)}`",
+                f"- transcript: [`{run_id}/transcript.md`](./{run_id}/transcript.md)",
+                f"- metrics: [`{run_id}/metrics.json`](./{run_id}/metrics.json)",
+                "",
+                "### 关键进展",
+                "",
+            ]
+        )
+        for item in breakthroughs:
+            lines.append(f"- {item}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def refresh_runs_log() -> None:
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    RUNS_LOG_PATH.write_text(build_runs_log(), encoding="utf-8")
 
 
 def summarize_history(round_records: list[dict[str, Any]], limit: int = 5) -> str:
@@ -434,7 +571,7 @@ def run() -> int:
     run_dir, paths, metrics = load_or_create_run(args)
     config = metrics["config"]
 
-    world_text = load_text(WORLD_PATH)
+    world_text = load_text(resolve_world_path(str(config["world_path"])))
     host_prompt = load_text(HOST_PROMPT_PATH)
     tested_prompt = load_text(TESTED_PROMPT_PATH)
 
@@ -543,6 +680,7 @@ def run() -> int:
                 1 for record in metrics["rounds"] if record["invalid_json"]
             )
             write_json(paths["metrics_path"], metrics)
+            refresh_runs_log()
             append_transcript(paths["transcript_path"], round_record)
 
             print(
@@ -555,24 +693,28 @@ def run() -> int:
                 metrics["status"] = "stopped_on_error"
                 metrics["ended_at"] = utc_now()
                 write_json(paths["metrics_path"], metrics)
+                refresh_runs_log()
                 print(f"Stopping run because of error: {failure_reason}")
                 return 1
 
     except UserQuit:
         metrics["status"] = "paused"
         write_json(paths["metrics_path"], metrics)
+        refresh_runs_log()
         print("Run paused by user.")
         return 0
     except LLMClientError as exc:
         metrics["status"] = "stopped_on_error"
         metrics["ended_at"] = utc_now()
         write_json(paths["metrics_path"], metrics)
+        refresh_runs_log()
         print(f"LLM error: {exc}", file=sys.stderr)
         return 1
 
     metrics["status"] = "completed"
     metrics["ended_at"] = utc_now()
     write_json(paths["metrics_path"], metrics)
+    refresh_runs_log()
     print(f"Completed {run_dir.name}. Transcript: {paths['transcript_path'].relative_to(ROOT)}")
     return 0
 

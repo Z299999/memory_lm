@@ -26,6 +26,10 @@
   - tested agent 模板
 - [`scripts/run_experiment.py`](/Users/shzhang/Documents/Codes/memory_lm/scripts/run_experiment.py)
   - 主运行器
+- [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py)
+  - 根目录默认入口；直接 `python3 run.py` 会续跑最近一次 run
+- [`scripts/run_cli.py`](/Users/shzhang/Documents/Codes/memory_lm/scripts/run_cli.py)
+  - 较完整的命令式包装器，支持 `new / resume / smoke / status`
 - [`models/coding_endpoint_models.md`](/Users/shzhang/Documents/Codes/memory_lm/models/coding_endpoint_models.md)
   - coding 端点模型参考
 
@@ -39,6 +43,7 @@
 4. 让人类或脚本确认 host 输入
 5. 调用 tested agent
 6. 写入 transcript、metrics 和逐轮 memory
+7. 刷新 [`runs/log.md`](/Users/shzhang/Documents/Codes/memory_lm/runs/log.md) 作为所有 run 的总览日志
 
 当前默认 world 是 [`world/asterion_lab.md`](/Users/shzhang/Documents/Codes/memory_lm/world/asterion_lab.md)。
 
@@ -60,6 +65,64 @@ SSL_CERT_FILE=/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/
 ```
 
 ## 推荐命令
+
+更推荐直接用根目录的 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py)。
+
+默认情况下：
+
+```bash
+python3 run.py
+```
+
+会自动续跑最近一次 run。
+
+如果你想改默认行为，可以直接编辑 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py) 顶部这些常量：
+
+- `DEFAULT_ACTION`
+- `DEFAULT_RUN_ID`
+- `DEFAULT_ROUNDS`
+- `DEFAULT_TESTED_MODEL`
+- `DEFAULT_HOST_MODEL`
+
+新建并开始一个 run：
+
+```bash
+python3 run.py --new --run-id run_story_001 --rounds 30
+```
+
+中断后继续：
+
+```bash
+python3 run.py --resume run_story_001
+```
+
+看所有 run 的总览：
+
+```bash
+python3 run.py --status
+```
+
+看某个 run 的状态：
+
+```bash
+python3 run.py --status run_story_001
+```
+
+离线 smoke test：
+
+```bash
+python3 run.py --smoke --run-id smoke_001 --rounds 3
+```
+
+如果你想用命令式入口，也可以：
+
+```bash
+python3 scripts/run_cli.py new --run-id run_story_001 --rounds 30
+python3 scripts/run_cli.py resume run_story_001
+python3 scripts/run_cli.py status
+```
+
+如果你想直接用最底层 runner，仍然可以继续用下面这种命令：
 
 使用百炼 coding 端点跑一轮：
 
@@ -88,10 +151,35 @@ python3 scripts/run_experiment.py --stub-llm --auto-accept-host --rounds 3
 - memory 必须是“有限且会被迫压缩”的
 - 我们真正想观察的是 memory 如何从案例摘录逐步变成规则摘要
 
-## 下一步可扩展
+## Runs Log
 
-- 支持 `--world-path`
-- 支持从本地模型清单读取默认模型
-- 支持更好的 host 审阅体验
-- 支持多 world 对比实验
+[`runs/log.md`](/Users/shzhang/Documents/Codes/memory_lm/runs/log.md) 会自动记录每次 run 的摘要，包括：
 
+- 跑了多少轮
+- 用了哪个 world
+- 用了哪些模型
+- 当前状态
+- 一些简短的“突破性进展”说明
+
+## 运行入口
+
+根目录的 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py) 现在故意保持得很薄，只负责“调参数然后开跑”。
+
+- 默认直接运行：
+  - `python3 run.py`
+- 你通常只需要改 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py) 顶部这些值：
+  - `ACTION`
+  - `RUN_ID`
+  - `WORLD_PATH`
+  - `ROUNDS`
+  - `TESTED_MODEL`
+  - `HOST_MODEL`
+
+例如：
+
+- `ACTION = "resume_latest"`：默认续跑最近一次未完成的 run
+- `ACTION = "new"`：新开一个 run
+- `WORLD_PATH = "world/court_of_veils_world.md"`：切换世界
+- `ROUNDS = 50`：改轮数
+
+真正的命令式入口还在 [`scripts/run_cli.py`](/Users/shzhang/Documents/Codes/memory_lm/scripts/run_cli.py)，但日常一般不用直接碰它。
