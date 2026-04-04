@@ -1,10 +1,34 @@
 # 运行日志
 
-- 更新时间: 2026-04-04T05:25:57+00:00
-- 已记录运行数: 10
+- 更新时间: 2026-04-04T06:15:22+00:00
+- 已记录运行数: 11
 
 这个文件记录每次 run 跑了什么、跑了多少轮，以及有哪些值得记下来的进展。
 排列顺序按时间从新到旧。
+
+## orthfall_frontier_001
+
+- 开始时间: `2026-04-04T05:30:59+00:00`
+- 结束时间: `2026-04-04T06:15:22+00:00`
+- 状态: `completed`
+- 世界: `world/orthfall_frontier_world.md`
+- tested model: `qwen3-coder-plus`
+- host model: `qwen3-coder-plus`
+- 计划轮数: `50`
+- 已完成轮数: `50`
+- 正确率: `31/50` (62%)
+- memory 进展: `已完成 50 轮，memory 长度从 56 变到 764 字符`
+- transcript: [`orthfall_frontier_001/transcript.md`](./orthfall_frontier_001/transcript.md)
+- metrics: [`orthfall_frontier_001/metrics.json`](./orthfall_frontier_001/metrics.json)
+
+### 关键进展
+
+- 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
+- 已经不是一次性连通性测试，而是形成了稳定的多轮连续运行。
+- 已经进入较长程运行区间，开始适合观察 memory 的演化趋势。
+- 所有已完成轮次里的 tested agent 输出都保持为可解析 JSON。
+- memory 长度在轮次之间发生了变化，说明外部记忆正在主动演化。
+- 已经跑完了这次计划中的全部轮数。
 
 ## smoke_world_select_001
 

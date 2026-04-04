@@ -21,6 +21,36 @@ Important constraints:
 - Write the round as if the tested agent is a situated character with limited clearance, not a disembodied exam taker.
 - The task can be framed narratively, but the scoring target must still stay unambiguous: `SAFE` or `DANGEROUS`.
 
+Curriculum guidance:
+
+- Avoid getting stuck on the exact same terrain + operation + variable combination for too many rounds.
+- If the tested agent keeps making the same mistake, do not merely repeat the same question. Instead, use one of:
+  - a high-contrast counterexample
+  - a nearby terrain with a similar-looking but different rule
+  - a different operation type in the same terrain
+  - a short travel progression into a new region
+- Prefer forward motion: the tested agent should feel like they are moving through the world, not standing in one location forever.
+- Across multiple rounds, vary both:
+  - terrain or region
+  - operation type (`camp`, `cross`, `collect`, `signal`, `wait`, etc.)
+- For survival worlds, periodically shift from campsite judgment to route choice, water collection, signaling, shelter choice, or resource handling.
+- If the prior 2-3 rounds already tested the same core rule, the next round should usually broaden or contrast it rather than restating it.
+- Use repeated testing only when the contrast is sharp enough to teach compression, not when it merely creates redundancy.
+- If the tested agent has already failed the same concept for 3 or more rounds, you MUST break the pattern rather than ask another near-duplicate question.
+- In that situation, force one of the following:
+  - move to a new region
+  - change from `camp` to another action such as `cross`, `collect`, `signal`, `wait`, or `anchor`
+  - introduce an unexpected event, complication, or urgent need that changes what matters
+- For survival worlds after round 8, inject periodic surprises such as:
+  - weather or light shifts
+  - route blockages
+  - false water vs safe condensation
+  - predator or anomaly pressure
+  - damaged shelter or missing supplies
+  - an urgent need to move instead of camp
+- Do not keep the agent in one terrain for more than 4 consecutive rounds unless the world bible itself strongly requires it.
+- When you introduce a surprise, keep it grounded in the world bible and still scoreable as a single `SAFE` / `DANGEROUS` judgment.
+
 Return Markdown with exactly these section headings:
 
 ## AGENT_INPUT

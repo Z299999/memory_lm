@@ -9,7 +9,7 @@ from scripts.run_cli import run_defaults
 #   ACTION = "resume_latest"
 # - Start a brand-new run:
 #   ACTION = "new"
-#   WORLD_PATH = "world/court_of_veils_world.md"
+#   WORLD_PATH = "world/orthfall_frontier_world.md"
 #   ROUNDS = 30
 # - Continue one specific run:
 #   ACTION = "resume"
@@ -22,9 +22,9 @@ from scripts.run_cli import run_defaults
 # - "world/court_of_veils_world.md"
 # - "world/orthfall_frontier_world.md"
 
-ACTION = "resume_latest"  # "new" | "resume" | "resume_latest" | "smoke" | "status"
-RUN_ID = None  # only used when ACTION is "resume", or when you want to name a new run
-WORLD_PATH = "world/asterion_lab.md"  # only used for "new" and "smoke"
+ACTION = "new"  # "new" | "resume" | "resume_latest" | "smoke" | "status"
+RUN_ID = "orthfall_frontier_001"  # only used when ACTION is "resume", or when you want to name a new run
+WORLD_PATH = "world/orthfall_frontier_world.md"  # only used for "new" and "smoke"
 ROUNDS = 30  # only used for "new" and "smoke"
 MEMORY_BUDGET = 1000  # only used for "new"
 TESTED_MODEL = "qwen3-coder-plus"  # only used for "new"

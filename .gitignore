@@ -1,6 +1,13 @@
+# Runs:
+# - default: ignore all concrete run artifacts
+# - keep runs/log.md tracked
+# - if a future run is worth keeping, unignore it explicitly, e.g.
+#   !runs/good_run_001/
+#   !runs/good_run_001/**
 runs/*
-!runs/.gitkeep
 !runs/log.md
+!runs/orthfall_frontier_001/
+!runs/orthfall_frontier_001/**
 __pycache__/
 *.pyc
 .env

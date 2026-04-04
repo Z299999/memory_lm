@@ -1,0 +1,1 @@
+石倚棚在crosswind条件下不稳定，需改用折幕帐。当前环境：dim光照、crosswind、temperate、stable折层活性

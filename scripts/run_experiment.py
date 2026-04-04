@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_client import LLMClientError, OpenAICompatClient
-from memory_io import clip_memory, read_memory, round_memory_path, write_memory
+from memory_io import clip_memory, read_memory, resolve_round_memory_path, round_memory_path, write_memory
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -105,6 +105,32 @@ def parse_agent_json(raw_text: str) -> dict[str, Any]:
         return json.loads(match.group(0))
 
 
+def stabilize_memory_update(previous_memory: str, candidate_memory: str) -> str:
+    previous = previous_memory.strip()
+    candidate = candidate_memory.strip()
+    if not previous:
+        return candidate
+    if not candidate:
+        return previous
+
+    candidate_lines = [line.strip() for line in candidate.splitlines() if line.strip()]
+    looks_like_single_note = len(candidate_lines) == 1
+    large_regression = len(previous) >= 80 and len(candidate) < max(80, int(len(previous) * 0.6))
+
+    if not (looks_like_single_note and large_regression):
+        return candidate
+    if candidate in previous:
+        return previous
+
+    appended = candidate
+    if not appended.startswith(("-", "*", "## ")):
+        appended = f"- {appended}"
+
+    if "## Latest Update" in previous:
+        return f"{previous}\n{appended}"
+    return f"{previous}\n\n## Latest Update\n{appended}"
+
+
 def load_simple_yaml(path: Path) -> dict[str, Any]:
     data: dict[str, Any] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -163,6 +189,10 @@ def ensure_run_layout(run_dir: Path) -> dict[str, Path]:
         "transcript_path": run_dir / "transcript.md",
         "metrics_path": run_dir / "metrics.json",
     }
+
+
+def round_host_path(host_dir: Path, round_id: int) -> Path:
+    return host_dir / f"u_{round_id:04d}.md"
 
 
 def initialize_new_run(run_dir: Path, config: dict[str, Any], paths: dict[str, Path]) -> dict[str, Any]:
@@ -449,12 +479,18 @@ def append_transcript(transcript_path: Path, round_record: dict[str, Any]) -> No
         handle.write(section)
 
 
-def build_tested_messages(system_prompt: str, current_input: str, external_memory: str) -> list[dict[str, str]]:
+def build_tested_messages(
+    system_prompt: str,
+    current_input: str,
+    external_memory: str,
+    memory_budget: int,
+) -> list[dict[str, str]]:
     rendered_system = render_template(
         system_prompt,
         {
             "CURRENT_INPUT": current_input.strip(),
             "EXTERNAL_MEMORY": external_memory.strip() or "(empty)",
+            "MEMORY_BUDGET": str(memory_budget),
         },
     )
     messages = [
@@ -463,6 +499,7 @@ def build_tested_messages(system_prompt: str, current_input: str, external_memor
             "role": "user",
             "content": (
                 "Solve the current round using only the external memory shown in the system prompt. "
+                "Revise that notebook for the next round instead of discarding it. "
                 "Return JSON only."
             ),
         },
@@ -479,10 +516,11 @@ def call_tested_agent(
     system_prompt: str,
     current_input: str,
     external_memory: str,
+    memory_budget: int,
     temperature: float,
     max_tokens: int,
 ) -> tuple[dict[str, Any], str, int, list[str]]:
-    messages = build_tested_messages(system_prompt, current_input, external_memory)
+    messages = build_tested_messages(system_prompt, current_input, external_memory, memory_budget)
     message_roles = [message["role"] for message in messages]
     retry_count = 0
     last_raw = ""
@@ -584,7 +622,7 @@ def run() -> int:
         for round_id in range(completed_rounds + 1, int(config["rounds"]) + 1):
             previous_record = metrics["rounds"][-1] if metrics["rounds"] else None
             previous_answer = previous_record["agent_response_raw"] if previous_record else "None"
-            current_memory = read_memory(round_memory_path(paths["memory_dir"], round_id - 1))
+            current_memory = read_memory(resolve_round_memory_path(paths["memory_dir"], round_id - 1))
             history_summary = summarize_history(metrics["rounds"])
 
             while True:
@@ -604,11 +642,11 @@ def run() -> int:
                     approved_text = review_host_candidate(
                         candidate_text,
                         round_id=round_id,
-                        host_path=paths["host_dir"] / f"round_{round_id:03d}.md",
+                        host_path=round_host_path(paths["host_dir"], round_id),
                         auto_accept=args.auto_accept_host,
                     )
                     host_data = parse_host_candidate(approved_text)
-                    host_file = paths["host_dir"] / f"round_{round_id:03d}.md"
+                    host_file = round_host_path(paths["host_dir"], round_id)
                     host_file.write_text(approved_text.rstrip() + "\n", encoding="utf-8")
                     break
                 except RegenerateHostCandidate:
@@ -625,6 +663,7 @@ def run() -> int:
                     system_prompt=tested_prompt,
                     current_input=host_data["agent_input"],
                     external_memory=current_memory,
+                    memory_budget=int(config["memory_budget"]),
                     temperature=float(config["tested_temperature"]),
                     max_tokens=int(config["tested_max_tokens"]),
                 )
@@ -643,10 +682,8 @@ def run() -> int:
 
             normalized = normalize_answer(str(agent_output["response"]))
             is_correct = normalized == host_data["canonical_answer"]
-            clipped_memory, raw_length, clipped_length = clip_memory(
-                str(agent_output["updated_memory"]),
-                int(config["memory_budget"]),
-            )
+            stabilized_memory = stabilize_memory_update(current_memory, str(agent_output["updated_memory"]))
+            clipped_memory, raw_length, clipped_length = clip_memory(stabilized_memory, int(config["memory_budget"]))
             memory_path = round_memory_path(paths["memory_dir"], round_id)
             write_memory(memory_path, clipped_memory)
 
