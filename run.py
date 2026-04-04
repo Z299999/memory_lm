@@ -23,11 +23,12 @@ from scripts.run_cli import run_defaults
 # - "world/court_of_veils_world.md"
 # - "world/orthfall_frontier_world.md"
 
-ACTION = "new"  # "new" | "resume" | "resume_latest" | "smoke" | "status"
+ACTION = "resume_latest"  # "new" | "resume" | "resume_latest" | "smoke" | "status"
 RUN_ID = "confluence_002"  # only used when ACTION is "resume", or when you want to name a new run
 WORLD_PATH = "world/confluence_world.md"  # only used for "new" and "smoke"
 ROUNDS = 50  # only used for "new" and "smoke"
 MEMORY_BUDGET = 1000  # only used for "new"
+MEMORY_MODE = "prepend"  # only used for "new": "rewrite" | "prepend"
 TESTED_MODEL = "qwen3-coder-plus"  # only used for "new"
 HOST_MODEL = "qwen3-coder-plus"  # only used for "new"
 HOST_LANGUAGE = "zh"  # "zh" = host writes Chinese only, "en" = host writes English only
@@ -41,6 +42,7 @@ raise SystemExit(
         world_path=WORLD_PATH,
         rounds=ROUNDS,
         memory_budget=MEMORY_BUDGET,
+        memory_mode=MEMORY_MODE,
         tested_model=TESTED_MODEL,
         host_model=HOST_MODEL,
         host_language=HOST_LANGUAGE,

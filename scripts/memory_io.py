@@ -2,10 +2,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
-COMPRESSION_NOTICE_HEADER = "## Compression Notice"
+COMPRESSION_NOTICE_HEADER = "memory limit"
+MEMORY_DIVIDER = "\n\n---\n\n"
+ROUND_BUCKET_SIZE = 50
+
+
+def round_bucket_dir_name(round_id: int) -> str:
+    if round_id <= 0:
+        return ""
+    bucket_index = (round_id - 1) // ROUND_BUCKET_SIZE
+    start = bucket_index * ROUND_BUCKET_SIZE + 1
+    end = start + ROUND_BUCKET_SIZE - 1
+    return f"{start:04d}_{end:04d}"
 
 
 def round_memory_path(memory_dir: Path, round_id: int) -> Path:
+    if round_id <= 0:
+        return memory_dir / f"m_{round_id:04d}.md"
+    return memory_dir / round_bucket_dir_name(round_id) / f"m_{round_id:04d}.md"
+
+
+def flat_round_memory_path(memory_dir: Path, round_id: int) -> Path:
     return memory_dir / f"m_{round_id:04d}.md"
 
 
@@ -17,6 +34,9 @@ def resolve_round_memory_path(memory_dir: Path, round_id: int) -> Path:
     current = round_memory_path(memory_dir, round_id)
     if current.exists():
         return current
+    flat = flat_round_memory_path(memory_dir, round_id)
+    if flat.exists():
+        return flat
     legacy = legacy_round_memory_path(memory_dir, round_id)
     if legacy.exists():
         return legacy
@@ -31,9 +51,8 @@ def read_memory(memory_path: Path) -> str:
 
 def overflow_notice(budget_chars: int) -> str:
     return (
-        f"\n\n{COMPRESSION_NOTICE_HEADER}\n"
-        f"- 上一轮记忆超出 {budget_chars} 字符上限并已被截断。"
-        "下一轮请更主动压缩、合并相近规则，只保留最关键条件、反转点与例外。"
+        f"{MEMORY_DIVIDER}---------------- {budget_chars}-char limit ----------------\n"
+        "overflow forgotten"
     )
 
 
@@ -42,6 +61,14 @@ def strip_prior_overflow_notice(memory_text: str) -> str:
     if marker_index == -1:
         return memory_text
     return memory_text[:marker_index].rstrip()
+
+
+def merge_memory_block(previous_memory: str, new_memory_block: str) -> str:
+    previous = strip_prior_overflow_notice(previous_memory).strip()
+    new_block = new_memory_block.strip()
+    if previous and new_block:
+        return f"{new_block}{MEMORY_DIVIDER}{previous}"
+    return new_block or previous
 
 
 def clip_memory(memory_text: str, budget_chars: int) -> tuple[str, int, int]:

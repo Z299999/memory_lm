@@ -77,6 +77,7 @@ def run_defaults(
     world_path: str,
     rounds: int,
     memory_budget: int,
+    memory_mode: str,
     tested_model: str,
     host_model: str,
     host_language: str,
@@ -91,6 +92,8 @@ def run_defaults(
             str(rounds),
             "--memory-budget",
             str(memory_budget),
+            "--memory-mode",
+            memory_mode,
             "--tested-model",
             tested_model,
             "--host-model",
@@ -195,6 +198,7 @@ def print_run_status(run_id: str) -> int:
     print(f"tested_model: {config.get('tested_model')}")
     print(f"host_model: {config.get('host_model')}")
     print(f"host_language: {config.get('host_language', 'zh')}")
+    print(f"memory_mode: {config.get('memory_mode', 'prepend')}")
     print(f"rounds: {completed}/{config.get('rounds')}")
     print(f"accuracy: {correct}/{completed} ({accuracy:.0%})" if completed else "accuracy: 0/0 (n/a)")
     print(f"transcript: runs/{run_id}/transcript.md")
@@ -228,6 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     new_parser.add_argument("--world-path", default="world/asterion_lab.md")
     new_parser.add_argument("--rounds", type=int, default=30)
     new_parser.add_argument("--memory-budget", type=int, default=1000)
+    new_parser.add_argument("--memory-mode", choices=["rewrite", "prepend"], default="prepend")
     new_parser.add_argument("--tested-model", default="qwen3-coder-plus")
     new_parser.add_argument("--host-model", default="qwen3-coder-plus")
     new_parser.add_argument("--host-language", choices=["zh", "en"], default="zh")
@@ -270,6 +275,8 @@ def main() -> int:
             str(args.rounds),
             "--memory-budget",
             str(args.memory_budget),
+            "--memory-mode",
+            args.memory_mode,
             "--tested-model",
             args.tested_model,
             "--host-model",
@@ -321,6 +328,8 @@ def main() -> int:
             args.world_path,
             "--rounds",
             str(args.rounds),
+            "--memory-mode",
+            "prepend",
         ]
         if args.run_id:
             runner_args += ["--run-id", args.run_id]

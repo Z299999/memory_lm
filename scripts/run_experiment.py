@@ -12,7 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from llm_client import LLMClientError, OpenAICompatClient
-from memory_io import clip_memory, read_memory, resolve_round_memory_path, round_memory_path, write_memory
+from memory_io import (
+    clip_memory,
+    merge_memory_block,
+    read_memory,
+    resolve_round_memory_path,
+    round_memory_path,
+    write_memory,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--world-path", default=str(DEFAULT_WORLD_PATH.relative_to(ROOT)))
     parser.add_argument("--rounds", type=int, default=30)
     parser.add_argument("--memory-budget", type=int, default=1000)
+    parser.add_argument("--memory-mode", choices=["rewrite", "prepend"], default="prepend")
     parser.add_argument("--tested-model", default="qwen-plus")
     parser.add_argument("--host-model", default="qwen-plus")
     parser.add_argument("--host-language", choices=["zh", "en"], default="zh")
@@ -72,6 +80,11 @@ def render_template(template: str, values: dict[str, str]) -> str:
     for key, value in values.items():
         rendered = rendered.replace(f"{{{{{key}}}}}", value)
     return rendered
+
+
+def effective_memory_mode(config: dict[str, Any]) -> str:
+    mode = str(config.get("memory_mode", "prepend")).strip().lower()
+    return mode if mode in {"rewrite", "prepend"} else "prepend"
 
 
 def normalize_answer(answer_text: str) -> str | None:
@@ -126,7 +139,7 @@ def parse_agent_json(raw_text: str) -> dict[str, Any]:
         return json.loads(match.group(0))
 
 
-def stabilize_memory_update(previous_memory: str, candidate_memory: str) -> str:
+def stabilize_memory_rewrite(previous_memory: str, candidate_memory: str) -> str:
     previous = previous_memory.strip()
     candidate = candidate_memory.strip()
     if not previous:
@@ -144,12 +157,50 @@ def stabilize_memory_update(previous_memory: str, candidate_memory: str) -> str:
         return previous
 
     appended = candidate
-    if not appended.startswith(("-", "*", "## ")):
+    if not appended.startswith(("-", "*", "## ", "# ")):
         appended = f"- {appended}"
 
     if "## Latest Update" in previous:
         return f"{previous}\n{appended}"
     return f"{previous}\n\n## Latest Update\n{appended}"
+
+
+def memory_mode_prompt_fields(memory_mode: str) -> dict[str, str]:
+    if memory_mode == "rewrite":
+        return {
+            "MEMORY_MODE_NAME": "rewrite",
+            "MEMORY_MODE_SPEC": (
+                "You rewrite the next full notebook as `updated_memory`. Preserve still-useful prior rules unless they "
+                "are contradicted or clearly replaced by a denser summary. Keep `updated_memory` within "
+                "`{{MEMORY_BUDGET}}` characters."
+            ),
+            "MEMORY_FORMAT_HINT": "`updated_memory` should usually be multi-line Markdown notes rather than a single sentence.",
+            "MEMORY_OUTPUT_EXAMPLE": (
+                '{\n'
+                '  "response": "SAFE or DANGEROUS, optionally followed by a short explanation",\n'
+                '  "recommended_action": "One concrete next action to take right now",\n'
+                '  "updated_memory": "A revised Markdown notebook for future rounds"\n'
+                '}'
+            ),
+        }
+    return {
+        "MEMORY_MODE_NAME": "prepend",
+        "MEMORY_MODE_SPEC": (
+            "You are not rewriting the full notebook. You only write this round's `new_memory_block`. "
+            "The system will prepend your `new_memory_block` before the old external memory, then truncate from "
+            "the tail if the total length exceeds `{{MEMORY_BUDGET}}` characters. If an older rule is still important, "
+            "restate it briefly in this round's `new_memory_block`, or it may eventually disappear from the tail. "
+            "Keep `new_memory_block` concise and high-value. It should be a compact refresh of what most needs to stay alive."
+        ),
+        "MEMORY_FORMAT_HINT": "`new_memory_block` should usually be multi-line Markdown notes rather than a single sentence.",
+        "MEMORY_OUTPUT_EXAMPLE": (
+            '{\n'
+            '  "response": "SAFE or DANGEROUS, optionally followed by a short explanation",\n'
+            '  "recommended_action": "One concrete next action to take right now",\n'
+            '  "new_memory_block": "A compact Markdown block to prepend before old memory"\n'
+            '}'
+        ),
+    }
 
 
 def load_simple_yaml(path: Path) -> dict[str, Any]:
@@ -213,7 +264,10 @@ def ensure_run_layout(run_dir: Path) -> dict[str, Path]:
 
 
 def round_host_path(host_dir: Path, round_id: int) -> Path:
-    return host_dir / f"u_{round_id:04d}.md"
+    bucket_index = (round_id - 1) // 50
+    start = bucket_index * 50 + 1
+    end = start + 49
+    return host_dir / f"{start:04d}_{end:04d}" / f"u_{round_id:04d}.md"
 
 
 def sync_metrics_with_config(run_dir: Path, metrics: dict[str, Any]) -> tuple[dict[str, Any], bool]:
@@ -249,7 +303,8 @@ def initialize_new_run(run_dir: Path, config: dict[str, Any], paths: dict[str, P
             f"- host_model: {config['host_model']}\n"
             f"- host_language: {config.get('host_language', 'zh')}\n"
             f"- rounds: {config['rounds']}\n"
-            f"- memory_budget: {config['memory_budget']}\n\n"
+            f"- memory_budget: {config['memory_budget']}\n"
+            f"- memory_mode: {config.get('memory_mode', 'prepend')}\n\n"
         ),
         encoding="utf-8",
     )
@@ -289,6 +344,7 @@ def load_or_create_run(args: argparse.Namespace) -> tuple[Path, dict[str, Path],
         "world_path": args.world_path,
         "rounds": args.rounds,
         "memory_budget": args.memory_budget,
+        "memory_mode": args.memory_mode,
         "tested_model": args.tested_model,
         "host_model": args.host_model,
         "host_language": args.host_language,
@@ -410,6 +466,7 @@ def build_runs_log() -> str:
                 f"- host model: `{config.get('host_model', 'unknown')}`",
                 f"- host 语言: `{config.get('host_language', 'zh')}`",
                 f"- 计划轮数: `{config.get('rounds', 'unknown')}`",
+                f"- memory 模式: `{config.get('memory_mode', 'prepend')}`",
                 f"- 已完成轮数: `{completed}`",
                 f"- 正确率: `{correct}/{completed}` ({accuracy:.0%})" if completed else "- 正确率: `0/0`（暂无）",
                 f"- memory 进展: `{summarize_memory_progress(metrics)}`",
@@ -513,12 +570,18 @@ def append_transcript(transcript_path: Path, round_record: dict[str, Any]) -> No
     action_block = ""
     if round_record.get("recommended_action"):
         action_block = f"### Recommended Action\n\n{round_record['recommended_action']}\n\n"
+    memory_block = ""
+    if round_record.get("new_memory_block"):
+        memory_block = f"### New Memory Block\n\n{round_record['new_memory_block']}\n\n"
+    if round_record.get("updated_memory"):
+        memory_block = f"### Updated Memory\n\n{round_record['updated_memory']}\n\n"
     section = (
         f"## Round {round_record['round']}\n\n"
         f"### Host Input\n\n{round_record['agent_input']}\n\n"
         f"### Canonical Answer\n\n`{round_record['canonical_answer']}`\n\n"
         f"### Agent Response\n\n{round_record['agent_response_raw']}\n\n"
         f"{action_block}"
+        f"{memory_block}"
         f"### Scoring\n\n"
         f"- normalized_answer: `{round_record.get('agent_label') or 'INVALID'}`\n"
         f"- is_correct: `{round_record['is_correct']}`\n"
@@ -537,13 +600,16 @@ def build_tested_messages(
     current_input: str,
     external_memory: str,
     memory_budget: int,
+    memory_mode: str,
 ) -> list[dict[str, str]]:
+    mode_fields = memory_mode_prompt_fields(memory_mode)
     rendered_system = render_template(
         system_prompt,
         {
             "CURRENT_INPUT": current_input.strip(),
             "EXTERNAL_MEMORY": external_memory.strip() or "(empty)",
             "MEMORY_BUDGET": str(memory_budget),
+            **mode_fields,
         },
     )
     messages = [
@@ -552,7 +618,12 @@ def build_tested_messages(
             "role": "user",
             "content": (
                 "Solve the current round using only the external memory shown in the system prompt. "
-                "Revise that notebook for the next round instead of discarding it. "
+                + (
+                    "Rewrite the notebook for the next round. "
+                    if memory_mode == "rewrite"
+                    else "Write one compact new memory block that will be prepended before the old memory. "
+                )
+                + 
                 "Return JSON only."
             ),
         },
@@ -570,14 +641,16 @@ def call_tested_agent(
     current_input: str,
     external_memory: str,
     memory_budget: int,
+    memory_mode: str,
     temperature: float,
     max_tokens: int,
 ) -> tuple[dict[str, Any], str, int, list[str]]:
-    messages = build_tested_messages(system_prompt, current_input, external_memory, memory_budget)
+    messages = build_tested_messages(system_prompt, current_input, external_memory, memory_budget, memory_mode)
     message_roles = [message["role"] for message in messages]
     retry_count = 0
     last_raw = ""
     repair_max_tokens = max(max_tokens, 800)
+    memory_key = "updated_memory" if memory_mode == "rewrite" else "new_memory_block"
 
     while retry_count <= 1:
         if retry_count == 0:
@@ -594,10 +667,16 @@ def call_tested_agent(
                     "role": "user",
                     "content": (
                         f"The previous reply was not valid JSON and may have been truncated.\n\nPrevious reply:\n{last_raw}\n\n"
-                        "Retry with a much shorter, more compressed notebook.\n"
-                        f'Keep "updated_memory" well under the {memory_budget}-character limit.\n'
+                        "Retry with a much shorter, more compressed memory output.\n"
+                        f'Keep "{memory_key}" comfortably under the {memory_budget}-character total budget.\n'
+                        + (
+                            "Rewrite the notebook compactly and preserve only the highest-value rules.\n"
+                            if memory_mode == "rewrite"
+                            else "If an old rule still matters, restate it briefly instead of rewriting the whole notebook.\n"
+                        )
+                        +
                         'Prefer 2-3 short Markdown sections with short bullets, not a long case list.\n'
-                        'Return minified JSON only with keys "response", "recommended_action", and "updated_memory".'
+                        f'Return minified JSON only with keys "response", "recommended_action", and "{memory_key}".'
                     ),
                 },
             ]
@@ -622,7 +701,7 @@ def call_tested_agent(
             not isinstance(parsed, dict)
             or "response" not in parsed
             or "recommended_action" not in parsed
-            or "updated_memory" not in parsed
+            or memory_key not in parsed
         ):
             retry_count += 1
             if retry_count > 1:
@@ -672,6 +751,7 @@ def run() -> int:
     args = parse_args()
     run_dir, paths, metrics = load_or_create_run(args)
     config = metrics["config"]
+    memory_mode = effective_memory_mode(config)
 
     world_text = load_text(resolve_world_path(str(config["world_path"])))
     host_prompt = load_text(HOST_PROMPT_PATH)
@@ -712,6 +792,7 @@ def run() -> int:
                     )
                     host_data = parse_host_candidate(approved_text, str(config.get("host_language", "zh")))
                     host_file = round_host_path(paths["host_dir"], round_id)
+                    host_file.parent.mkdir(parents=True, exist_ok=True)
                     host_file.write_text(approved_text.rstrip() + "\n", encoding="utf-8")
                     break
                 except RegenerateHostCandidate:
@@ -729,6 +810,7 @@ def run() -> int:
                     current_input=host_data["agent_input"],
                     external_memory=current_memory,
                     memory_budget=int(config["memory_budget"]),
+                    memory_mode=memory_mode,
                     temperature=float(config["tested_temperature"]),
                     max_tokens=int(config["tested_max_tokens"]),
                 )
@@ -739,7 +821,7 @@ def run() -> int:
                 agent_output = {
                     "response": raw_agent_text,
                     "recommended_action": "",
-                    "updated_memory": current_memory,
+                    ("updated_memory" if memory_mode == "rewrite" else "new_memory_block"): "",
                 }
                 retry_count = 1
                 message_roles = ["system", "user"]
@@ -748,8 +830,15 @@ def run() -> int:
 
             normalized = normalize_answer(str(agent_output["response"]))
             is_correct = normalized == host_data["canonical_answer"]
-            stabilized_memory = stabilize_memory_update(current_memory, str(agent_output["updated_memory"]))
-            clipped_memory, raw_length, clipped_length = clip_memory(stabilized_memory, int(config["memory_budget"]))
+            new_memory_block = ""
+            updated_memory = ""
+            if memory_mode == "rewrite":
+                updated_memory = str(agent_output.get("updated_memory", "")).strip()
+                next_memory = stabilize_memory_rewrite(current_memory, updated_memory)
+            else:
+                new_memory_block = str(agent_output.get("new_memory_block", "")).strip()
+                next_memory = merge_memory_block(current_memory, new_memory_block)
+            clipped_memory, raw_length, clipped_length = clip_memory(next_memory, int(config["memory_budget"]))
             memory_path = round_memory_path(paths["memory_dir"], round_id)
             write_memory(memory_path, clipped_memory)
 
@@ -764,6 +853,9 @@ def run() -> int:
                 "next_round_intent": host_data["next_round_intent"],
                 "agent_response_raw": str(agent_output["response"]),
                 "recommended_action": str(agent_output.get("recommended_action", "")).strip(),
+                "new_memory_block": new_memory_block,
+                "updated_memory": updated_memory,
+                "memory_mode": memory_mode,
                 "agent_label": normalized,
                 "is_correct": bool(is_correct),
                 "retry_count": retry_count,

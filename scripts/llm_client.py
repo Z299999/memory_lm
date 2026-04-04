@@ -137,10 +137,12 @@ Keep stressing humidity-triggered exceptions and see whether the tested agent st
 """
             return ChatResult(content=content)
 
+        memory_key = "updated_memory" if '"updated_memory"' in joined else "new_memory_block"
         content = json.dumps(
             {
                 "response": "DANGEROUS - high humidity with Lurite-7 and Fera Moss is a hard danger case.",
-                "updated_memory": "Key exception: Lurite-7 + Fera Moss in high humidity is always DANGEROUS.",
+                "recommended_action": "Keep the original vial sealed and do not proceed with the mixture in high humidity.",
+                memory_key: "## Stable Rules\n- Lurite-7 + Fera Moss under high humidity is always DANGEROUS.",
             },
             ensure_ascii=False,
         )

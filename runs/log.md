@@ -1,23 +1,113 @@
 # 运行日志
 
-- 更新时间: 2026-04-04T07:04:30+00:00
-- 已记录运行数: 13
+- 更新时间: 2026-04-04T19:33:04+00:00
+- 已记录运行数: 17
 
 这个文件记录每次 run 跑了什么、跑了多少轮，以及有哪些值得记下来的进展。
 排列顺序按时间从新到旧。
 
+## memory_mode_rewrite_smoke_001
+
+- 开始时间: `2026-04-04T19:31:33+00:00`
+- 结束时间: `2026-04-04T19:31:33+00:00`
+- 状态: `completed`
+- 世界: `world/asterion_lab.md`
+- tested model: `qwen-plus`
+- host model: `qwen-plus`
+- host 语言: `en`
+- 计划轮数: `1`
+- 已完成轮数: `1`
+- 正确率: `1/1` (100%)
+- memory 进展: `已完成 1 轮，memory 长度从 79 变到 79 字符`
+- transcript: [`memory_mode_rewrite_smoke_001/transcript.md`](./memory_mode_rewrite_smoke_001/transcript.md)
+- metrics: [`memory_mode_rewrite_smoke_001/metrics.json`](./memory_mode_rewrite_smoke_001/metrics.json)
+
+### 关键进展
+
+- 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
+- 所有已完成轮次里的 tested agent 输出都保持为可解析 JSON。
+- 在已完成的 1/1 轮中保持了 100% 正确率。
+- 已经跑完了这次计划中的全部轮数。
+
+## memory_mode_prepend_smoke_001
+
+- 开始时间: `2026-04-04T19:31:33+00:00`
+- 结束时间: `2026-04-04T19:31:33+00:00`
+- 状态: `completed`
+- 世界: `world/asterion_lab.md`
+- tested model: `qwen-plus`
+- host model: `qwen-plus`
+- host 语言: `en`
+- 计划轮数: `1`
+- 已完成轮数: `1`
+- 正确率: `1/1` (100%)
+- memory 进展: `已完成 1 轮，memory 长度从 79 变到 79 字符`
+- transcript: [`memory_mode_prepend_smoke_001/transcript.md`](./memory_mode_prepend_smoke_001/transcript.md)
+- metrics: [`memory_mode_prepend_smoke_001/metrics.json`](./memory_mode_prepend_smoke_001/metrics.json)
+
+### 关键进展
+
+- 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
+- 所有已完成轮次里的 tested agent 输出都保持为可解析 JSON。
+- 在已完成的 1/1 轮中保持了 100% 正确率。
+- 已经跑完了这次计划中的全部轮数。
+
+## prepend_protocol_smoke_002
+
+- 开始时间: `2026-04-04T18:27:19+00:00`
+- 结束时间: `2026-04-04T18:27:19+00:00`
+- 状态: `completed`
+- 世界: `world/asterion_lab.md`
+- tested model: `qwen-plus`
+- host model: `qwen-plus`
+- host 语言: `en`
+- 计划轮数: `1`
+- 已完成轮数: `1`
+- 正确率: `1/1` (100%)
+- memory 进展: `已完成 1 轮，memory 长度从 79 变到 79 字符`
+- transcript: [`prepend_protocol_smoke_002/transcript.md`](./prepend_protocol_smoke_002/transcript.md)
+- metrics: [`prepend_protocol_smoke_002/metrics.json`](./prepend_protocol_smoke_002/metrics.json)
+
+### 关键进展
+
+- 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
+- 所有已完成轮次里的 tested agent 输出都保持为可解析 JSON。
+- 在已完成的 1/1 轮中保持了 100% 正确率。
+- 已经跑完了这次计划中的全部轮数。
+
+## prepend_protocol_smoke_001
+
+- 开始时间: `2026-04-04T18:27:15+00:00`
+- 结束时间: `尚未结束`
+- 状态: `in_progress`
+- 世界: `world/asterion_lab.md`
+- tested model: `qwen-plus`
+- host model: `qwen-plus`
+- host 语言: `zh`
+- 计划轮数: `1`
+- 已完成轮数: `0`
+- 正确率: `0/0`（暂无）
+- memory 进展: `还没有写出任何 memory。`
+- transcript: [`prepend_protocol_smoke_001/transcript.md`](./prepend_protocol_smoke_001/transcript.md)
+- metrics: [`prepend_protocol_smoke_001/metrics.json`](./prepend_protocol_smoke_001/metrics.json)
+
+### 关键进展
+
+- 目前还没有明显突破，这次 run 还处在很早期或尚未完成。
+
 ## confluence_002
 
 - 开始时间: `2026-04-04T06:53:45+00:00`
-- 结束时间: `尚未结束`
-- 状态: `in_progress`
+- 结束时间: `2026-04-04T19:13:27+00:00`
+- 状态: `stopped_on_error`
 - 世界: `world/confluence_world.md`
 - tested model: `qwen3-coder-plus`
 - host model: `qwen3-coder-plus`
-- 计划轮数: `50`
-- 已完成轮数: `36`
-- 正确率: `28/36` (78%)
-- memory 进展: `已完成 36 轮，memory 长度从 213 变到 606 字符`
+- host 语言: `zh`
+- 计划轮数: `9999`
+- 已完成轮数: `901`
+- 正确率: `800/901` (89%)
+- memory 进展: `已完成 901 轮，memory 长度从 213 变到 2000 字符`
 - transcript: [`confluence_002/transcript.md`](./confluence_002/transcript.md)
 - metrics: [`confluence_002/metrics.json`](./confluence_002/metrics.json)
 
@@ -26,21 +116,23 @@
 - 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
 - 已经不是一次性连通性测试，而是形成了稳定的多轮连续运行。
 - 已经进入较长程运行区间，开始适合观察 memory 的演化趋势。
-- 所有已完成轮次里的 tested agent 输出都保持为可解析 JSON。
+- 在已完成的 800/901 轮里达到了较强的阶段性正确率。
 - memory 长度在轮次之间发生了变化，说明外部记忆正在主动演化。
+- 已经暴露出一个明确故障模式，值得在下一次 run 前优先排查。
 
 ## confluence_001
 
 - 开始时间: `2026-04-04T06:32:59+00:00`
-- 结束时间: `2026-04-04T06:44:46+00:00`
-- 状态: `stopped_on_error`
+- 结束时间: `2026-04-04T07:23:23+00:00`
+- 状态: `completed`
 - 世界: `world/confluence_world.md`
 - tested model: `qwen3-coder-plus`
 - host model: `qwen3-coder-plus`
+- host 语言: `zh`
 - 计划轮数: `50`
-- 已完成轮数: `32`
-- 正确率: `29/32` (91%)
-- memory 进展: `已完成 32 轮，memory 长度从 270 变到 675 字符`
+- 已完成轮数: `50`
+- 正确率: `47/50` (94%)
+- memory 进展: `已完成 50 轮，memory 长度从 270 变到 905 字符`
 - transcript: [`confluence_001/transcript.md`](./confluence_001/transcript.md)
 - metrics: [`confluence_001/metrics.json`](./confluence_001/metrics.json)
 
@@ -49,9 +141,9 @@
 - 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
 - 已经不是一次性连通性测试，而是形成了稳定的多轮连续运行。
 - 已经进入较长程运行区间，开始适合观察 memory 的演化趋势。
-- 在已完成的 29/32 轮里达到了较强的阶段性正确率。
+- 在已完成的 47/50 轮里达到了较强的阶段性正确率。
 - memory 长度在轮次之间发生了变化，说明外部记忆正在主动演化。
-- 已经暴露出一个明确故障模式，值得在下一次 run 前优先排查。
+- 已经跑完了这次计划中的全部轮数。
 
 ## orthfall_frontier_001
 
@@ -61,6 +153,7 @@
 - 世界: `world/orthfall_frontier_world.md`
 - tested model: `qwen3-coder-plus`
 - host model: `qwen3-coder-plus`
+- host 语言: `zh`
 - 计划轮数: `50`
 - 已完成轮数: `50`
 - 正确率: `31/50` (62%)
@@ -85,6 +178,7 @@
 - 世界: `world/court_of_veils_world.md`
 - tested model: `qwen-plus`
 - host model: `qwen-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
@@ -107,6 +201,7 @@
 - 世界: `world/asterion_lab.md`
 - tested model: `qwen-plus`
 - host model: `qwen-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
@@ -129,6 +224,7 @@
 - 世界: `world/asterion_lab.md`
 - tested model: `qwen-plus`
 - host model: `qwen-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
@@ -151,6 +247,7 @@
 - 世界: `world/world.md`
 - tested model: `qwen3.5-plus`
 - host model: `qwen3.5-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
@@ -173,6 +270,7 @@
 - 世界: `world/world.md`
 - tested model: `qwen3-coder-plus`
 - host model: `qwen3-coder-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
@@ -195,6 +293,7 @@
 - 世界: `world/world.md`
 - tested model: `qwen-plus`
 - host model: `qwen-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
@@ -214,6 +313,7 @@
 - 世界: `world/world.md`
 - tested model: `qwen-plus`
 - host model: `qwen-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
@@ -233,6 +333,7 @@
 - 世界: `world/world.md`
 - tested model: `qwen-plus`
 - host model: `qwen-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
@@ -252,6 +353,7 @@
 - 世界: `world/world.md`
 - tested model: `qwen-plus`
 - host model: `qwen-plus`
+- host 语言: `zh`
 - 计划轮数: `1`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
@@ -271,6 +373,7 @@
 - 世界: `world/world.md`
 - tested model: `qwen-plus`
 - host model: `qwen-plus`
+- host 语言: `zh`
 - 计划轮数: `3`
 - 已完成轮数: `3`
 - 正确率: `3/3` (100%)
