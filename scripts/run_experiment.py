@@ -216,6 +216,28 @@ def round_host_path(host_dir: Path, round_id: int) -> Path:
     return host_dir / f"u_{round_id:04d}.md"
 
 
+def sync_metrics_with_config(run_dir: Path, metrics: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    config_path = run_dir / "config.yaml"
+    if not config_path.exists():
+        return metrics, False
+
+    changed = False
+    file_config = load_simple_yaml(config_path)
+    if metrics.get("config") != file_config:
+        metrics["config"] = file_config
+        changed = True
+
+    totals = metrics.get("totals", {})
+    completed = int(totals.get("completed_rounds", 0))
+    planned = int(file_config.get("rounds", 0) or 0)
+    if planned and completed < planned and metrics.get("status") == "completed":
+        metrics["status"] = "paused"
+        metrics["ended_at"] = None
+        changed = True
+
+    return metrics, changed
+
+
 def initialize_new_run(run_dir: Path, config: dict[str, Any], paths: dict[str, Path]) -> dict[str, Any]:
     dump_simple_yaml(paths["config_path"], config)
     write_memory(round_memory_path(paths["memory_dir"], 0), "")
@@ -256,8 +278,11 @@ def load_or_create_run(args: argparse.Namespace) -> tuple[Path, dict[str, Path],
     paths = ensure_run_layout(run_dir)
 
     if paths["config_path"].exists():
-        config = load_simple_yaml(paths["config_path"])
         metrics = json.loads(paths["metrics_path"].read_text(encoding="utf-8"))
+        metrics, changed = sync_metrics_with_config(run_dir, metrics)
+        if changed:
+            write_json(paths["metrics_path"], metrics)
+            refresh_runs_log()
         return run_dir, paths, metrics
 
     config = {
@@ -621,12 +646,13 @@ def generate_host_candidate(
     current_memory: str,
     temperature: float,
     max_tokens: int,
+    host_language: str,
 ) -> str:
     rendered = render_template(
         host_prompt,
         {
             "WORLD": world_text.strip(),
-            "HOST_LANGUAGE_RULE": language_rule_text(str(config.get("host_language", "zh"))),
+            "HOST_LANGUAGE_RULE": language_rule_text(host_language),
             "ROUND_ID": str(round_id),
             "HISTORY_SUMMARY": history_summary.strip(),
             "PREVIOUS_ANSWER": previous_answer.strip() or "None",
@@ -676,6 +702,7 @@ def run() -> int:
                         current_memory=current_memory,
                         temperature=float(config["host_temperature"]),
                         max_tokens=int(config["host_max_tokens"]),
+                        host_language=str(config.get("host_language", "zh")),
                     )
                     approved_text = review_host_candidate(
                         candidate_text,

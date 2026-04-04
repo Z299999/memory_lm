@@ -14,6 +14,46 @@ RUNS_DIR = ROOT / "runs"
 RUNS_LOG_PATH = RUNS_DIR / "log.md"
 
 
+def parse_scalar(value: str):
+    lowered = value.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    if value.startswith('"') and value.endswith('"'):
+        return value[1:-1]
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+
+def load_simple_yaml(path: Path) -> dict:
+    data: dict = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, _, value = stripped.partition(":")
+        data[key.strip()] = parse_scalar(value.strip())
+    return data
+
+
+def merged_metrics_config(run_dir: Path, metrics: dict) -> dict:
+    config_path = run_dir / "config.yaml"
+    if config_path.exists():
+        metrics = dict(metrics)
+        metrics["config"] = load_simple_yaml(config_path)
+        completed = int(metrics.get("totals", {}).get("completed_rounds", 0))
+        planned = int(metrics.get("config", {}).get("rounds", 0) or 0)
+        if planned and completed < planned and metrics.get("status") == "completed":
+            metrics["status"] = "paused"
+            metrics["ended_at"] = None
+    return metrics
+
+
 def try_set_ssl_cert_file() -> None:
     if os.getenv("SSL_CERT_FILE"):
         return
@@ -111,6 +151,7 @@ def find_latest_run_id() -> str | None:
             metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
+        metrics = merged_metrics_config(child, metrics)
         started_at = metrics.get("started_at") or ""
         candidate = (started_at, child.name)
         if latest_any is None or candidate > latest_any:
@@ -119,7 +160,7 @@ def find_latest_run_id() -> str | None:
         totals = metrics.get("totals", {})
         completed = int(totals.get("completed_rounds", 0))
         planned = int(metrics.get("config", {}).get("rounds", 0) or 0)
-        is_incomplete = status not in {"completed"} and (planned == 0 or completed < planned)
+        is_incomplete = planned == 0 or completed < planned or status not in {"completed"}
         if is_incomplete and (latest_incomplete is None or candidate > latest_incomplete):
             latest_incomplete = candidate
     chosen = latest_incomplete or latest_any
@@ -141,7 +182,7 @@ def print_run_status(run_id: str) -> int:
         print(f"Run not found: {run_id}", file=sys.stderr)
         return 1
 
-    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    metrics = merged_metrics_config(RUNS_DIR / run_id, json.loads(metrics_path.read_text(encoding="utf-8")))
     config = metrics.get("config", {})
     totals = metrics.get("totals", {})
     completed = int(totals.get("completed_rounds", 0))
@@ -171,7 +212,7 @@ def print_all_status() -> int:
         metrics_path = child / "metrics.json"
         if child.is_dir() and metrics_path.exists():
             any_runs = True
-            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+            metrics = merged_metrics_config(child, json.loads(metrics_path.read_text(encoding="utf-8")))
             print(format_status_line(metrics))
     if not any_runs:
         print("No runs found yet.")
