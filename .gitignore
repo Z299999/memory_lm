@@ -2,4 +2,6 @@ runs/*
 !runs/.gitkeep
 __pycache__/
 *.pyc
-
+.env
+.env.local
+models/*.local.md

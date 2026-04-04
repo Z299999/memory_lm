@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib import error, request
 
@@ -21,6 +22,29 @@ class ChatResult:
     raw_response: dict[str, Any] | None = None
 
 
+def load_repo_dotenv(dotenv_path: Path | None = None) -> None:
+    path = dotenv_path or Path(__file__).resolve().parent.parent / ".env"
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if value and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
 class OpenAICompatClient:
     def __init__(
         self,
@@ -29,6 +53,7 @@ class OpenAICompatClient:
         timeout: int = 120,
         stub: bool = False,
     ) -> None:
+        load_repo_dotenv()
         self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.base_url = (base_url or os.getenv("DASHSCOPE_BASE_URL") or os.getenv("OPENAI_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
         self.timeout = timeout
@@ -36,7 +61,7 @@ class OpenAICompatClient:
 
         if not self.stub and not self.api_key:
             raise LLMClientError(
-                "Missing API key. Set DASHSCOPE_API_KEY or use --stub-llm for offline smoke tests."
+                "Missing API key. Set DASHSCOPE_API_KEY in the environment or repo .env, or use --stub-llm for offline smoke tests."
             )
 
     def chat_completion(
@@ -120,4 +145,3 @@ Keep stressing humidity-triggered exceptions and see whether the tested agent st
             ensure_ascii=False,
         )
         return ChatResult(content=content)
-

@@ -16,7 +16,7 @@ from memory_io import clip_memory, read_memory, round_memory_path, write_memory
 
 
 ROOT = Path(__file__).resolve().parent.parent
-WORLD_PATH = ROOT / "world" / "world.md"
+WORLD_PATH = ROOT / "world" / "asterion_lab.md"
 HOST_PROMPT_PATH = ROOT / "prompts" / "host.md"
 TESTED_PROMPT_PATH = ROOT / "prompts" / "tested_agent.md"
 RUNS_DIR = ROOT / "runs"
