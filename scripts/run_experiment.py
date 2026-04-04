@@ -1,0 +1,581 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from llm_client import LLMClientError, OpenAICompatClient
+from memory_io import clip_memory, read_memory, round_memory_path, write_memory
+
+
+ROOT = Path(__file__).resolve().parent.parent
+WORLD_PATH = ROOT / "world" / "world.md"
+HOST_PROMPT_PATH = ROOT / "prompts" / "host.md"
+TESTED_PROMPT_PATH = ROOT / "prompts" / "tested_agent.md"
+RUNS_DIR = ROOT / "runs"
+
+HOST_SECTION_PATTERN = re.compile(
+    r"## AGENT_INPUT\s*(.*?)\s*## CANONICAL_ANSWER\s*(.*?)\s*## SCORING_RATIONALE\s*(.*?)\s*## NEXT_ROUND_INTENT\s*(.*)",
+    re.DOTALL,
+)
+JSON_BLOCK_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
+LABEL_PATTERN = re.compile(r"\b(SAFE|DANGEROUS)\b", re.IGNORECASE)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the memory evolution experiment.")
+    parser.add_argument("--run-id", help="Existing or new run id, e.g. run_001.")
+    parser.add_argument("--rounds", type=int, default=30)
+    parser.add_argument("--memory-budget", type=int, default=1000)
+    parser.add_argument("--tested-model", default="qwen-plus")
+    parser.add_argument("--host-model", default="qwen-plus")
+    parser.add_argument("--host-temperature", type=float, default=0.3)
+    parser.add_argument("--tested-temperature", type=float, default=0.2)
+    parser.add_argument("--host-max-tokens", type=int, default=1000)
+    parser.add_argument("--tested-max-tokens", type=int, default=500)
+    parser.add_argument("--stub-llm", action="store_true")
+    parser.add_argument("--auto-accept-host", action="store_true")
+    return parser.parse_args()
+
+
+def load_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def render_template(template: str, values: dict[str, str]) -> str:
+    rendered = template
+    for key, value in values.items():
+        rendered = rendered.replace(f"{{{{{key}}}}}", value)
+    return rendered
+
+
+def normalize_answer(answer_text: str) -> str | None:
+    match = LABEL_PATTERN.search(answer_text)
+    if not match:
+        return None
+    return match.group(1).upper()
+
+
+def parse_host_candidate(candidate_text: str) -> dict[str, str]:
+    match = HOST_SECTION_PATTERN.search(candidate_text.strip())
+    if not match:
+        raise ValueError("Host candidate is missing one or more required sections.")
+    agent_input, canonical_answer, rationale, next_intent = [part.strip() for part in match.groups()]
+    canonical_label = normalize_answer(canonical_answer)
+    if canonical_label not in {"SAFE", "DANGEROUS"}:
+        raise ValueError("Host candidate must include a canonical answer of SAFE or DANGEROUS.")
+    return {
+        "agent_input": agent_input,
+        "canonical_answer": canonical_label,
+        "scoring_rationale": rationale,
+        "next_round_intent": next_intent,
+    }
+
+
+def parse_agent_json(raw_text: str) -> dict[str, Any]:
+    stripped = raw_text.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        match = JSON_BLOCK_PATTERN.search(stripped)
+        if not match:
+            raise
+        return json.loads(match.group(0))
+
+
+def load_simple_yaml(path: Path) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, _, value = stripped.partition(":")
+        data[key.strip()] = parse_scalar(value.strip())
+    return data
+
+
+def dump_simple_yaml(path: Path, data: dict[str, Any]) -> None:
+    lines = [f"{key}: {format_scalar(value)}" for key, value in data.items()]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def parse_scalar(value: str) -> Any:
+    lowered = value.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    if re.fullmatch(r"-?\d+", value):
+        return int(value)
+    if re.fullmatch(r"-?\d+\.\d+", value):
+        return float(value)
+    if value.startswith('"') and value.endswith('"'):
+        return value[1:-1]
+    return value
+
+
+def format_scalar(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def next_run_id() -> str:
+    existing = []
+    for child in RUNS_DIR.iterdir():
+        if child.is_dir() and re.fullmatch(r"run_\d{3}", child.name):
+            existing.append(int(child.name.split("_")[1]))
+    next_index = max(existing, default=0) + 1
+    return f"run_{next_index:03d}"
+
+
+def ensure_run_layout(run_dir: Path) -> dict[str, Path]:
+    memory_dir = run_dir / "memory"
+    host_dir = run_dir / "host"
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    host_dir.mkdir(parents=True, exist_ok=True)
+    return {
+        "memory_dir": memory_dir,
+        "host_dir": host_dir,
+        "config_path": run_dir / "config.yaml",
+        "transcript_path": run_dir / "transcript.md",
+        "metrics_path": run_dir / "metrics.json",
+    }
+
+
+def initialize_new_run(run_dir: Path, config: dict[str, Any], paths: dict[str, Path]) -> dict[str, Any]:
+    dump_simple_yaml(paths["config_path"], config)
+    write_memory(round_memory_path(paths["memory_dir"], 0), "")
+    paths["transcript_path"].write_text(
+        (
+            f"# Transcript for {run_dir.name}\n\n"
+            f"- created_at: {utc_now()}\n"
+            f"- tested_model: {config['tested_model']}\n"
+            f"- host_model: {config['host_model']}\n"
+            f"- rounds: {config['rounds']}\n"
+            f"- memory_budget: {config['memory_budget']}\n\n"
+        ),
+        encoding="utf-8",
+    )
+    metrics = {
+        "run_id": run_dir.name,
+        "status": "in_progress",
+        "config": config,
+        "rounds": [],
+        "started_at": utc_now(),
+        "ended_at": None,
+        "totals": {
+            "completed_rounds": 0,
+            "correct_rounds": 0,
+            "failed_rounds": 0,
+            "invalid_agent_json_rounds": 0,
+        },
+    }
+    write_json(paths["metrics_path"], metrics)
+    return metrics
+
+
+def load_or_create_run(args: argparse.Namespace) -> tuple[Path, dict[str, Path], dict[str, Any]]:
+    run_id = args.run_id or next_run_id()
+    run_dir = RUNS_DIR / run_id
+    paths = ensure_run_layout(run_dir)
+
+    if paths["config_path"].exists():
+        config = load_simple_yaml(paths["config_path"])
+        metrics = json.loads(paths["metrics_path"].read_text(encoding="utf-8"))
+        return run_dir, paths, metrics
+
+    config = {
+        "world_path": str(WORLD_PATH.relative_to(ROOT)),
+        "rounds": args.rounds,
+        "memory_budget": args.memory_budget,
+        "tested_model": args.tested_model,
+        "host_model": args.host_model,
+        "host_temperature": args.host_temperature,
+        "tested_temperature": args.tested_temperature,
+        "host_max_tokens": args.host_max_tokens,
+        "tested_max_tokens": args.tested_max_tokens,
+        "stub_llm": args.stub_llm,
+    }
+    metrics = initialize_new_run(run_dir, config, paths)
+    return run_dir, paths, metrics
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def write_json(path: Path, data: dict[str, Any]) -> None:
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def summarize_history(round_records: list[dict[str, Any]], limit: int = 5) -> str:
+    if not round_records:
+        return "No prior rounds."
+    lines = []
+    for record in round_records[-limit:]:
+        lines.append(
+            (
+                f"Round {record['round']}: expected={record['canonical_answer']}, "
+                f"agent={record.get('agent_label') or 'INVALID'}, "
+                f"correct={record['is_correct']}, "
+                f"note={record['next_round_intent']}"
+            )
+        )
+    return "\n".join(lines)
+
+
+def review_host_candidate(
+    candidate_text: str,
+    *,
+    round_id: int,
+    host_path: Path,
+    auto_accept: bool,
+) -> str:
+    current = candidate_text
+    while True:
+        print(f"\n===== Host Candidate: Round {round_id} =====\n")
+        print(current)
+        print("\n===== End Candidate =====\n")
+
+        if auto_accept:
+            return current
+
+        choice = input("Host action [accept/edit/regenerate/quit]: ").strip().lower()
+        if choice in {"accept", "a", ""}:
+            return current
+        if choice in {"edit", "e"}:
+            current = edit_markdown(current)
+            continue
+        if choice in {"regenerate", "r"}:
+            raise RegenerateHostCandidate()
+        if choice in {"quit", "q"}:
+            raise UserQuit()
+        print("Please choose accept, edit, regenerate, or quit.")
+
+
+def edit_markdown(initial_text: str) -> str:
+    editor = os.getenv("EDITOR")
+    if editor:
+        with tempfile.NamedTemporaryFile("w+", suffix=".md", delete=False, encoding="utf-8") as tmp:
+            tmp.write(initial_text)
+            tmp.flush()
+            temp_path = Path(tmp.name)
+        try:
+            subprocess.run([editor, str(temp_path)], check=True)
+            return temp_path.read_text(encoding="utf-8")
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    print("No $EDITOR found. Finish editing with a single line containing only END.")
+    print("Current content will be replaced.")
+    lines: list[str] = []
+    while True:
+        line = input()
+        if line == "END":
+            break
+        lines.append(line)
+    return "\n".join(lines).strip() + "\n"
+
+
+class UserQuit(Exception):
+    pass
+
+
+class RegenerateHostCandidate(Exception):
+    pass
+
+
+def append_transcript(transcript_path: Path, round_record: dict[str, Any]) -> None:
+    section = (
+        f"## Round {round_record['round']}\n\n"
+        f"### Host Input\n\n{round_record['agent_input']}\n\n"
+        f"### Canonical Answer\n\n`{round_record['canonical_answer']}`\n\n"
+        f"### Agent Response\n\n{round_record['agent_response_raw']}\n\n"
+        f"### Scoring\n\n"
+        f"- normalized_answer: `{round_record.get('agent_label') or 'INVALID'}`\n"
+        f"- is_correct: `{round_record['is_correct']}`\n"
+        f"- retry_count: `{round_record['retry_count']}`\n"
+        f"- raw_memory_length: `{round_record['raw_memory_length']}`\n"
+        f"- clipped_memory_length: `{round_record['clipped_memory_length']}`\n\n"
+        f"### Host Notes\n\n{round_record['scoring_rationale']}\n\n"
+        f"### Next Round Intent\n\n{round_record['next_round_intent']}\n\n"
+    )
+    with transcript_path.open("a", encoding="utf-8") as handle:
+        handle.write(section)
+
+
+def build_tested_messages(system_prompt: str, current_input: str, external_memory: str) -> list[dict[str, str]]:
+    rendered_system = render_template(
+        system_prompt,
+        {
+            "CURRENT_INPUT": current_input.strip(),
+            "EXTERNAL_MEMORY": external_memory.strip() or "(empty)",
+        },
+    )
+    messages = [
+        {"role": "system", "content": rendered_system},
+        {
+            "role": "user",
+            "content": (
+                "Solve the current round using only the external memory shown in the system prompt. "
+                "Return JSON only."
+            ),
+        },
+    ]
+    roles = [message["role"] for message in messages]
+    assert roles == ["system", "user"], f"Tested agent messages must be stateless. Got roles={roles}"
+    return messages
+
+
+def call_tested_agent(
+    client: OpenAICompatClient,
+    *,
+    model: str,
+    system_prompt: str,
+    current_input: str,
+    external_memory: str,
+    temperature: float,
+    max_tokens: int,
+) -> tuple[dict[str, Any], str, int, list[str]]:
+    messages = build_tested_messages(system_prompt, current_input, external_memory)
+    message_roles = [message["role"] for message in messages]
+    retry_count = 0
+    last_raw = ""
+
+    while retry_count <= 1:
+        if retry_count == 0:
+            response = client.chat_completion(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        else:
+            repair_messages = [
+                {"role": "system", "content": messages[0]["content"]},
+                {
+                    "role": "user",
+                    "content": (
+                        f"The previous reply was not valid JSON.\n\nPrevious reply:\n{last_raw}\n\n"
+                        'Return only valid JSON with keys "response" and "updated_memory".'
+                    ),
+                },
+            ]
+            response = client.chat_completion(
+                model=model,
+                messages=repair_messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            message_roles = [message["role"] for message in repair_messages]
+
+        last_raw = response.content
+        try:
+            parsed = parse_agent_json(last_raw)
+        except json.JSONDecodeError:
+            retry_count += 1
+            if retry_count > 1:
+                break
+            continue
+
+        if not isinstance(parsed, dict) or "response" not in parsed or "updated_memory" not in parsed:
+            retry_count += 1
+            if retry_count > 1:
+                break
+            last_raw = json.dumps(parsed, ensure_ascii=False)
+            continue
+        return parsed, last_raw, retry_count, message_roles
+
+    raise ValueError(last_raw)
+
+
+def generate_host_candidate(
+    client: OpenAICompatClient,
+    *,
+    model: str,
+    host_prompt: str,
+    world_text: str,
+    round_id: int,
+    history_summary: str,
+    previous_answer: str,
+    current_memory: str,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    rendered = render_template(
+        host_prompt,
+        {
+            "WORLD": world_text.strip(),
+            "ROUND_ID": str(round_id),
+            "HISTORY_SUMMARY": history_summary.strip(),
+            "PREVIOUS_ANSWER": previous_answer.strip() or "None",
+            "CURRENT_MEMORY": current_memory.strip() or "(empty)",
+        },
+    )
+    result = client.chat_completion(
+        model=model,
+        messages=[{"role": "user", "content": rendered}],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return result.content
+
+
+def run() -> int:
+    args = parse_args()
+    run_dir, paths, metrics = load_or_create_run(args)
+    config = metrics["config"]
+
+    world_text = load_text(WORLD_PATH)
+    host_prompt = load_text(HOST_PROMPT_PATH)
+    tested_prompt = load_text(TESTED_PROMPT_PATH)
+
+    client = OpenAICompatClient(stub=args.stub_llm or bool(config.get("stub_llm")))
+    completed_rounds = len(metrics["rounds"])
+
+    print(f"Running {run_dir.name} from round {completed_rounds + 1} / {config['rounds']}")
+
+    try:
+        for round_id in range(completed_rounds + 1, int(config["rounds"]) + 1):
+            previous_record = metrics["rounds"][-1] if metrics["rounds"] else None
+            previous_answer = previous_record["agent_response_raw"] if previous_record else "None"
+            current_memory = read_memory(round_memory_path(paths["memory_dir"], round_id - 1))
+            history_summary = summarize_history(metrics["rounds"])
+
+            while True:
+                try:
+                    candidate_text = generate_host_candidate(
+                        client,
+                        model=str(config["host_model"]),
+                        host_prompt=host_prompt,
+                        world_text=world_text,
+                        round_id=round_id,
+                        history_summary=history_summary,
+                        previous_answer=previous_answer,
+                        current_memory=current_memory,
+                        temperature=float(config["host_temperature"]),
+                        max_tokens=int(config["host_max_tokens"]),
+                    )
+                    approved_text = review_host_candidate(
+                        candidate_text,
+                        round_id=round_id,
+                        host_path=paths["host_dir"] / f"round_{round_id:03d}.md",
+                        auto_accept=args.auto_accept_host,
+                    )
+                    host_data = parse_host_candidate(approved_text)
+                    host_file = paths["host_dir"] / f"round_{round_id:03d}.md"
+                    host_file.write_text(approved_text.rstrip() + "\n", encoding="utf-8")
+                    break
+                except RegenerateHostCandidate:
+                    continue
+                except ValueError as exc:
+                    print(f"Host candidate validation failed: {exc}")
+                    if args.auto_accept_host:
+                        return 1
+
+            try:
+                agent_output, raw_agent_text, retry_count, message_roles = call_tested_agent(
+                    client,
+                    model=str(config["tested_model"]),
+                    system_prompt=tested_prompt,
+                    current_input=host_data["agent_input"],
+                    external_memory=current_memory,
+                    temperature=float(config["tested_temperature"]),
+                    max_tokens=int(config["tested_max_tokens"]),
+                )
+                invalid_json = False
+                failure_reason = ""
+            except ValueError as exc:
+                raw_agent_text = str(exc)
+                agent_output = {
+                    "response": raw_agent_text,
+                    "updated_memory": current_memory,
+                }
+                retry_count = 1
+                message_roles = ["system", "user"]
+                invalid_json = True
+                failure_reason = "Tested agent failed to return valid JSON twice."
+
+            normalized = normalize_answer(str(agent_output["response"]))
+            is_correct = normalized == host_data["canonical_answer"]
+            clipped_memory, raw_length, clipped_length = clip_memory(
+                str(agent_output["updated_memory"]),
+                int(config["memory_budget"]),
+            )
+            memory_path = round_memory_path(paths["memory_dir"], round_id)
+            write_memory(memory_path, clipped_memory)
+
+            round_record = {
+                "round": round_id,
+                "timestamp": utc_now(),
+                "host_file": str(host_file.relative_to(ROOT)),
+                "memory_file": str(memory_path.relative_to(ROOT)),
+                "agent_input": host_data["agent_input"],
+                "canonical_answer": host_data["canonical_answer"],
+                "scoring_rationale": host_data["scoring_rationale"],
+                "next_round_intent": host_data["next_round_intent"],
+                "agent_response_raw": str(agent_output["response"]),
+                "agent_label": normalized,
+                "is_correct": bool(is_correct),
+                "retry_count": retry_count,
+                "invalid_json": invalid_json,
+                "failure_reason": failure_reason,
+                "raw_memory_length": raw_length,
+                "clipped_memory_length": clipped_length,
+                "tested_agent_message_count": 2,
+                "tested_agent_message_roles": message_roles,
+            }
+            metrics["rounds"].append(round_record)
+            metrics["totals"]["completed_rounds"] = len(metrics["rounds"])
+            metrics["totals"]["correct_rounds"] = sum(1 for record in metrics["rounds"] if record["is_correct"])
+            metrics["totals"]["failed_rounds"] = sum(
+                1 for record in metrics["rounds"] if record["failure_reason"]
+            )
+            metrics["totals"]["invalid_agent_json_rounds"] = sum(
+                1 for record in metrics["rounds"] if record["invalid_json"]
+            )
+            write_json(paths["metrics_path"], metrics)
+            append_transcript(paths["transcript_path"], round_record)
+
+            print(
+                f"Round {round_id}: agent={normalized or 'INVALID'} "
+                f"expected={host_data['canonical_answer']} correct={is_correct} "
+                f"memory={raw_length}->{clipped_length}"
+            )
+
+            if failure_reason:
+                metrics["status"] = "stopped_on_error"
+                metrics["ended_at"] = utc_now()
+                write_json(paths["metrics_path"], metrics)
+                print(f"Stopping run because of error: {failure_reason}")
+                return 1
+
+    except UserQuit:
+        metrics["status"] = "paused"
+        write_json(paths["metrics_path"], metrics)
+        print("Run paused by user.")
+        return 0
+    except LLMClientError as exc:
+        metrics["status"] = "stopped_on_error"
+        metrics["ended_at"] = utc_now()
+        write_json(paths["metrics_path"], metrics)
+        print(f"LLM error: {exc}", file=sys.stderr)
+        return 1
+
+    metrics["status"] = "completed"
+    metrics["ended_at"] = utc_now()
+    write_json(paths["metrics_path"], metrics)
+    print(f"Completed {run_dir.name}. Transcript: {paths['transcript_path'].relative_to(ROOT)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(run())
