@@ -22,35 +22,33 @@
 
 目前三个 world 都已经带了 tested agent role：
 
-- [`world/asterion_lab.md`](/Users/shzhang/Documents/Codes/memory_lm/world/asterion_lab.md)
+- [`world/asterion_lab.md`](../world/asterion_lab.md)
   - 低权限夜班实验记录员
-- [`world/court_of_veils_world.md`](/Users/shzhang/Documents/Codes/memory_lm/world/court_of_veils_world.md)
+- [`world/court_of_veils_world.md`](../world/court_of_veils_world.md)
   - 低阶流转记录官
-- [`world/orthfall_frontier_world.md`](/Users/shzhang/Documents/Codes/memory_lm/world/orthfall_frontier_world.md)
+- [`world/orthfall_frontier_world.md`](../world/orthfall_frontier_world.md)
   - 前哨生存勘测员
 
 ## 当前目录
 
-- [`world/README.md`](/Users/shzhang/Documents/Codes/memory_lm/world/README.md)
+- [`world/README.md`](../world/README.md)
   - world 剧本索引
-- [`world/asterion_lab.md`](/Users/shzhang/Documents/Codes/memory_lm/world/asterion_lab.md)
+- [`world/asterion_lab.md`](../world/asterion_lab.md)
   - 实验材料 / 容器 / 条件反应 world
-- [`world/court_of_veils_world.md`](/Users/shzhang/Documents/Codes/memory_lm/world/court_of_veils_world.md)
+- [`world/court_of_veils_world.md`](../world/court_of_veils_world.md)
   - 人物关系 / 礼制 / 誓约 / 谣言 world
-- [`world/orthfall_frontier_world.md`](/Users/shzhang/Documents/Codes/memory_lm/world/orthfall_frontier_world.md)
+- [`world/orthfall_frontier_world.md`](../world/orthfall_frontier_world.md)
   - 高维荒野 / 反直觉物理 / 生存规则 world
-- [`prompts/host.md`](/Users/shzhang/Documents/Codes/memory_lm/prompts/host.md)
+- [`prompts/host.md`](../prompts/host.md)
   - host 候选生成模板
-- [`prompts/tested_agent.md`](/Users/shzhang/Documents/Codes/memory_lm/prompts/tested_agent.md)
+- [`prompts/tested_agent.md`](../prompts/tested_agent.md)
   - tested agent 模板
-- [`scripts/run_experiment.py`](/Users/shzhang/Documents/Codes/memory_lm/scripts/run_experiment.py)
+- [`scripts/run_experiment.py`](../scripts/run_experiment.py)
   - 主运行器
-- [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py)
+- [`run.py`](run.py)
   - 根目录默认入口；直接 `python3 run.py` 会续跑最近一次 run
-- [`scripts/run_cli.py`](/Users/shzhang/Documents/Codes/memory_lm/scripts/run_cli.py)
+- [`scripts/run_cli.py`](scripts/run_cli.py)
   - 较完整的命令式包装器，支持 `new / resume / smoke / status`
-- [`models/coding_endpoint_models.md`](/Users/shzhang/Documents/Codes/memory_lm/models/coding_endpoint_models.md)
-  - coding 端点模型参考
 
 ## 运行方式
 
@@ -62,9 +60,9 @@
 4. 让人类或脚本确认 host 输入
 5. 调用 tested agent
 6. 写入 transcript、metrics 和逐轮 memory
-7. 刷新 [`runs/log.md`](/Users/shzhang/Documents/Codes/memory_lm/runs/log.md) 作为所有 run 的总览日志
+7. 刷新 [`runs/log.md`](runs/log.md) 作为所有 run 的总览日志
 
-当前默认 world 是 [`world/asterion_lab.md`](/Users/shzhang/Documents/Codes/memory_lm/world/asterion_lab.md)。
+当前默认 world 是 [`world/asterion_lab.md`](../world/asterion_lab.md)。
 
 ## API Key
 
@@ -85,7 +83,7 @@ SSL_CERT_FILE=/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/
 
 ## 推荐命令
 
-更推荐直接用根目录的 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py)。
+更推荐直接用根目录的 [`run.py`](run.py)。
 
 默认情况下：
 
@@ -93,7 +91,7 @@ SSL_CERT_FILE=/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/
 python3 run.py
 ```
 
-会按 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py) 顶部当前填写的配置执行。
+会按 [`run.py`](run.py) 顶部当前填写的配置执行。
 
 你通常只需要改这些值：
 
@@ -161,7 +159,7 @@ python3 scripts/run_experiment.py --stub-llm --auto-accept-host --rounds 3
 
 ## Runs Log
 
-[`runs/log.md`](/Users/shzhang/Documents/Codes/memory_lm/runs/log.md) 会自动记录每次 run 的摘要，包括：
+[`runs/log.md`](runs/log.md) 会自动记录每次 run 的摘要，包括：
 
 - 跑了多少轮
 - 用了哪个 world
@@ -171,11 +169,11 @@ python3 scripts/run_experiment.py --stub-llm --auto-accept-host --rounds 3
 
 ## 运行入口
 
-根目录的 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py) 现在故意保持得很薄，只负责“调参数然后开跑”。
+根目录的 [`run.py`](run.py) 现在故意保持得很薄，只负责”调参数然后开跑”。
 
 - 默认直接运行：
   - `python3 run.py`
-- 你通常只需要改 [`run.py`](/Users/shzhang/Documents/Codes/memory_lm/run.py) 顶部这些值：
+- 你通常只需要改 [`run.py`](run.py) 顶部这些值：
   - `ACTION`
   - `RUN_ID`
   - `WORLD_PATH`
@@ -190,4 +188,4 @@ python3 scripts/run_experiment.py --stub-llm --auto-accept-host --rounds 3
 - `WORLD_PATH = "world/court_of_veils_world.md"`：切换世界
 - `ROUNDS = 50`：改轮数
 
-真正的命令式入口还在 [`scripts/run_cli.py`](/Users/shzhang/Documents/Codes/memory_lm/scripts/run_cli.py)，但日常一般不用直接碰它。
+真正的命令式入口还在 [`scripts/run_cli.py`](scripts/run_cli.py)，但日常一般不用直接碰它。
