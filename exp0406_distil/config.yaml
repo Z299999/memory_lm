@@ -13,11 +13,43 @@ student:
   load_in_8bit: false
 
 data:
+  # GSM8K: 小学到初中数学
   datasets:
     - name: "gsm8k"
       subset: "main"
       split: "train"
       num_samples: 2000
+
+  # 高级数学数据集 (大学数学：微积分/线代/概率/实分析/泛函/群论等)
+  advanced_datasets:
+    # 高中竞赛数学
+    - name: "AI-MO/aimo-validation-math-level-5"
+      subset: null
+      split: "train"
+      num_samples: 500
+
+    # 大学数学综合 (微积分/线代/概率等)
+    - name: "TIGER-Lab/WebInstructSub"
+      subset: null
+      split: "train"
+      num_samples: 1000
+
+    # 数学证明题 (NuminaMath with CoT)
+    - name: "AI-MO/NuminaMath-CoT"
+      subset: null
+      split: "train"
+      num_samples: 1000
+
+    # MMLU 专业科目
+    - name: "cais/mmlu"
+      subset: "college_mathematics"
+      split: "test"
+      num_samples: 200
+    - name: "cais/mmlu"
+      subset: "abstract_algebra"
+      split: "test"
+      num_samples: 200
+
   save_dir: "data/generated"
   test_split_ratio: 0.1
 

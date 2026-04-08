@@ -13,3 +13,8 @@ __pycache__/
 .env
 .env.local
 models/*.local.md
+
+# Exp0406 - ignore large checkpoint and data files
+exp0406_distil/models/student/checkpoint-*/
+exp0406_distil/models/student/final/
+exp0406_distil/data/generated/*.jsonl
