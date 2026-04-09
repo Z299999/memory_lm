@@ -89,12 +89,26 @@ def run_forward(
     student_max_new_tokens: int,
     max_feedback_rounds: int,
     forward_per_back: float,
+    viz_every: float = math.inf,
     num_problems: int | None,
     stub: bool = False,
 ) -> None:
     host_client = OpenAICompatClient(base_url=host_base_url, api_key=host_api_key, stub=stub)
     student = load_student(student_model, stub=stub)
     run_dir = _init_run_dir(runs_dir, run_id)
+
+    # ── Resume detection ──────────────────────────────────────────────────────
+    samples_path = run_dir / "training" / "samples.jsonl"
+    completed_problems = 0
+    if samples_path.exists():
+        # Count distinct problem starts (m_prev == "") as a proxy for completed problems
+        with samples_path.open(encoding="utf-8") as f:
+            for line in f:
+                s = json.loads(line)
+                if s["m_prev"] == "":
+                    completed_problems += 1
+        if completed_problems > 0:
+            print(f"[forward] resuming from problem {completed_problems + 1} (found {completed_problems} completed)")
 
     problems = []
     with data_path.open(encoding="utf-8") as f:
@@ -108,15 +122,29 @@ def run_forward(
     if num_problems is not None:
         problems = problems[:num_problems]
 
+    # Skip already-completed problems
+    problems = problems[completed_problems:]
+
+    # Resume global_step from existing memory files
+    existing = list((run_dir / "memory").rglob("m_*.md"))
+    global_step_start = len(existing)
+
     print(f"[forward] run={run_id}  problems={len(problems)}  forward_per_back={forward_per_back}")
 
     memory: str = ""
-    global_step = 0
+    global_step = global_step_start
     problems_since_back = 0
+    problems_since_viz = 0
+    viz_step = 0
 
-    (run_dir / "transcript.md").write_text(
-        f"# Run {run_id}\nStarted: {datetime.now().isoformat()}\n\n", encoding="utf-8"
-    )
+    # Only write header if starting fresh
+    transcript_path = run_dir / "transcript.md"
+    if global_step_start == 0:
+        transcript_path.write_text(
+            f"# Run {run_id}\nStarted: {datetime.now().isoformat()}\n\n", encoding="utf-8"
+        )
+    else:
+        _append_transcript(run_dir, f"\n## Resumed at {datetime.now().isoformat()}\n\n")
 
     for prob_idx, prob in enumerate(problems):
         question = prob["question"]
@@ -207,6 +235,15 @@ def run_forward(
             _trigger_backward(run_dir, student)
             problems_since_back = 0
 
+        # ── Visualization trigger ─────────────────────────────────────────────
+        problems_since_viz += 1
+        if not math.isinf(viz_every) and problems_since_viz >= viz_every:
+            viz_step += 1
+            out_dir = run_dir / "plots" / f"step_{viz_step:04d}"
+            print(f"[viz] generating embedding snapshots → {out_dir}")
+            _trigger_viz(student_model, out_dir, viz_step, stub)
+            problems_since_viz = 0
+
     _append_transcript(run_dir, f"\n---\nFinished: {datetime.now().isoformat()}\n")
     print(f"\n[forward] done. transcript → {run_dir / 'transcript.md'}")
 
@@ -218,3 +255,22 @@ def _trigger_backward(run_dir: Path, student) -> None:
         return
     from backward import run_backward
     run_backward(samples_path=samples_path, run_dir=run_dir, student=student)
+
+
+def _trigger_viz(model_path: str, out_dir: Path, step: int, stub: bool) -> None:
+    if stub:
+        print("[viz] stub mode, skipping.")
+        return
+    from visualize import (
+        load_embeddings, sample_random_embeddings,
+        plot_cosine_sim_hist, plot_eigenvalue_spectrum,
+        plot_covariance_heatmap, plot_sphere_density, plot_tsne,
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    E_full, probe_emb, tokens = load_embeddings(model_path)
+    E_sample = sample_random_embeddings(E_full)
+    plot_cosine_sim_hist(E_sample, out_dir, step)
+    plot_eigenvalue_spectrum(E_sample, out_dir, step)
+    plot_covariance_heatmap(E_sample, out_dir, step)
+    plot_sphere_density(E_sample, out_dir, step)
+    plot_tsne(probe_emb, tokens, out_dir, step)

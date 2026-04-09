@@ -50,7 +50,7 @@ class OpenAICompatClient:
         self,
         api_key: str | None = None,
         base_url: str | None = None,
-        timeout: int = 120,
+        timeout: int = 300,
         stub: bool = False,
     ) -> None:
         load_repo_dotenv()
@@ -90,14 +90,18 @@ class OpenAICompatClient:
             method="POST",
         )
 
-        try:
-            with request.urlopen(req, timeout=self.timeout) as resp:
-                raw = json.loads(resp.read().decode("utf-8"))
-        except error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise LLMClientError(f"HTTP {exc.code}: {body}") from exc
-        except error.URLError as exc:
-            raise LLMClientError(f"Network error: {exc}") from exc
+        for attempt in range(3):
+            try:
+                with request.urlopen(req, timeout=self.timeout) as resp:
+                    raw = json.loads(resp.read().decode("utf-8"))
+                break
+            except error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                raise LLMClientError(f"HTTP {exc.code}: {body}") from exc
+            except (error.URLError, TimeoutError, OSError) as exc:
+                if attempt == 2:
+                    raise LLMClientError(f"Network error after 3 attempts: {exc}") from exc
+                print(f"[llm] timeout/network error (attempt {attempt+1}/3), retrying...")
 
         try:
             message = raw["choices"][0]["message"]["content"]

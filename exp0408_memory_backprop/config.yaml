@@ -7,9 +7,15 @@ student:
   model: "models/student"               # local HuggingFace model (inference + training)
   temperature: 0.2
   max_new_tokens: 800
+  train_model: "Qwen/Qwen2.5-0.5B-Instruct"  # HuggingFace, for backward training
 
 experiment:
+  mode: "new"                           # "new" = auto-create next r0000x | "resume" = continue latest incomplete run
+  num_problems: 50                      # null = all 2869
+  stub: false                           # true = offline fake LLM for smoke testing
   data_path: "../exp0406_distil/data/generated/distillation_data.jsonl"
   runs_dir: "runs"
-  max_feedback_rounds: 3      # max feedback turns per problem (事不过三)
-  forward_per_back: .inf      # problems per backward pass; .inf = no training
+
+  max_feedback_rounds: 3                # max feedback turns per problem（事不过三）
+  forward_per_back: .inf                # problems per backward pass; .inf = no training
+  viz_every: .inf                       # problems between embedding snapshots; .inf = no auto viz
