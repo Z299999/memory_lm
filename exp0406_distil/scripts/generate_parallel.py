@@ -21,8 +21,9 @@ def load_config(config_path: Path) -> dict:
         return yaml.safe_load(f)
 
 
-def format_data_sample(question: str, response: str) -> dict:
+def format_data_sample(question: str, response: str, source: dict | None = None) -> dict:
     return {
+        "source": source or {},
         "messages": [
             {"role": "user", "content": question},
             {"role": "assistant", "content": response},
@@ -31,7 +32,7 @@ def format_data_sample(question: str, response: str) -> dict:
 
 
 def generate_single_sample(args: tuple) -> tuple[int, dict | None, str | None]:
-    idx, question, model, base_url, api_key, temperature, max_tokens = args
+    idx, question, source, model, base_url, api_key, temperature, max_tokens = args
     try:
         client = OpenAICompatClient(api_key=api_key, base_url=base_url, timeout=300)
         messages = [
@@ -41,7 +42,7 @@ def generate_single_sample(args: tuple) -> tuple[int, dict | None, str | None]:
         result = client.chat_completion(
             model=model, messages=messages, temperature=temperature, max_tokens=max_tokens,
         )
-        sample = format_data_sample(question, result.content)
+        sample = format_data_sample(question, result.content, source=source)
         return (idx, sample, None)
     except Exception as e:
         return (idx, None, str(e))
@@ -74,7 +75,7 @@ def main():
     num_workers = args.workers or int(os.environ.get("GENERATE_WORKERS", "8"))
     print(f"Using {num_workers} parallel workers")
 
-    all_questions: list[tuple[int, str]] = []
+    all_questions: list[tuple[int, str, dict]] = []
     start_count = len(existing_questions)
 
     datasets_to_process = config["data"].get("datasets", []) + config["data"].get("advanced_datasets", [])
@@ -99,7 +100,7 @@ def main():
         else:
             print(f"Dataset has only {len(ds)} samples, using all.")
 
-        for sample in ds:
+        for sample_idx, sample in enumerate(ds):
             question = sample.get("question") or sample.get("problem")
             if not question:
                 text_fields = [k for k in sample.keys() if isinstance(sample[k], str)]
@@ -107,10 +108,16 @@ def main():
             if not question:
                 continue
             if question not in existing_questions:
-                all_questions.append(question)
+                source = {
+                    "dataset": dataset_name,
+                    "subset": subset,
+                    "split": split,
+                    "sample_index": sample_idx,
+                }
+                all_questions.append((len(all_questions), question, source))
                 existing_questions.add(question)
 
-    indexed_questions = [(start_count + i, q) for i, q in enumerate(all_questions)]
+    indexed_questions = [(start_count + i, q, source) for i, (_, q, source) in enumerate(all_questions)]
     if len(indexed_questions) == 0:
         print("\nNo new questions to generate!")
         return
@@ -125,7 +132,10 @@ def main():
     print(f"\nStarting parallel generation with {num_workers} workers...")
     print(f"Model: {model}, Base URL: {base_url}")
 
-    sample_args = [(idx, q, model, base_url, api_key, temperature, max_tokens) for idx, q in indexed_questions]
+    sample_args = [
+        (idx, q, source, model, base_url, api_key, temperature, max_tokens)
+        for idx, q, source in indexed_questions
+    ]
     total_generated, failed = 0, 0
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:

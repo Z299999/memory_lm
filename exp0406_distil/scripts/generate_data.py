@@ -48,9 +48,10 @@ Answer:"""
     return result.content
 
 
-def format_data_sample(question: str, teacher_response: str) -> dict:
+def format_data_sample(question: str, teacher_response: str, source: dict | None = None) -> dict:
     """Format a single training sample."""
     return {
+        "source": source or {},
         "messages": [
             {"role": "user", "content": question},
             {"role": "assistant", "content": teacher_response},
@@ -175,10 +176,15 @@ def main():
 
             if not response:
                 continue
-                continue
 
             # Format and save
-            data_sample = format_data_sample(question, response)
+            source = {
+                "dataset": dataset_name,
+                "subset": subset,
+                "split": split,
+                "sample_index": i,
+            }
+            data_sample = format_data_sample(question, response, source=source)
             generated_samples.append(data_sample)
             total_samples += 1
 
