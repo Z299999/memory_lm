@@ -8,6 +8,8 @@ exp0404_three_world/runs/*
 !exp0404_three_world/runs/log.md
 !exp0404_three_world/runs/orthfall_frontier_001/
 !exp0404_three_world/runs/orthfall_frontier_001/**
+!exp0404_three_world/runs/confluence_002/
+!exp0404_three_world/runs/confluence_002/**
 __pycache__/
 *.pyc
 .env

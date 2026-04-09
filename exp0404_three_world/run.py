@@ -23,7 +23,7 @@ from scripts.run_cli import run_defaults
 # - "world/court_of_veils_world.md"
 # - "world/orthfall_frontier_world.md"
 
-ACTION = "resume_latest"  # "new" | "resume" | "resume_latest" | "smoke" | "status"
+ACTION = "resume"  # "new" | "resume" | "resume_latest" | "smoke" | "status"
 RUN_ID = "confluence_002"  # only used when ACTION is "resume", or when you want to name a new run
 WORLD_PATH = "world/confluence_world.md"  # only used for "new" and "smoke"
 ROUNDS = 50  # only used for "new" and "smoke"
