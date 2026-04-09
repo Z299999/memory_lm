@@ -1,18 +1,18 @@
-# Runs:
+# Exp0404 runs:
 # - default: ignore all concrete run artifacts
 # - keep runs/log.md tracked
 # - if a future run is worth keeping, unignore it explicitly, e.g.
-#   !runs/good_run_001/
-#   !runs/good_run_001/**
-runs/*
-!runs/log.md
-!runs/orthfall_frontier_001/
-!runs/orthfall_frontier_001/**
+#   !exp0404_three_world/runs/good_run_001/
+#   !exp0404_three_world/runs/good_run_001/**
+exp0404_three_world/runs/*
+!exp0404_three_world/runs/log.md
+!exp0404_three_world/runs/orthfall_frontier_001/
+!exp0404_three_world/runs/orthfall_frontier_001/**
 __pycache__/
 *.pyc
 .env
 .env.local
-models/*.local.md
+exp0404_three_world/models/*.local.md
 
 # Exp0406 - ignore large checkpoint files only (data is important, track it!)
 exp0406_distil/models/student/checkpoint-*/
