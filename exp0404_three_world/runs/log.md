@@ -1,6 +1,6 @@
 # 运行日志
 
-- 更新时间: 2026-04-04T19:33:04+00:00
+- 更新时间: 2026-04-04T21:52:56+00:00
 - 已记录运行数: 17
 
 这个文件记录每次 run 跑了什么、跑了多少轮，以及有哪些值得记下来的进展。
@@ -16,6 +16,7 @@
 - host model: `qwen-plus`
 - host 语言: `en`
 - 计划轮数: `1`
+- memory 模式: `rewrite`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
 - memory 进展: `已完成 1 轮，memory 长度从 79 变到 79 字符`
@@ -39,6 +40,7 @@
 - host model: `qwen-plus`
 - host 语言: `en`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
 - memory 进展: `已完成 1 轮，memory 长度从 79 变到 79 字符`
@@ -62,6 +64,7 @@
 - host model: `qwen-plus`
 - host 语言: `en`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
 - memory 进展: `已完成 1 轮，memory 长度从 79 变到 79 字符`
@@ -85,6 +88,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
 - memory 进展: `还没有写出任何 memory。`
@@ -98,16 +102,17 @@
 ## confluence_002
 
 - 开始时间: `2026-04-04T06:53:45+00:00`
-- 结束时间: `2026-04-04T19:13:27+00:00`
+- 结束时间: `2026-04-04T21:52:56+00:00`
 - 状态: `stopped_on_error`
 - 世界: `world/confluence_world.md`
 - tested model: `qwen3-coder-plus`
 - host model: `qwen3-coder-plus`
 - host 语言: `zh`
 - 计划轮数: `9999`
-- 已完成轮数: `901`
-- 正确率: `800/901` (89%)
-- memory 进展: `已完成 901 轮，memory 长度从 213 变到 2000 字符`
+- memory 模式: `rewrite`
+- 已完成轮数: `1199`
+- 正确率: `1031/1199` (86%)
+- memory 进展: `已完成 1199 轮，memory 长度从 213 变到 1406 字符`
 - transcript: [`confluence_002/transcript.md`](./confluence_002/transcript.md)
 - metrics: [`confluence_002/metrics.json`](./confluence_002/metrics.json)
 
@@ -116,7 +121,7 @@
 - 至少完整跑通了 1 轮，host、transcript、metrics 和 memory 产物都已落盘。
 - 已经不是一次性连通性测试，而是形成了稳定的多轮连续运行。
 - 已经进入较长程运行区间，开始适合观察 memory 的演化趋势。
-- 在已完成的 800/901 轮里达到了较强的阶段性正确率。
+- 在已完成的 1031/1199 轮里达到了较强的阶段性正确率。
 - memory 长度在轮次之间发生了变化，说明外部记忆正在主动演化。
 - 已经暴露出一个明确故障模式，值得在下一次 run 前优先排查。
 
@@ -130,6 +135,7 @@
 - host model: `qwen3-coder-plus`
 - host 语言: `zh`
 - 计划轮数: `50`
+- memory 模式: `prepend`
 - 已完成轮数: `50`
 - 正确率: `47/50` (94%)
 - memory 进展: `已完成 50 轮，memory 长度从 270 变到 905 字符`
@@ -155,6 +161,7 @@
 - host model: `qwen3-coder-plus`
 - host 语言: `zh`
 - 计划轮数: `50`
+- memory 模式: `prepend`
 - 已完成轮数: `50`
 - 正确率: `31/50` (62%)
 - memory 进展: `已完成 50 轮，memory 长度从 56 变到 764 字符`
@@ -180,6 +187,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
 - memory 进展: `已完成 1 轮，memory 长度从 73 变到 73 字符`
@@ -203,6 +211,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
 - memory 进展: `已完成 1 轮，memory 长度从 73 变到 73 字符`
@@ -226,6 +235,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
 - memory 进展: `已完成 1 轮，memory 长度从 73 变到 73 字符`
@@ -249,6 +259,7 @@
 - host model: `qwen3.5-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
 - memory 进展: `已完成 1 轮，memory 长度从 84 变到 84 字符`
@@ -272,6 +283,7 @@
 - host model: `qwen3-coder-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `1`
 - 正确率: `1/1` (100%)
 - memory 进展: `已完成 1 轮，memory 长度从 48 变到 48 字符`
@@ -295,6 +307,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
 - memory 进展: `还没有写出任何 memory。`
@@ -315,6 +328,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
 - memory 进展: `还没有写出任何 memory。`
@@ -335,6 +349,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
 - memory 进展: `还没有写出任何 memory。`
@@ -355,6 +370,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `1`
+- memory 模式: `prepend`
 - 已完成轮数: `0`
 - 正确率: `0/0`（暂无）
 - memory 进展: `还没有写出任何 memory。`
@@ -375,6 +391,7 @@
 - host model: `qwen-plus`
 - host 语言: `zh`
 - 计划轮数: `3`
+- memory 模式: `prepend`
 - 已完成轮数: `3`
 - 正确率: `3/3` (100%)
 - memory 进展: `已完成 3 轮，memory 长度从 73 变到 73 字符`

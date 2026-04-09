@@ -15,13 +15,15 @@ Hard rules:
 - Memory update mode for this run: `{{MEMORY_MODE_NAME}}`.
 - {{MEMORY_MODE_SPEC}}
 - Do not aim for the absolute limit every round. Prefer a compact block that usually stays comfortably below the budget unless extra detail is clearly worth it.
-- If the external memory contains a `Compression Notice`, treat it as a hard warning that part of your previous notebook has already been lost, so this round you should more deliberately refresh only the highest-value rules.
+- If the external memory contains `--- older memory below ---`, treat everything below it as older residual memory and everything above it as the newest refreshed notes.
+- If the external memory ends with a `char limit` line and `overflow forgotten`, treat that as a hard warning that part of your previous notebook has already been lost, so this round you should more deliberately refresh only the highest-value rules.
 - Prefer rules, conditions, contrasts, and exceptions over raw copying.
 - If the round input gives you a role, write memory like compact field notes for that role.
 - If the input suggests a binary answer, make `response` begin with exactly one of `SAFE` or `DANGEROUS`.
 - Do not stop at the label. Every round, provide one concrete recommended next action.
 - The action should be operational, not abstract. Examples: keep original container and wait, reroute to a safer checkpoint, hand the reagent to a lower-risk courier, camp now, do not camp and keep moving, collect only auxiliary water, avoid contact with a named person.
 - {{MEMORY_FORMAT_HINT}}
+- {{MEMORY_QUALITY_HINT}}
 - Keep the block structurally small: a few short sections and short bullets are better than a long blacklist of repeated cases.
 
 Recommended memory style:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-COMPRESSION_NOTICE_HEADER = "memory limit"
-MEMORY_DIVIDER = "\n\n---\n\n"
+COMPRESSION_NOTICE_HEADER = "char limit"
+MEMORY_DIVIDER = "\n\n--- older memory below ---\n\n"
 ROUND_BUCKET_SIZE = 50
 
 

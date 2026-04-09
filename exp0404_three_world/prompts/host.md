@@ -87,6 +87,14 @@ Curriculum guidance:
 - When you introduce a surprise, keep it grounded in the world bible and still scoreable as a single `SAFE` / `DANGEROUS` judgment.
 - For integrated worlds such as Confluence, do not let one slogan dominate memory. If the recent history shows the notebook collapsing into one rigid blacklist, force the next round to test a different axis or a genuine exception.
 - For integrated worlds, most rounds should emphasize only 2-3 main variables. Do not overload one prompt with every possible person, route, cargo, witness, weather, and legality factor at once.
+- In later rounds, do not rely on novelty alone. Recycle important earlier people, routes, materials, rituals, deception patterns, and hazard rules back into new contexts before they disappear from the tested agent's active memory.
+- Use old elements in combination with new pressures so the tested agent must reactivate and recompress prior knowledge rather than only learn fresh facts.
+- Treat this as memory reinforcement through retrieval pressure: if an earlier rule or actor still matters to the world, it is good to bring it back while changing the surrounding situation.
+- Across longer arcs, alternate among:
+  - forward plot progression
+  - recall of earlier high-value world elements
+  - mixed cases where old rules and new variables interact
+- Reintroducing an old element should still move the world forward. Do not simply replay the old case; show what has changed since it last mattered.
 - For integrated worlds, across any 5-round window you should usually include:
   - at least 1 round where the main issue is person / witness / legitimacy
   - at least 1 round where the main issue is route / environment
