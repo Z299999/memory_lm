@@ -1,13 +1,12 @@
-# Exp0406 - LLM Distillation Project
+# Exp0406 - Math Data Generation
 
-将 Qwen3.5-Plus 蒸馏到 0.5B 小模型的实验项目。
+使用 LLM API 生成数学训练数据的项目。
 
 ## 项目目标
 
-- **教师模型**: qwen-plus (Qwen3.5-Plus)
-- **学生模型**: Qwen2.5-0.5B-Instruct
-- **任务**: 数学推理 (GSM8K, MATH)
-- **方法**: 响应蒸馏 (Response Distillation)
+- **数据源**: GSM8K、MATH、WebInstructSub、NuminaMath-CoT 等数学数据集
+- **生成方式**: 并行调用 API 生成解题步骤
+- **输出格式**: JSONL，包含 user/assistant 对话格式
 
 ## 快速开始
 
@@ -26,98 +25,101 @@ pip install -r requirements.txt
 DASHSCOPE_API_KEY="your_api_key_here"
 ```
 
-### 3. 生成蒸馏数据
+### 3. 生成数据
 
 ```bash
-python scripts/generate_data.py
+# 单进程生成
+python run.py generate
+
+# 多进程并行生成（推荐）
+python run.py generate-parallel --workers 32
+
+# 调试模式：生成 10 条数据测试
+python run.py debug
 ```
 
-这会：
-- 从 GSM8K 和 MATH 数据集采样题目
-- 调用教师模型生成解题步骤
-- 保存为 `data/generated/distillation_data.jsonl`
-
-### 4. 训练学生模型
-
-```bash
-python scripts/train_student.py
-```
-
-训练后的模型保存在 `models/student/final/`
-
-### 5. 评估
-
-```bash
-python scripts/evaluate.py
-```
+生成的数据保存在 `data/generated/distillation_data.jsonl`
 
 ## 项目结构
 
 ```
 exp0406_distil/
 ├── scripts/
-│   ├── llm_client.py      # LLM API 客户端
-│   ├── generate_data.py   # 生成蒸馏数据
-│   ├── train_student.py   # 训练学生模型
-│   └── evaluate.py        # 评估模型
+│   ├── llm_client.py         # LLM API 客户端
+│   ├── generate_data.py      # 数据生成脚本（单进程）
+│   └── generate_parallel.py  # 数据生成脚本（多进程并行）
 ├── data/
-│   ├── raw/               # 原始数据（可选）
-│   ├── generated/         # 教师模型生成的数据
-│   └── processed/         # 处理后的数据
-├── models/
-│   └── student/           # 训练好的学生模型
-├── results/
-│   └── eval/              # 评估结果
-├── config.yaml            # 配置文件
-├── requirements.txt       # Python 依赖
+│   ├── generated/            # 生成的数据
+│   ├── raw/                  # 原始数据集（可选）
+│   └── processed/            # 处理后的数据（可选）
+├── config.yaml               # 配置文件
+├── requirements.txt          # Python 依赖
+├── run.py                    # 运行入口
 └── README.md
 ```
 
 ## 配置说明
 
-编辑 `config.yaml` 修改以下参数：
+编辑 `config.yaml` 修改参数：
 
 ### 教师模型配置
 ```yaml
 teacher:
-  model: "qwen-plus"
+  model: "qwen3.5-plus"
   temperature: 0.2
   max_tokens: 2048
 ```
 
-### 学生模型配置
+### 数据集配置
 ```yaml
-student:
-  model: "Qwen/Qwen2.5-0.5B-Instruct"
-  max_length: 1024
+data:
+  datasets:
+    - name: "gsm8k"
+      subset: "main"
+      split: "train"
+      num_samples: 2000
+  advanced_datasets:
+    - name: "AI-MO/aimo-validation-math-level-5"
+      num_samples: 500
 ```
 
-### 训练配置
-```yaml
-train:
-  batch_size: 16
-  learning_rate: 5e-5
-  num_epochs: 5
+## 数据格式
+
+生成的数据为 JSONL 格式，每行一个样本：
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Mimi picked up 2 dozen seashells..."
+    },
+    {
+      "role": "assistant",
+      "content": "Here is the step-by-step solution..."
+    }
+  ]
+}
 ```
 
-## 蒸馏方法
-
-本项目使用**响应蒸馏 (Response Distillation)**：
-
-1. 教师模型解题 → 生成详细步骤
-2. 学生模型学习模仿教师的输出
-3. 损失函数：学生输出与教师输出的交叉熵
-
-## 调试模式
-
-生成少量数据测试流程：
+## 命令行用法
 
 ```bash
-python scripts/generate_data.py --debug
+python run.py <command> [options]
+
+可用命令:
+  generate          - 生成蒸馏数据（单进程）
+  generate-parallel - 并行生成（支持 --workers 参数）
+  status            - 查看当前状态
+  debug             - 调试模式
+
+示例:
+  python run.py generate-parallel --workers 32
+  python run.py status
 ```
 
 ## 参考
 
-- [Qwen2.5 Documentation](https://qwen.readthedocs.io/)
-- [HuggingFace TRL](https://huggingface.co/docs/trl)
+- [HuggingFace Datasets](https://huggingface.co/datasets)
 - [GSM8K Dataset](https://huggingface.co/datasets/gsm8k)
+- [DashScope API](https://help.aliyun.com/zh/dashscope/)

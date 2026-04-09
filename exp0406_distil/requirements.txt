@@ -1,25 +1,8 @@
-# LLM Distillation Project Dependencies
+# Math Data Generation Dependencies
 
-# HuggingFace core libraries
-transformers>=4.40.0
+# HuggingFace datasets
 datasets>=2.18.0
-trl>=0.8.0            # SFTTrainer for supervised fine-tuning
-accelerate>=0.27.0    # Multi-GPU and mixed precision training
-peft>=0.9.0           # Parameter-efficient fine-tuning (optional)
 
 # Utilities
-tokenizers>=0.15.0
-sentencepiece>=0.2.0  # For Llama-based tokenizers
-
-# Training
-torch>=2.0.0
-numpy>=1.24.0
-tqdm>=4.66.0
-
-# Data handling
-jsonlines>=4.0.0
 PyYAML>=6.0
-
-# Evaluation
-evaluate>=0.4.0       # HuggingFace evaluation library
-scikit-learn>=1.3.0
+tqdm>=4.66.0
