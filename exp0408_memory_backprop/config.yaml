@@ -1,0 +1,15 @@
+host:
+  model: "qwen3.5-plus"
+  temperature: 0.3
+  max_tokens: 1000
+
+student:
+  model: "models/student"               # local HuggingFace model (inference + training)
+  temperature: 0.2
+  max_new_tokens: 800
+
+experiment:
+  data_path: "../exp0406_distil/data/generated/distillation_data.jsonl"
+  runs_dir: "runs"
+  max_feedback_rounds: 3      # max feedback turns per problem (事不过三)
+  forward_per_back: .inf      # problems per backward pass; .inf = no training
