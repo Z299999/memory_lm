@@ -66,3 +66,13 @@ A: 增加训练 epochs 或蒸馏数据量。
 
 **Q: 训练中断了怎么办？**  
 A: 直接运行 `python run.py all --resume` 或 `python run.py train`，会自动从最新 checkpoint 继续训练。
+
+## ⚠️ 重要警告
+
+**蒸馏数据是最宝贵的资产！**
+
+- `data/generated/distillation_data.jsonl` 包含使用昂贵 token 生成的训练数据
+- **绝对不要** 覆盖或删除此文件
+- 合并分支时，保留样本数最多的版本
+- 每次 commit 前检查样本数量是否减少
+- 生成进程可随时停止/重启，脚本会自动跳过已存在的问题
