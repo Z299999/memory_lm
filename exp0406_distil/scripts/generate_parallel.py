@@ -22,12 +22,14 @@ def load_config(config_path: Path) -> dict:
 
 
 def format_data_sample(question: str, response: str, source: dict | None = None) -> dict:
+    source = source or {}
     return {
-        "source": source or {},
         "messages": [
             {"role": "user", "content": question},
             {"role": "assistant", "content": response},
-        ]
+        ],
+        "source_candidates": [source] if source else [],
+        "source": source,
     }
 
 

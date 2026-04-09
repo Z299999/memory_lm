@@ -50,12 +50,14 @@ Answer:"""
 
 def format_data_sample(question: str, teacher_response: str, source: dict | None = None) -> dict:
     """Format a single training sample."""
+    source = source or {}
     return {
-        "source": source or {},
         "messages": [
             {"role": "user", "content": question},
             {"role": "assistant", "content": teacher_response},
-        ]
+        ],
+        "source_candidates": [source] if source else [],
+        "source": source,
     }
 
 

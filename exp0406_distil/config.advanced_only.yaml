@@ -1,0 +1,30 @@
+teacher:
+  model: qwen3.5-plus
+  api_key_env: DASHSCOPE_API_KEY
+  base_url: https://coding.dashscope.aliyuncs.com/v1
+  temperature: 0.2
+  max_tokens: 2048
+data:
+  datasets: []
+  advanced_datasets:
+  - name: AI-MO/aimo-validation-math-level-5
+    subset: null
+    split: train
+    num_samples: 500
+  - name: TIGER-Lab/WebInstructSub
+    subset: null
+    split: train
+    num_samples: 1000
+  - name: AI-MO/NuminaMath-CoT
+    subset: null
+    split: train
+    num_samples: 1000
+  - name: cais/mmlu
+    subset: college_mathematics
+    split: test
+    num_samples: 200
+  - name: cais/mmlu
+    subset: abstract_algebra
+    split: test
+    num_samples: 200
+  save_dir: data/generated
