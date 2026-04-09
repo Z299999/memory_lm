@@ -115,9 +115,12 @@ def run_forward(
         for line in f:
             item = json.loads(line)
             msgs = item["messages"]
+            source = item.get("source", {})
             problems.append({
                 "question": msgs[0]["content"],
                 "answer": _extract_canonical_answer(msgs[1]["content"]),
+                "dataset": source.get("dataset", "unknown"),
+                "sample_index": source.get("sample_index", -1),
             })
     if num_problems is not None:
         problems = problems[:num_problems]
@@ -169,6 +172,7 @@ def run_forward(
         _write_text(_batch_dir(run_dir / "memory", global_step) / f"m_{step_id}.md", student_response)
         _append_transcript(run_dir, (
             f"## Step {global_step} — Problem {prob_idx + 1}\n"
+            f"**Dataset:** {prob['dataset']}  **Index:** {prob['sample_index']}\n\n"
             f"**Input:** {question}\n\n"
             f"**Memory in:** {memory[:100] + '...' if len(memory) > 100 else memory or '(empty)'}\n\n"
             f"**Student response:**\n{student_response}\n\n"

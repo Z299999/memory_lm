@@ -9,7 +9,7 @@
 ## 系统架构
 
 ```
-数据集 (exp0406, 2869题 GSM8K/MATH)
+数据集 (exp0406, 4558题 多来源数学题)
     │
     ▼
 ┌─────────────────────────────────────────────┐
@@ -183,4 +183,15 @@ exp0408_memory_backprop/
 
 ## 数据来源
 
-使用 `exp0406_distil/data/generated/distillation_data.jsonl`，共 2869 条数学推理题（GSM8K + MATH），格式为标准 messages JSONL。
+使用 `exp0406_distil/data/generated/distillation_data.jsonl`，共 4558 条数学推理题，格式为标准 messages JSONL，每条附带 `source` 元数据（dataset/subset/split/sample_index）。
+
+数据来源：
+
+| 数据集 | 说明 |
+|--------|------|
+| GSM8K | 小学数学文字题 |
+| AIMO Math Level 5 | 竞赛级数学 |
+| WebInstructSub | 网络数学问答 |
+| NuminaMath-CoT | 竞赛数学（含推理链） |
+| MMLU college_mathematics | 大学数学选择题 |
+| MMLU abstract_algebra | 抽象代数选择题 |
