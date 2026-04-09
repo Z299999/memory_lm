@@ -1,0 +1,73 @@
+# Exp0406 LLM Distillation Configuration
+
+teacher:
+  model: "qwen3.5-plus"
+  api_key_env: "DASHSCOPE_API_KEY"
+  base_url: "https://coding.dashscope.aliyuncs.com/v1"
+  temperature: 0.2
+  max_tokens: 2048
+
+student:
+  model: "Qwen/Qwen2.5-0.5B-Instruct"
+  max_length: 1024
+  load_in_8bit: false
+
+data:
+  # GSM8K: 小学到初中数学
+  datasets:
+    - name: "gsm8k"
+      subset: "main"
+      split: "train"
+      num_samples: 2000
+
+  # 高级数学数据集 (大学数学：微积分/线代/概率/实分析/泛函/群论等)
+  advanced_datasets:
+    # 高中竞赛数学
+    - name: "AI-MO/aimo-validation-math-level-5"
+      subset: null
+      split: "train"
+      num_samples: 500
+
+    # 大学数学综合 (微积分/线代/概率等)
+    - name: "TIGER-Lab/WebInstructSub"
+      subset: null
+      split: "train"
+      num_samples: 1000
+
+    # 数学证明题 (NuminaMath with CoT)
+    - name: "AI-MO/NuminaMath-CoT"
+      subset: null
+      split: "train"
+      num_samples: 1000
+
+    # MMLU 专业科目
+    - name: "cais/mmlu"
+      subset: "college_mathematics"
+      split: "test"
+      num_samples: 200
+    - name: "cais/mmlu"
+      subset: "abstract_algebra"
+      split: "test"
+      num_samples: 200
+
+  save_dir: "data/generated"
+  test_split_ratio: 0.1
+
+train:
+  output_dir: "models/student"
+  batch_size: 16
+  learning_rate: 5e-5
+  num_epochs: 5
+  warmup_ratio: 0.1
+  weight_decay: 0.01
+  lr_scheduler_type: "cosine"
+  save_steps: 200
+  logging_steps: 50
+  seed: 42
+  fp16: true
+
+eval:
+  batch_size: 8
+  metrics:
+    - "accuracy"
+    - "exact_match"

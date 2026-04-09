@@ -1,0 +1,1 @@
+石倚棚不适用于splitlight/crosswind组合条件；当前环境为splitlight光照、crosswind风态、temperate温度、stable折层活性；应改用折幕帐
