@@ -55,19 +55,20 @@ t(T_(r,c)) = L - r + 2c
 
 ### 2. `TMNNetwork`
 
-第一版节点块固定为：
+每个节点是一个标量，每条边有一个可学习的标量权重：
 
 ```text
-Linear + Bias + ReLU
+node(v) = ReLU( Σ w(u→v) × node(u) + bias(v) )
+output  = Tanh( Σ w(u→out) × node(u) + bias_out )
 ```
 
-执行逻辑：
+**关于跳层（relay node）**：motivation 里提到过，如果框架不支持跳层连接，需要在中间补"死点"（relay node，权重和偏置固定不更新）来让信号逐层传递。PyTorch 的动态计算图天然支持任意 DAG，forward 时我们用一个 `states` 字典按拓扑序遍历节点，每个节点直接从字典里读取任意更早层的父节点状态，不需要补点。**所以当前实现没有 relay node。**
 
-- 输入头先把标量输入投影到 `d_model`
-- 每条边都有一个可学习线性变换
-- 核心节点把所有父节点变换后的状态求和，再过节点块
-- 输出头聚合右边界父节点后映射到标量
-- 最终输出只在输出头做一次 `tanh`
+forward 执行逻辑：
+
+- 按拓扑层从前往后遍历所有核心节点
+- 每个节点把所有父节点的状态加权求和，加 bias，过 ReLU
+- 输出节点聚合右对角线上的父节点，加 bias，过 tanh
 
 ### 3. `MLPBaseline`
 

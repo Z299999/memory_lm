@@ -4,18 +4,18 @@ from __future__ import annotations
 # trains it on the toy regression task, and returns the result to run.py.
 
 import math
+import random
 
+import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from data import build_dataset
 from model import MLPBaseline, TMNNetwork
-from utils import set_seed
 
 
 def build_model(config):
-    # Swap between the new TMN and the MLP baseline from the same CLI.
     if config.model_type == "tmn":
         return TMNNetwork(config)
     if config.model_type == "mlp":
@@ -32,7 +32,9 @@ def evaluate_model(model: nn.Module, x: torch.Tensor, y: torch.Tensor, criterion
 
 
 def train_with_config(config):
-    set_seed(config.seed)
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
 
     dataset = build_dataset(config)
     # The toy task is supervised regression on sampled (x, y) pairs.
@@ -99,6 +101,7 @@ def train_with_config(config):
 
     return {
         "metrics": metrics,
+        "model": model,
         "train_losses": train_losses,
         "val_losses": val_losses,
         "x_plot": dataset.x_plot.squeeze(-1).cpu().numpy(),

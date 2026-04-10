@@ -1,26 +1,21 @@
 from __future__ import annotations
 
-# This file implements the Triangular Memory Network itself, including node
-# blocks, per-edge transforms, and DAG-based forward propagation.
-
-from typing import Dict
+# Each node holds a scalar value. Each edge has one scalar weight.
+# node(v) = ReLU( sum(w(u->v) * node(u) for u in parents(v)) + bias(v) )
+# output  = Tanh( sum(w(u->out) * node(u)) + bias_out )
+#
+# hist tensor layout: (batch, n_processed_nodes).
+# Per level: hist[:, src_t] selects parent states — one indexing op, no unsqueeze.
+# self.ew[ew_idx_t] broadcasts naturally with (batch, n_edges) without unsqueeze.
+# self.nb[bias_t]   broadcasts naturally with (batch, n_level)  without unsqueeze.
+# dst_rows_0 = dst_rows.unsqueeze(0) is precomputed in __init__; only .expand in forward.
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from config import Config
 from model.graph import NodeKey, TMNGraph
-
-
-class NodeBlock(nn.Module):
-    def __init__(self, d_model: int) -> None:
-        super().__init__()
-        # First-stage node block: Linear + ReLU.
-        self.linear = nn.Linear(d_model, d_model)
-        self.activation = nn.ReLU()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.activation(self.linear(x))
 
 
 class TMNNetwork(nn.Module):
@@ -30,71 +25,82 @@ class TMNNetwork(nn.Module):
             raise ValueError("TMNNetwork currently supports scalar input and scalar output only.")
 
         self.config = config
-        self.graph = TMNGraph(L=config.L, n_in=config.n_in, n_out=config.n_out)
+        self.graph  = TMNGraph(L=config.L, n_in=config.n_in, n_out=config.n_out)
 
-        # Input heads turn the scalar x into the shared hidden dimension d_model.
-        self.input_projections = nn.ModuleDict(
-            {
-                self._node_name(node): nn.Linear(1, config.d_model)
-                for node in self.graph.input_nodes
-            }
-        )
-        # Every directed edge has its own learnable transform.
-        self.edge_transforms = nn.ModuleDict(
-            {
-                self._edge_name(src, dst): nn.Linear(config.d_model, config.d_model)
-                for src, dst in self.graph.edges
-            }
-        )
-        # Each core node owns one local computation block.
-        self.core_blocks = nn.ModuleDict(
-            {
-                self._node_name(node): NodeBlock(config.d_model)
-                for node in self.graph.core_nodes
-            }
-        )
-        # Output heads map hidden states back to scalar regression outputs.
-        self.output_heads = nn.ModuleDict(
-            {
-                self._node_name(node): nn.Linear(config.d_model, 1)
-                for node in self.graph.output_nodes
-            }
-        )
-        self.output_activation = nn.Tanh()
+        n_edges = len(self.graph.edges)
+        n_core  = len(self.graph.core_nodes)
+        self.ew          = nn.Parameter(torch.randn(n_edges) * 0.1)
+        self.nb          = nn.Parameter(torch.zeros(n_core))
+        self.output_bias = nn.Parameter(torch.zeros(1))
 
+        node_to_idx  = {node: i for i, node in enumerate(self.graph.nodes)}
+        edge_to_idx  = {edge: i for i, edge in enumerate(self.graph.edges)}
+        core_to_bias = {node: i for i, node in enumerate(self.graph.core_nodes)}
+
+        # Assign each node a column index in hist (topological order)
+        hist_idx: dict[int, int] = {}
+        h = 0
+        for node in self.graph.input_nodes:
+            hist_idx[node_to_idx[node]] = h;  h += 1
+        for level in sorted(self.graph.topological_levels):
+            if level == 1 or level == 2 * self.graph.L + 1:
+                continue
+            for node in self.graph.topological_levels[level]:
+                hist_idx[node_to_idx[node]] = h;  h += 1
+
+        # Level schedule
+        # Each entry: (src_t, dst_rows_0, ew_idx_t, bias_t, n_level)
+        #   src_t     : LongTensor(n_edges)   — hist column index of each edge's source
+        #   dst_rows_0: LongTensor(1, n_edges) — dst node within level, pre-unsqueezed
+        #   ew_idx_t  : LongTensor(n_edges)   — index into self.ew
+        #   bias_t    : LongTensor(n_level)   — index into self.nb
+        #   n_level   : int
+        self._level_schedule: list[tuple] = []
+        for level in sorted(self.graph.topological_levels):
+            if level == 1 or level == 2 * self.graph.L + 1:
+                continue
+            nodes     = self.graph.topological_levels[level]
+            bias_list, src_list, dst_list, ew_list = [], [], [], []
+            for i, node in enumerate(nodes):
+                bias_list.append(core_to_bias[node])
+                for p in self.graph.preds[node]:
+                    src_list.append(hist_idx[node_to_idx[p]])
+                    dst_list.append(i)
+                    ew_list.append(edge_to_idx[(p, node)])
+            self._level_schedule.append((
+                torch.tensor(src_list,  dtype=torch.long),
+                torch.tensor(dst_list,  dtype=torch.long).unsqueeze(0),  # (1, n_edges)
+                torch.tensor(ew_idx_list := ew_list,  dtype=torch.long),
+                torch.tensor(bias_list, dtype=torch.long),
+                len(nodes),
+            ))
+
+        out_node        = self.graph.output_nodes[0]
+        preds           = self.graph.preds[out_node]
+        self._out_src_t = torch.tensor([hist_idx[node_to_idx[p]] for p in preds], dtype=torch.long)
+        self._out_ew_t  = torch.tensor([edge_to_idx[(p, out_node)] for p in preds], dtype=torch.long)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, 1)
+        batch = x.shape[0]
+        hist  = x                                               # (batch, 1)
+
+        for src_t, dst_rows_0, ew_idx_t, bias_t, n_level in self._level_schedule:
+            src_states = hist[:, src_t]                         # (batch, n_edges)
+            weighted   = src_states * self.ew[ew_idx_t]        # broadcast, no unsqueeze
+            agg = weighted.new_zeros(batch, n_level).scatter_add(
+                1, dst_rows_0.expand(batch, -1), weighted
+            )                                                   # (batch, n_level)
+            out  = F.relu(agg + self.nb[bias_t])               # broadcast, no unsqueeze
+            hist = torch.cat([hist, out], dim=1)                # (batch, n_hist + n_level)
+
+        src_states = hist[:, self._out_src_t]                   # (batch, n_preds)
+        output     = (src_states * self.ew[self._out_ew_t]).sum(1, keepdim=True)
+        return torch.tanh(output + self.output_bias)
+
+    # kept for plot.py
     def _node_name(self, node: NodeKey) -> str:
-        return "_".join(str(part) for part in node)
+        return "_".join(str(p) for p in node)
 
     def _edge_name(self, src: NodeKey, dst: NodeKey) -> str:
         return f"{self._node_name(src)}__to__{self._node_name(dst)}"
-
-    def _aggregate_parents(self, states: Dict[NodeKey, torch.Tensor], node: NodeKey) -> torch.Tensor:
-        parent_states = []
-        for parent in self.graph.preds[node]:
-            transform = self.edge_transforms[self._edge_name(parent, node)]
-            parent_states.append(transform(states[parent]))
-        # Parent contributions are summed before entering the node block.
-        return torch.stack(parent_states, dim=0).sum(dim=0)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        states: Dict[NodeKey, torch.Tensor] = {}
-
-        for node in self.graph.input_nodes:
-            states[node] = self.input_projections[self._node_name(node)](x)
-
-        # Traverse the triangular DAG level by level.
-        for level, nodes in self.graph.topological_levels.items():
-            if level == 1 or level == 2 * self.graph.L + 1:
-                continue
-            for node in nodes:
-                aggregated = self._aggregate_parents(states, node)
-                states[node] = self.core_blocks[self._node_name(node)](aggregated)
-
-        outputs = []
-        for node in self.graph.output_nodes:
-            aggregated = self._aggregate_parents(states, node)
-            outputs.append(self.output_heads[self._node_name(node)](aggregated))
-
-        # Only the final output head applies tanh, matching the current toy task setup.
-        output = torch.cat(outputs, dim=-1)
-        return self.output_activation(output)

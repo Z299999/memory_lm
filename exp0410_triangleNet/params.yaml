@@ -10,7 +10,7 @@ run_name: default
 #   1 node on top
 #   2 nodes in the middle
 #   3 nodes on the bottom
-L: 3
+L: 4
 
 # Number of input nodes.
 # Current first-stage experiments are designed around scalar input, so keep this at 1 for now.
@@ -20,18 +20,13 @@ n_in: 1
 # Current first-stage experiments are designed around scalar output, so keep this at 1 for now.
 n_out: 1
 
-# Hidden dimension used inside the TMN.
-# Larger means stronger capacity but slower training.
-# Typical values to try: 16, 32, 64.
-d_model: 32
-
 # MLP baseline structure.
 # [8, 8, 8] means 3 hidden layers and each hidden layer has 8 nodes.
 # Other examples:
 #   [16]
 #   [16, 16]
 #   [16, 32, 16]
-mlp_layers: [8, 8, 8]
+mlp_layers: [4, 8, 4]
 
 # Built-in target function name.
 # Available built-in choices:
@@ -39,7 +34,7 @@ mlp_layers: [8, 8, 8]
 #   sin_mix
 #   poly_wave
 #   piecewise
-task_name: piecewise
+task_name: sin_mix
 
 # Optional custom target function.
 # If this is not empty, it overrides task_name.
@@ -66,7 +61,7 @@ batch_size: 64
 
 # Number of training epochs.
 # Increase this if the function fit is still poor.
-epochs: 300
+epochs: 2000
 
 # Input x range.
 # Training samples are drawn uniformly from [x_min, x_max].

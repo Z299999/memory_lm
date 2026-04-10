@@ -5,6 +5,7 @@ from __future__ import annotations
 # build one 4-panel comparison image automatically.
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 THIS_DIR = Path(__file__).resolve().parent
@@ -14,7 +15,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from config import Config, load_config_from_yaml
 from train import train_with_config
-from utils import ensure_dir, save_four_panel_plot
+from plot import save_four_panel_plot, save_weights_plot
 
 
 def clone_config(base: Config, model_type: str, run_name: str) -> Config:
@@ -24,7 +25,6 @@ def clone_config(base: Config, model_type: str, run_name: str) -> Config:
         L=base.L,
         n_in=base.n_in,
         n_out=base.n_out,
-        d_model=base.d_model,
         mlp_layers=list(base.mlp_layers),
         task_name=base.task_name,
         custom_function=base.custom_function,
@@ -40,7 +40,9 @@ def clone_config(base: Config, model_type: str, run_name: str) -> Config:
 
 def tmn_architecture_text(config: Config) -> str:
     core_nodes = config.L * (config.L + 1) // 2
-    return f"L={config.L}, core_nodes={core_nodes}, d_model={config.d_model}"
+    edge_count = 3 * config.L * (config.L - 1) // 2 + config.n_in * config.L + config.n_out * config.L
+    param_count = edge_count + core_nodes + 1
+    return f"L={config.L}, core_nodes={core_nodes}, params={param_count}"
 
 
 def mlp_architecture_text(config: Config) -> str:
@@ -51,17 +53,18 @@ def main() -> None:
     params_path = THIS_DIR / "params.yaml"
     base = load_config_from_yaml(params_path)
     experiment_name = base.run_name if base.run_name != "default" else base.task_name
-    experiment_dir = THIS_DIR / "runs" / experiment_name
-    ensure_dir(experiment_dir)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_dir = THIS_DIR / "runs" / f"{experiment_name}_{timestamp}"
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
     tmn_config = clone_config(base, "tmn", f"{experiment_name}_tmn")
     mlp_config = clone_config(base, "mlp", f"{experiment_name}_mlp")
 
     print("Training TMN...")
-    tmn_result = train_with_config(tmn_config, save_outputs=False)
+    tmn_result = train_with_config(tmn_config)
 
     print("Training MLP...")
-    mlp_result = train_with_config(mlp_config, save_outputs=False)
+    mlp_result = train_with_config(mlp_config)
 
     comparison_path = experiment_dir / "comparison_4panel.png"
     print("Building 4-panel comparison image...")
@@ -72,20 +75,30 @@ def main() -> None:
         tmn_y_true=tmn_result["y_plot"],
         tmn_y_pred=tmn_result["y_pred"],
         tmn_architecture=tmn_architecture_text(tmn_config),
+        tmn_final_train_loss=tmn_result["metrics"]["final_train_loss"],
+        tmn_final_val_loss=tmn_result["metrics"]["final_val_loss"],
         mlp_train_losses=mlp_result["train_losses"],
         mlp_val_losses=mlp_result["val_losses"],
         mlp_x=mlp_result["x_plot"],
         mlp_y_true=mlp_result["y_plot"],
         mlp_y_pred=mlp_result["y_pred"],
         mlp_architecture=mlp_architecture_text(mlp_config),
+        mlp_final_train_loss=mlp_result["metrics"]["final_train_loss"],
+        mlp_final_val_loss=mlp_result["metrics"]["final_val_loss"],
         figure_title=f"Task={base.task_name if not base.custom_function else 'custom'} | TMN vs MLP",
+        loss_fn="MSELoss",
         output_path=comparison_path,
     )
+
+    weights_path = experiment_dir / "weights.png"
+    print("Building weights visualization...")
+    save_weights_plot(tmn_result["model"], mlp_result["model"], weights_path)
 
     print("Done.")
     print(f"TMN val loss: {tmn_result['metrics']['final_val_loss']:.6f}")
     print(f"MLP val loss: {mlp_result['metrics']['final_val_loss']:.6f}")
     print(f"Comparison image: {comparison_path}")
+    print(f"Weights image:    {weights_path}")
 
 
 if __name__ == "__main__":

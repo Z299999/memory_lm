@@ -26,7 +26,6 @@ class Config:
     n_in: int = 1
     n_out: int = 1
 
-    d_model: int = 32
     # Example: [8, 8, 8] means 3 hidden layers, each with 8 nodes.
     mlp_layers: list[int] = field(default_factory=lambda: [8,8,8])
 
