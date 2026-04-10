@@ -17,10 +17,10 @@ class MLPBaseline(nn.Module):
 
         layers = []
         in_dim = config.n_in
-        for _ in range(config.mlp_num_layers - 1):
-            layers.append(nn.Linear(in_dim, config.mlp_hidden_dim))
+        for hidden_dim in config.mlp_layers:
+            layers.append(nn.Linear(in_dim, hidden_dim))
             layers.append(nn.ReLU())
-            in_dim = config.mlp_hidden_dim
+            in_dim = hidden_dim
         layers.append(nn.Linear(in_dim, config.n_out))
         self.network = nn.Sequential(*layers)
         self.output_activation = nn.Tanh()

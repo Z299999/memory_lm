@@ -1,0 +1,74 @@
+# This is the main file you should edit before running `python3 run.py`.
+# You usually do not need to touch the Python code for normal experiments.
+
+# Name of the experiment folder under exp0410_triangleNet/runs/.
+# If you leave it as "default", run.py will use task_name as the folder name.
+run_name: default
+
+# Triangle side length.
+# L = 3 means the baby case triangle:
+#   1 node on top
+#   2 nodes in the middle
+#   3 nodes on the bottom
+L: 3
+
+# Number of input nodes.
+# Current first-stage experiments are designed around scalar input, so keep this at 1 for now.
+n_in: 1
+
+# Number of output nodes.
+# Current first-stage experiments are designed around scalar output, so keep this at 1 for now.
+n_out: 1
+
+# Hidden dimension used inside the TMN.
+# Larger means stronger capacity but slower training.
+# Typical values to try: 16, 32, 64.
+d_model: 32
+
+# MLP baseline structure.
+# [8, 8, 8] means 3 hidden layers and each hidden layer has 8 nodes.
+# Other examples:
+#   [16]
+#   [16, 16]
+#   [16, 32, 16]
+mlp_layers: [8, 8, 8]
+
+# Built-in target function name.
+# Available built-in choices:
+#   sin
+#   sin_mix
+#   poly_wave
+#   piecewise
+task_name: piecewise
+
+# Optional custom target function.
+# If this is not empty, it overrides task_name.
+# The expression must use torch syntax and variable x.
+# Example:
+#   "torch.sin(2*x) + 0.2*torch.cos(7*x)"
+custom_function: ""
+
+# Activation used inside TMN node blocks.
+# Current code only supports relu in the first-stage implementation.
+node_activation: relu
+
+# Final output activation.
+# Current code uses tanh, so the easiest target functions are those whose values are roughly in [-1, 1].
+output_activation: tanh
+
+# Learning rate for Adam optimizer.
+# If training is unstable, try smaller values like 0.0005.
+lr: 0.001
+
+# Batch size for training.
+# Larger batch is smoother but uses more memory.
+batch_size: 64
+
+# Number of training epochs.
+# Increase this if the function fit is still poor.
+epochs: 300
+
+# Input x range.
+# Training samples are drawn uniformly from [x_min, x_max].
+x_min: -6.283185307179586
+x_max: 6.283185307179586
