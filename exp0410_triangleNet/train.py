@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+# This file is the main training entry point. It builds the selected model,
+# trains it on the toy regression task, and saves metrics, plots, and weights.
+
+import math
+from pathlib import Path
+
+import torch
+from torch import nn
+from torch.utils.data import DataLoader, TensorDataset
+
+from config import build_arg_parser, config_from_args
+from data import build_dataset
+from model import MLPBaseline, TMNNetwork
+from utils import ensure_dir, save_json, save_loss_curve, save_prediction_plot, set_seed
+
+
+def build_model(config):
+    # Swap between the new TMN and the MLP baseline from the same CLI.
+    if config.model_type == "tmn":
+        return TMNNetwork(config)
+    if config.model_type == "mlp":
+        return MLPBaseline(config)
+    raise ValueError(f"Unsupported model_type: {config.model_type}")
+
+
+def evaluate_model(model: nn.Module, x: torch.Tensor, y: torch.Tensor, criterion: nn.Module) -> float:
+    model.eval()
+    with torch.no_grad():
+        pred = model(x)
+        loss = criterion(pred, y)
+    return float(loss.item())
+
+
+def main() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args()
+    config = config_from_args(args)
+
+    set_seed(config.seed)
+    ensure_dir(config.run_dir)
+    config.save_json(config.run_dir / "config.json")
+
+    dataset = build_dataset(config)
+    # The toy task is supervised regression on sampled (x, sin(x)) pairs.
+    train_loader = DataLoader(
+        TensorDataset(dataset.x_train, dataset.y_train),
+        batch_size=config.batch_size,
+        shuffle=True,
+    )
+
+    model = build_model(config)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+
+    train_losses = []
+    val_losses = []
+    best_val_loss = math.inf
+    best_state_dict = None
+
+    for epoch in range(config.epochs):
+        model.train()
+        total_loss = 0.0
+        for batch_x, batch_y in train_loader:
+            optimizer.zero_grad()
+            pred = model(batch_x)
+            loss = criterion(pred, batch_y)
+            loss.backward()
+            optimizer.step()
+            total_loss += float(loss.item()) * batch_x.size(0)
+
+        train_loss = total_loss / len(train_loader.dataset)
+        val_loss = evaluate_model(model, dataset.x_val, dataset.y_val, criterion)
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+
+        if val_loss < best_val_loss:
+            # Keep the best validation model rather than the last epoch.
+            best_val_loss = val_loss
+            best_state_dict = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+
+        if (epoch + 1) % 50 == 0 or epoch == 0:
+            print(
+                f"epoch={epoch + 1:04d} "
+                f"train_loss={train_loss:.6f} "
+                f"val_loss={val_loss:.6f}"
+            )
+
+    if best_state_dict is not None:
+        model.load_state_dict(best_state_dict)
+
+    final_train_loss = evaluate_model(model, dataset.x_train, dataset.y_train, criterion)
+    final_val_loss = evaluate_model(model, dataset.x_val, dataset.y_val, criterion)
+    print(f"final_train_loss={final_train_loss:.6f}")
+    print(f"final_val_loss={final_val_loss:.6f}")
+
+    if config.save_plots:
+        save_loss_curve(train_losses, val_losses, config.run_dir / "loss_curve.png")
+        model.eval()
+        with torch.no_grad():
+            y_pred = model(dataset.x_plot).cpu().numpy()
+        save_prediction_plot(
+            dataset.x_plot.squeeze(-1).cpu().numpy(),
+            dataset.y_plot.squeeze(-1).cpu().numpy(),
+            y_pred.squeeze(-1),
+            config.run_dir / "prediction.png",
+        )
+
+    metrics = {
+        "model_type": config.model_type,
+        "final_train_loss": final_train_loss,
+        "final_val_loss": final_val_loss,
+        "run_dir": str(config.run_dir),
+    }
+    save_json(config.run_dir / "metrics.json", metrics)
+
+    if config.save_checkpoint:
+        checkpoint = {
+            "config": config.to_dict(),
+            "model_state_dict": model.state_dict(),
+            "metrics": metrics,
+        }
+        torch.save(checkpoint, config.run_dir / "checkpoint.pt")
+
+
+if __name__ == "__main__":
+    main()
