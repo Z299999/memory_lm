@@ -16,6 +16,43 @@ if str(SCRIPTS_DIR) not in sys.path:
 from config import Config, load_config_from_yaml
 from train import train_with_config
 from plot import save_four_panel_plot, save_weights_plot
+from model.tmn import TMNNetwork
+
+
+def build_trace_fn(config: Config):
+    """Build a trace function that records bottom-row node params each epoch."""
+    model = TMNNetwork(config)
+    graph = model.graph
+    L = config.L
+
+    # Bottom row core nodes: (core, L, 1) to (core, L, L)
+    bottom_nodes = [("core", L, c) for c in range(1, L + 1)]
+    core_to_nb_idx = {node: i for i, node in enumerate(graph.core_nodes)}
+    edge_to_ew_idx = {edge: i for i, edge in enumerate(graph.edges)}
+
+    # For each bottom node, get its bias idx and incoming edge idxs
+    traced = []
+    for node in bottom_nodes:
+        nb_idx = core_to_nb_idx[node]
+        in_edges = graph.preds[node]
+        ew_idxs = [edge_to_ew_idx[(p, node)] for p in in_edges]
+        traced.append((node, nb_idx, ew_idxs))
+
+    def trace_fn(model):
+        result = {}
+        for node, nb_idx, ew_idxs in traced:
+            r, c = node[1], node[2]
+            result[f"b({r},{c})"] = float(model.nb[nb_idx].item())
+            for i, ew_idx in enumerate(ew_idxs):
+                src = graph.preds[node][i]
+                if src[0] == "in":
+                    src_label = f"in,{src[1]}"
+                else:
+                    src_label = f"{src[1]},{src[2]}"
+                result[f"w({src_label})->({r},{c})"] = float(model.ew[ew_idx].item())
+        return result
+
+    return trace_fn
 
 
 def clone_config(base: Config, model_type: str, run_name: str) -> Config:
@@ -60,8 +97,10 @@ def main() -> None:
     tmn_config = clone_config(base, "tmn", f"{experiment_name}_tmn")
     mlp_config = clone_config(base, "mlp", f"{experiment_name}_mlp")
 
+    tmn_trace_fn = build_trace_fn(tmn_config)
+
     print("Training TMN...")
-    tmn_result = train_with_config(tmn_config)
+    tmn_result = train_with_config(tmn_config, trace_fn=tmn_trace_fn)
 
     print("Training MLP...")
     mlp_result = train_with_config(mlp_config)
@@ -92,7 +131,7 @@ def main() -> None:
 
     weights_path = experiment_dir / "weights.png"
     print("Building weights visualization...")
-    save_weights_plot(tmn_result["model"], mlp_result["model"], weights_path)
+    save_weights_plot(tmn_result["model"], tmn_result["traced_params"], weights_path)
 
     print("Done.")
     print(f"TMN val loss: {tmn_result['metrics']['final_val_loss']:.6f}")

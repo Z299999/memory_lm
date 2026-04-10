@@ -31,7 +31,7 @@ def evaluate_model(model: nn.Module, x: torch.Tensor, y: torch.Tensor, criterion
     return float(loss.item())
 
 
-def train_with_config(config):
+def train_with_config(config, trace_fn=None):
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
@@ -50,6 +50,7 @@ def train_with_config(config):
 
     train_losses = []
     val_losses = []
+    traced_params = None
     best_val_loss = math.inf
     best_state_dict = None
 
@@ -68,6 +69,14 @@ def train_with_config(config):
         val_loss = evaluate_model(model, dataset.x_val, dataset.y_val, criterion)
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+
+        if trace_fn is not None:
+            snapshot = trace_fn(model)
+            if traced_params is None:
+                traced_params = {k: [v] for k, v in snapshot.items()}
+            else:
+                for k, v in snapshot.items():
+                    traced_params[k].append(v)
 
         if val_loss < best_val_loss:
             # Keep the best validation model rather than the last epoch.
@@ -104,6 +113,7 @@ def train_with_config(config):
         "model": model,
         "train_losses": train_losses,
         "val_losses": val_losses,
+        "traced_params": traced_params,
         "x_plot": dataset.x_plot.squeeze(-1).cpu().numpy(),
         "y_plot": dataset.y_plot.squeeze(-1).cpu().numpy(),
         "y_pred": y_pred.squeeze(-1),

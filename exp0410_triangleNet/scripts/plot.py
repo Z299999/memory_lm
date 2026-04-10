@@ -134,36 +134,43 @@ def _draw_tmn_weights(ax, model):
     ax.set_title(f"TMN weights  (L={L})")
 
 
-def save_weights_plot(tmn_model, mlp_model, output_path: Path) -> None:
-    linears = [m for m in mlp_model.network if isinstance(m, nn.Linear)]
-    n_layers = len(linears)
+def save_weights_plot(tmn_model, traced_params: dict[str, list[float]], output_path: Path) -> None:
+    fig = plt.figure(figsize=(16, 8))
+    fig.suptitle("TMN weights and training evolution", fontsize=13)
 
-    fig = plt.figure(figsize=(16, max(6, n_layers * 2)))
-    fig.suptitle("Learned weights", fontsize=13)
-
-    # Left half: TMN DAG
+    # Left half: TMN DAG (final weights)
     ax_tmn = fig.add_axes([0.02, 0.05, 0.46, 0.88])
     _draw_tmn_weights(ax_tmn, tmn_model)
 
-    # Right half: MLP weight heatmaps, one per layer
-    if n_layers == 0:
-        return
+    # Right half: two subplots for traced params over epochs
+    # Upper: edge weights, Lower: node biases
+    n_epochs = len(next(iter(traced_params.values())))
 
-    vmax = max(m.weight.detach().abs().max().item() for m in linears)
-    h = 0.82 / n_layers
-    pad = 0.03
+    # Separate keys into edge weights and node biases
+    ew_keys = sorted([k for k in traced_params if k.startswith("w(")])
+    nb_keys = sorted([k for k in traced_params if k.startswith("b(")])
 
-    for i, layer in enumerate(linears):
-        W = layer.weight.detach().cpu().numpy()
-        bottom = 0.08 + (n_layers - 1 - i) * (h + pad)
-        ax = fig.add_axes([0.54, bottom, 0.38, h])
-        im = ax.imshow(W, aspect="auto", cmap="RdBu_r", vmin=-vmax, vmax=vmax)
-        ax.set_title(f"W{i + 1}  {W.shape[0]}×{W.shape[1]}", fontsize=8)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        if i == 0:
-            ax.set_title(f"MLP weights — W{i + 1}  {W.shape[0]}×{W.shape[1]}", fontsize=9)
+    ax_ew = fig.add_axes([0.52, 0.52, 0.46, 0.38])
+    ax_nb = fig.add_axes([0.52, 0.08, 0.46, 0.38])
 
-    fig.colorbar(im, ax=fig.axes[-1], shrink=0.8, label="weight", pad=0.02)
+    epochs = list(range(1, n_epochs + 1))
+
+    # Plot edge weights
+    for key in ew_keys:
+        ax_ew.plot(epochs, traced_params[key], label=key, linewidth=0.8)
+    ax_ew.set_ylabel("edge weight")
+    ax_ew.set_title("Edge weights evolution (bottom row)")
+    if len(ew_keys) <= 12:
+        ax_ew.legend(fontsize=6, ncol=2)
+
+    # Plot node biases
+    for key in nb_keys:
+        ax_nb.plot(epochs, traced_params[key], label=key, linewidth=0.8)
+    ax_nb.set_xlabel("epoch")
+    ax_nb.set_ylabel("node bias")
+    ax_nb.set_title("Node biases evolution (bottom row)")
+    if len(nb_keys) <= 8:
+        ax_nb.legend(fontsize=8)
+
     plt.savefig(output_path, dpi=150)
     plt.close()
