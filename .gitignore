@@ -26,3 +26,6 @@ exp0408_memory_backprop/models/student/
 exp0408_memory_backprop/runs/
 # Exp0408 - ignore generated plots (reproducible from model + runs)
 exp0408_memory_backprop/plots/
+
+# Exp0410 - ignore run artifacts
+exp0410_triangleNet/runs/
