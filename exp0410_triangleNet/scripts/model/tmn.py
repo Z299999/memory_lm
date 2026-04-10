@@ -29,7 +29,14 @@ class TMNNetwork(nn.Module):
 
         n_edges = len(self.graph.edges)
         n_core  = len(self.graph.core_nodes)
-        self.ew          = nn.Parameter(torch.randn(n_edges) * 0.1)
+
+        # Kaiming init: std = sqrt(2 / n_parents) per edge, so ReLU nodes
+        # maintain signal variance regardless of path length in the DAG.
+        kaiming_stds = torch.tensor([
+            (2.0 / len(self.graph.preds[dst])) ** 0.5
+            for _, dst in self.graph.edges
+        ])
+        self.ew          = nn.Parameter(torch.randn(n_edges) * kaiming_stds)
         self.nb          = nn.Parameter(torch.zeros(n_core))
         self.output_bias = nn.Parameter(torch.zeros(1))
 
