@@ -79,8 +79,12 @@ def _node_pos(node, L):
         return (-(L + 1), (L - 1) / 2.0)
     if node[0] == "out":
         return (L + 1, (L - 1) / 2.0)
-    _, r, c = node
-    return (2 * c - r - 1, L - r)
+    # New 3D format: ("core", x, y, z)
+    # Use y (position) and z (layer) for 2D visualization
+    _, x, y, z = node
+    # Map to 2D: x-axis = position (y), y-axis = layer (z)
+    # Invert z so higher layers appear at top
+    return (y - 1, z - 1)
 
 
 def _draw_tmn_weights(ax, model):

@@ -12,6 +12,11 @@ run_name: default
 #   3 nodes on the bottom
 L: 4
 
+# depth[z-1] = number of neurons at each position in layer z
+# Example: [1,1,1,1] means each position has 1 neuron (original TMN)
+# Example: [2,2,2,2] means each position has 2 neurons (3D extension)
+depth: [1, 1, 1, 1]
+
 # Number of input nodes.
 # Current first-stage experiments are designed around scalar input, so keep this at 1 for now.
 n_in: 1
@@ -44,8 +49,12 @@ task_name: sin_mix
 custom_function: ""
 
 # Activation used inside TMN node blocks.
-# Current code only supports relu in the first-stage implementation.
-node_activation: relu
+# Available options: relu, leaky_relu, gelu, tanh
+# - relu: standard ReLU, may cause "dying" nodes that never activate
+# - leaky_relu: allows small negative gradient, helps prevent dead nodes
+# - gelu: smooth activation, commonly used in transformers
+# - tanh: bounded output, may saturate for large inputs
+node_activation: leaky_relu
 
 # Final output activation.
 # Current code uses tanh, so the easiest target functions are those whose values are roughly in [-1, 1].
@@ -61,7 +70,7 @@ batch_size: 64
 
 # Number of training epochs.
 # Increase this if the function fit is still poor.
-epochs: 2000
+epochs: 20000
 
 # Input x range.
 # Training samples are drawn uniformly from [x_min, x_max].

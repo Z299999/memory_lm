@@ -25,8 +25,10 @@ def build_trace_fn(config: Config):
     graph = model.graph
     L = config.L
 
-    # Bottom row core nodes: (core, L, 1) to (core, L, L)
-    bottom_nodes = [("core", L, c) for c in range(1, L + 1)]
+    # Bottom row core nodes (z=1): (core, x, y, 1) for y=1..L, x=1..depth[0]
+    # For visualization, we track the first neuron (x=1) at each position
+    depth_0 = config.depth[0] if config.depth else 1
+    bottom_nodes = [("core", 1, y, 1) for y in range(1, L + 1)]
     core_to_nb_idx = {node: i for i, node in enumerate(graph.core_nodes)}
     edge_to_ew_idx = {edge: i for i, edge in enumerate(graph.edges)}
 
@@ -41,15 +43,15 @@ def build_trace_fn(config: Config):
     def trace_fn(model):
         result = {}
         for node, nb_idx, ew_idxs in traced:
-            r, c = node[1], node[2]
-            result[f"b({r},{c})"] = float(model.nb[nb_idx].item())
+            y, z = node[2], node[3]
+            result[f"b({y},{z})"] = float(model.nb[nb_idx].item())
             for i, ew_idx in enumerate(ew_idxs):
                 src = graph.preds[node][i]
                 if src[0] == "in":
                     src_label = f"in,{src[1]}"
                 else:
-                    src_label = f"{src[1]},{src[2]}"
-                result[f"w({src_label})->({r},{c})"] = float(model.ew[ew_idx].item())
+                    src_label = f"{src[1]},{src[2]},{src[3]}"
+                result[f"w({src_label})->({y},{z})"] = float(model.ew[ew_idx].item())
         return result
 
     return trace_fn

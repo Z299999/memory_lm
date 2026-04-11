@@ -25,10 +25,23 @@ class TMNNetwork(nn.Module):
             raise ValueError("TMNNetwork currently supports scalar input and scalar output only.")
 
         self.config = config
-        self.graph  = TMNGraph(L=config.L, n_in=config.n_in, n_out=config.n_out)
+        self.graph  = TMNGraph(L=config.L, n_in=config.n_in, n_out=config.n_out, depth=config.depth)
 
         n_edges = len(self.graph.edges)
         n_core  = len(self.graph.core_nodes)
+
+        # Parse node_activation from config
+        activation = config.node_activation.lower()
+        if activation == "relu":
+            self.activation_fn = lambda x: F.relu(x)
+        elif activation == "leaky_relu":
+            self.activation_fn = lambda x: F.leaky_relu(x, negative_slope=0.01)
+        elif activation == "gelu":
+            self.activation_fn = lambda x: F.gelu(x)
+        elif activation == "tanh":
+            self.activation_fn = lambda x: torch.tanh(x)
+        else:
+            raise ValueError(f"Unsupported node_activation: {config.node_activation}")
 
         # Kaiming init: std = sqrt(2 / n_parents) per edge, so ReLU nodes
         # maintain signal variance regardless of path length in the DAG.
@@ -50,9 +63,11 @@ class TMNNetwork(nn.Module):
         for node in self.graph.input_nodes:
             hist_idx[node_to_idx[node]] = h;  h += 1
         for level in sorted(self.graph.topological_levels):
-            if level == 1 or level == 2 * self.graph.L + 1:
+            # Skip input level (level 0) and output level (highest level)
+            nodes_at_level = self.graph.topological_levels[level]
+            if nodes_at_level[0][0] == 'in' or nodes_at_level[0][0] == 'out':
                 continue
-            for node in self.graph.topological_levels[level]:
+            for node in nodes_at_level:
                 hist_idx[node_to_idx[node]] = h;  h += 1
 
         # Level schedule
@@ -64,9 +79,10 @@ class TMNNetwork(nn.Module):
         #   n_level   : int
         self._level_schedule: list[tuple] = []
         for level in sorted(self.graph.topological_levels):
-            if level == 1 or level == 2 * self.graph.L + 1:
-                continue
             nodes     = self.graph.topological_levels[level]
+            # Skip input and output levels
+            if nodes[0][0] == 'in' or nodes[0][0] == 'out':
+                continue
             bias_list, src_list, dst_list, ew_list = [], [], [], []
             for i, node in enumerate(nodes):
                 bias_list.append(core_to_bias[node])
@@ -98,7 +114,7 @@ class TMNNetwork(nn.Module):
             agg = weighted.new_zeros(batch, n_level).scatter_add(
                 1, dst_rows_0.expand(batch, -1), weighted
             )                                                   # (batch, n_level)
-            out  = F.relu(agg + self.nb[bias_t])               # broadcast, no unsqueeze
+            out  = self.activation_fn(agg + self.nb[bias_t])
             hist = torch.cat([hist, out], dim=1)                # (batch, n_hist + n_level)
 
         src_states = hist[:, self._out_src_t]                   # (batch, n_preds)
