@@ -62,7 +62,8 @@ Important parameters there:
 - `L`
 - `n_in`
 - `n_out`
-- `d_model`
+- `depth`
+- `cross_layer_mode`
 - `mlp_layers`
 - `task_name`
 - `custom_function`
@@ -95,8 +96,20 @@ That figure contains:
 
 The figure also includes architecture text:
 
-- TMN shows `L`, triangular core node count, and `d_model`
+- TMN shows `L`, `depth`, `cross_layer_mode`, edge count, and parameter count
 - MLP shows `layers=[...]`
+
+## Cross-layer modes
+
+The current TMN now supports two cross-layer connection modes:
+
+- `shared_x`: keep the old rule
+  - `(*, y, z) -> (*, y, z+1)` only connects same `x`
+  - `(*, y, z+1) -> (*, y+1, z)` only connects same `x`
+- `full_x`: upgrade both cross-layer directions to full connection across `x`
+  - each position-to-position cross-layer link becomes `depth^2` edges
+
+Default remains `shared_x` so old experiments do not change unless the YAML explicitly switches modes.
 
 ## Important implementation files
 

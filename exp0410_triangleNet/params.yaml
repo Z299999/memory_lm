@@ -15,7 +15,16 @@ L: 3
 # depth = number of neurons at each position (same for all layers)
 # depth=1 means each position has 1 neuron (original TMN)
 # depth=2 means each position has 2 neurons (3D extension)
-depth: 2
+depth: 3
+
+# Cross-layer connection mode.
+# shared_x = current version:
+#   (*, y, z)   -> (*, y, z+1) only connects x -> same x
+#   (*, y, z+1) -> (*, y+1, z) only connects x -> same x
+# full_x = stronger version:
+#   both cross-layer directions become full connection across x
+#   so each position-to-position cross-layer link has depth^2 edges
+cross_layer_mode: full_x
 
 # Number of input nodes.
 # Current first-stage experiments are designed around scalar input, so keep this at 1 for now.
@@ -39,7 +48,7 @@ mlp_layers: [4, 8, 4]
 #   sin_mix
 #   poly_wave
 #   piecewise
-task_name: sin_mix
+task_name: piecewise
 
 # Optional custom target function.
 # If this is not empty, it overrides task_name.
@@ -54,7 +63,7 @@ custom_function: ""
 # - leaky_relu: allows small negative gradient, helps prevent dead nodes
 # - gelu: smooth activation, commonly used in transformers
 # - tanh: bounded output, may saturate for large inputs
-node_activation: relu
+node_activation: leaky_relu
 
 # Final output activation.
 # Current code uses tanh, so the easiest target functions are those whose values are roughly in [-1, 1].
@@ -70,7 +79,7 @@ batch_size: 64
 
 # Number of training epochs.
 # Increase this if the function fit is still poor.
-epochs: 10000
+epochs: 20000
 
 # Input x range.
 # Training samples are drawn uniformly from [x_min, x_max].

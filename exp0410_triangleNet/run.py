@@ -16,6 +16,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 from config import Config, load_config_from_yaml
 from train import train_with_config
 from plot import save_four_panel_plot, save_weights_plot
+from model.graph import TMNGraph
 from model.tmn import TMNNetwork
 
 
@@ -64,6 +65,7 @@ def clone_config(base: Config, model_type: str, run_name: str) -> Config:
         n_in=base.n_in,
         n_out=base.n_out,
         depth=base.depth,
+        cross_layer_mode=base.cross_layer_mode,
         mlp_layers=list(base.mlp_layers),
         task_name=base.task_name,
         custom_function=base.custom_function,
@@ -78,28 +80,18 @@ def clone_config(base: Config, model_type: str, run_name: str) -> Config:
 
 
 def tmn_architecture_text(config: Config) -> str:
-    # Core nodes: each position has 'depth' neurons
-    # Total positions in triangle = L*(L+1)/2
-    L = config.L
-    d = config.depth
-    total_positions = L * (L + 1) // 2
-    core_nodes = total_positions * d
-
-    # Edge count:
-    # Intra-layer (Y): d² × L(L-1)/2
-    # Vertical (Z+): d × L(L-1)/2
-    # Diagonal (Z-): d × L(L-1)/2
-    # Input: L × d
-    # Output: L × d
-    intra_edges = d * d * L * (L - 1) // 2
-    vert_edges = d * L * (L - 1) // 2
-    diag_edges = d * L * (L - 1) // 2
-    input_edges = L * d
-    output_edges = L * d
-    edge_count = intra_edges + vert_edges + diag_edges + input_edges + output_edges
-
-    param_count = edge_count + core_nodes + 1
-    return f"L={config.L}, depth={config.depth}, params={param_count}"
+    graph = TMNGraph(
+        L=config.L,
+        n_in=config.n_in,
+        n_out=config.n_out,
+        depth=config.depth,
+        cross_layer_mode=config.cross_layer_mode,
+    )
+    param_count = len(graph.edges) + graph.core_node_count + config.n_out
+    return (
+        f"L={config.L}, depth={config.depth}, mode={config.cross_layer_mode}, "
+        f"edges={len(graph.edges)}, params={param_count}"
+    )
 
 
 def mlp_architecture_text(config: Config) -> str:
@@ -122,8 +114,9 @@ def main() -> None:
     params_path = THIS_DIR / "params.yaml"
     base = load_config_from_yaml(params_path)
     experiment_name = base.run_name if base.run_name != "default" else base.task_name
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_dir = THIS_DIR / "runs" / f"{experiment_name}_{timestamp}"
+    day_folder = datetime.now().strftime("%Y%m%d")
+    timestamp = datetime.now().strftime("%H%M%S")
+    experiment_dir = THIS_DIR / "runs" / day_folder / f"{experiment_name}_{day_folder}_{timestamp}"
     experiment_dir.mkdir(parents=True, exist_ok=True)
 
     tmn_config = clone_config(base, "tmn", f"{experiment_name}_tmn")
@@ -163,7 +156,12 @@ def main() -> None:
 
     weights_path = experiment_dir / "weights.png"
     print("Building weights visualization...")
-    save_weights_plot(tmn_result["model"], tmn_result["traced_params"], weights_path)
+    save_weights_plot(
+        tmn_result["model"],
+        tmn_result["traced_params"],
+        weights_path,
+        tmn_architecture_text(tmn_config),
+    )
 
     print("Done.")
     print(f"TMN val loss: {tmn_result['metrics']['final_val_loss']:.6f}")

@@ -76,21 +76,22 @@ def save_four_panel_plot(
     plt.close()
 
 
-def _node_pos(node, L):
+def _node_pos(node, L, depth=1):
     if node[0] == "in":
-        return (-(L + 1), (L - 1) / 2.0)
+        return (-(L + 1.5), (L - 1) / 2.0)
     if node[0] == "out":
-        return (L + 1, (L - 1) / 2.0)
-    # New 3D format: ("core", x, y, z)
+        return (L + 1.5, (L - 1) / 2.0)
+    # 3D format: ("core", x, y, z)
     # Pyramid layout: bottom layer (z=1) has L positions, top layer (z=L) has 1 position
     # Center each layer horizontally
     _, x, y, z = node
     # Layer z has (L-z+1) positions, center them around x=0
     n_pos_in_layer = L - z + 1
     # Position y goes from 1 to n_pos_in_layer
-    # Center: x = y - (n_pos_in_layer + 1) / 2
-    x_pos = y - (n_pos_in_layer + 1) / 2
-    y_pos = z - 1  # z=1 at bottom (y=0), z=L at top (y=L-1)
+    # Center: x = (y - 1) - (n_pos_in_layer - 1) / 2
+    # Increase spacing between nodes
+    x_pos = (y - 1) * 1.5 - (n_pos_in_layer - 1) * 1.5 / 2
+    y_pos = (z - 1) * 1.2  # z=1 at bottom (y=0), z=L at top
     return (x_pos, y_pos)
 
 
@@ -105,17 +106,21 @@ def _should_visualize_node(node):
 def _draw_tmn_weights(ax, model):
     graph = model.graph
     L = graph.L
-    show_labels = len(graph.edges) <= 30
+    depth = graph.depth
 
     edge_to_idx = {edge: i for i, edge in enumerate(graph.edges)}
 
-    for src, dst in graph.edges:
-        # Skip edges where either endpoint is not in the inner layer (x=1)
-        if not (_should_visualize_node(src) and _should_visualize_node(dst)):
-            continue
+    # Count visible edges to decide whether to show labels
+    visible_edges = [
+        (src, dst) for src, dst in graph.edges
+        if _should_visualize_node(src) and _should_visualize_node(dst)
+    ]
+    show_labels = len(visible_edges) <= 30
+
+    for src, dst in visible_edges:
         w = model.ew[edge_to_idx[(src, dst)]].item()
-        x0, y0 = _node_pos(src, L)
-        x1, y1 = _node_pos(dst, L)
+        x0, y0 = _node_pos(src, L, depth)
+        x1, y1 = _node_pos(dst, L, depth)
         color = "#2166ac" if w >= 0 else "#d6604d"
         lw = max(0.8, min(4.0, abs(w) * 3))
         ax.annotate(
@@ -136,7 +141,7 @@ def _draw_tmn_weights(ax, model):
         # Skip nodes not in the inner layer (x=1)
         if not _should_visualize_node(node):
             continue
-        x, y = _node_pos(node, L)
+        x, y = _node_pos(node, L, depth)
         if node[0] == "core":
             bias = model.nb[core_to_bias_idx[node]].item()
             label = f"b={bias:.2f}"
@@ -149,20 +154,25 @@ def _draw_tmn_weights(ax, model):
             label = f"b={bias:.2f}"
             fc = "#fddbc7"
 
-        circle = mpatches.Circle((x, y), 0.38, color=fc, ec="#555555", lw=0.8, zorder=3)
+        circle = mpatches.Circle((x, y), 0.45, color=fc, ec="#555555", lw=0.8, zorder=3)
         ax.add_patch(circle)
-        ax.text(x, y, label, ha="center", va="center", fontsize=6.5, zorder=5)
+        ax.text(x, y, label, ha="center", va="center", fontsize=7, zorder=5)
 
     ax.set_aspect("equal")
     ax.autoscale_view()
     ax.axis("off")
     depth = graph.depth
-    ax.set_title(f"TMN weights  (L={L}, depth={depth})")
+    ax.set_title(f"TMN weights\nL={L}, depth={depth}, mode={graph.cross_layer_mode}")
 
 
-def save_weights_plot(tmn_model, traced_params: dict[str, list[float]], output_path: Path) -> None:
+def save_weights_plot(
+    tmn_model,
+    traced_params: dict[str, list[float]],
+    output_path: Path,
+    tmn_architecture: str,
+) -> None:
     fig = plt.figure(figsize=(16, 8))
-    fig.suptitle("TMN weights and training evolution", fontsize=13)
+    fig.suptitle(f"TMN weights and training evolution | {tmn_architecture}", fontsize=13)
 
     # Left half: TMN DAG (final weights)
     ax_tmn = fig.add_axes([0.02, 0.05, 0.46, 0.88])

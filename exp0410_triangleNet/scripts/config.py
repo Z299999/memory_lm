@@ -31,6 +31,11 @@ class Config:
     # Example: depth=2 means each position has 2 neurons (3D extension)
     depth: int = 1
 
+    # cross_layer_mode controls how the two cross-layer directions connect across x.
+    # shared_x = current behavior: only x -> same x
+    # full_x   = new behavior: all source x connect to all target x
+    cross_layer_mode: str = "shared_x"
+
     # Example: [8, 8, 8] means 3 hidden layers, each with 8 nodes.
     mlp_layers: list[int] = field(default_factory=lambda: [8,8,8])
 

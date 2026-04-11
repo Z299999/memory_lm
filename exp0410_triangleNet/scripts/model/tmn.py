@@ -25,7 +25,13 @@ class TMNNetwork(nn.Module):
             raise ValueError("TMNNetwork currently supports scalar input and scalar output only.")
 
         self.config = config
-        self.graph  = TMNGraph(L=config.L, n_in=config.n_in, n_out=config.n_out, depth=config.depth)
+        self.graph  = TMNGraph(
+            L=config.L,
+            n_in=config.n_in,
+            n_out=config.n_out,
+            depth=config.depth,
+            cross_layer_mode=config.cross_layer_mode,
+        )
 
         n_edges = len(self.graph.edges)
         n_core  = len(self.graph.core_nodes)

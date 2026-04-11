@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
-NodeKey = Tuple[str, int] | Tuple[str, int, int]
+NodeKey = Tuple[str, int] | Tuple[str, int, int, int]
 Edge = Tuple[NodeKey, NodeKey]
 
 
@@ -17,6 +17,7 @@ class TMNGraph:
     n_in: int = 1
     n_out: int = 1
     depth: int = 1  # depth = neurons per position (same for all layers)
+    cross_layer_mode: str = "shared_x"
 
     def __post_init__(self) -> None:
         if self.L < 1:
@@ -25,6 +26,8 @@ class TMNGraph:
             raise ValueError("n_in and n_out must be >= 1")
         if self.depth < 1:
             raise ValueError("depth must be >= 1")
+        if self.cross_layer_mode not in {"shared_x", "full_x"}:
+            raise ValueError("cross_layer_mode must be 'shared_x' or 'full_x'")
 
         self.input_nodes = [("in", a) for a in range(1, self.n_in + 1)]
         # 3D nodes: (x, y, z) = (depth, position, layer)
@@ -65,29 +68,43 @@ class TMNGraph:
                         edges.append((src, dst))
 
         # === 2. Bottom→Top connections (Z+ direction, vertical up) ===
-        # Rule: (x, y, z) → (x, y, z+1)
-        # Same depth, same position, from layer z to z+1
+        # shared_x: (x, y, z) -> (x, y, z+1)
+        # full_x:   (*, y, z) -> (*, y, z+1)
         # Target layer z+1 has L-(z+1)+1 = L-z positions
         for z in range(1, self.L):  # z from 1 to L-1
             n_pos_dst = self.L - z  # positions in layer z+1
             for y in range(1, n_pos_dst + 1):  # y must exist in both layers
-                for x in range(1, d + 1):
-                    src = ("core", x, y, z)
-                    dst = ("core", x, y, z + 1)
-                    edges.append((src, dst))
+                if self.cross_layer_mode == "shared_x":
+                    for x in range(1, d + 1):
+                        src = ("core", x, y, z)
+                        dst = ("core", x, y, z + 1)
+                        edges.append((src, dst))
+                else:
+                    for x_out in range(1, d + 1):
+                        for x_in in range(1, d + 1):
+                            src = ("core", x_out, y, z)
+                            dst = ("core", x_in, y, z + 1)
+                            edges.append((src, dst))
 
         # === 3. Top→Bottom connections (Z- direction, diagonal down-right) ===
-        # Rule: (x, y, z) → (x, y+1, z-1)
-        # Same depth, from layer z position y to layer z-1 position y+1
+        # shared_x: (x, y, z) -> (x, y+1, z-1)
+        # full_x:   (*, y, z) -> (*, y+1, z-1)
         for z in range(2, self.L + 1):  # z from 2 to L
             n_pos_src = self.L - z + 1  # positions in layer z
             n_pos_dst = self.L - z + 2  # positions in layer z-1
             for y in range(1, n_pos_src + 1):  # y from 1 to n_pos_src (all positions)
                 if y + 1 <= n_pos_dst:  # target position must exist
-                    for x in range(1, d + 1):
-                        src = ("core", x, y, z)
-                        dst = ("core", x, y + 1, z - 1)
-                        edges.append((src, dst))
+                    if self.cross_layer_mode == "shared_x":
+                        for x in range(1, d + 1):
+                            src = ("core", x, y, z)
+                            dst = ("core", x, y + 1, z - 1)
+                            edges.append((src, dst))
+                    else:
+                        for x_out in range(1, d + 1):
+                            for x_in in range(1, d + 1):
+                                src = ("core", x_out, y, z)
+                                dst = ("core", x_in, y + 1, z - 1)
+                                edges.append((src, dst))
 
         # === 4. Input head connections ===
         # Input connects to leftmost position (y=1) of each layer
