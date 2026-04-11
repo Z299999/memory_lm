@@ -92,6 +92,14 @@ def _node_pos(node, L):
     return (x_pos, y_pos)
 
 
+def _should_visualize_node(node):
+    """Return True if node should be visualized. Only visualize inner layer (x=1)."""
+    if node[0] in ("in", "out"):
+        return True
+    # Core node: ("core", x, y, z) - only visualize x=1 (inner layer)
+    return node[1] == 1
+
+
 def _draw_tmn_weights(ax, model):
     graph = model.graph
     L = graph.L
@@ -100,6 +108,9 @@ def _draw_tmn_weights(ax, model):
     edge_to_idx = {edge: i for i, edge in enumerate(graph.edges)}
 
     for src, dst in graph.edges:
+        # Skip edges where either endpoint is not in the inner layer (x=1)
+        if not (_should_visualize_node(src) and _should_visualize_node(dst)):
+            continue
         w = model.ew[edge_to_idx[(src, dst)]].item()
         x0, y0 = _node_pos(src, L)
         x1, y1 = _node_pos(dst, L)
@@ -120,6 +131,9 @@ def _draw_tmn_weights(ax, model):
     core_to_bias_idx = {node: i for i, node in enumerate(graph.core_nodes)}
 
     for node in graph.nodes:
+        # Skip nodes not in the inner layer (x=1)
+        if not _should_visualize_node(node):
+            continue
         x, y = _node_pos(node, L)
         if node[0] == "core":
             bias = model.nb[core_to_bias_idx[node]].item()
