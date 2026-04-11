@@ -42,15 +42,15 @@ def build_trace_fn(config: Config):
     def trace_fn(model):
         result = {}
         for node, nb_idx, ew_idxs in traced:
-            y, z = node[2], node[3]
-            result[f"b({y},{z})"] = float(model.nb[nb_idx].item())
+            x, y, z = node[1], node[2], node[3]
+            result[f"b({x},{y},{z})"] = float(model.nb[nb_idx].item())
             for i, ew_idx in enumerate(ew_idxs):
                 src = graph.preds[node][i]
                 if src[0] == "in":
                     src_label = f"in,{src[1]}"
                 else:
                     src_label = f"{src[1]},{src[2]},{src[3]}"
-                result[f"w({src_label})->({y},{z})"] = float(model.ew[ew_idx].item())
+                result[f"w({src_label})->({x},{y},{z})"] = float(model.ew[ew_idx].item())
         return result
 
     return trace_fn
