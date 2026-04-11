@@ -21,18 +21,72 @@ exp0410_triangleNet/
 ├── run.py
 ├── motivation.md
 ├── readme.md
+├── timeline.md       # 科研进展记录（含 dead ends 和 TODOs）
 ├── requirements.txt
 └── scripts/
     ├── config.py
     ├── data.py
     ├── train.py
-    ├── utils.py
+    ├── plot.py
     └── model/
         ├── __init__.py
         ├── graph.py
         ├── mlp.py
         └── tmn.py
 ```
+
+---
+
+## 三维坐标系统与术语（TMN-3D）
+
+TMN 节点使用三元组 `(layer, pos, depth)` 定位：
+
+| 维度 | 方向 | 术语 | 坐标符号 | 取值范围 | 示例 |
+|------|------|------|----------|----------|------|
+| **层 (Layer)** | 上→下 | 三角形第几行 | `L` 或 `r` | `1` 到 `L_max` | `L=4` 表示三角形有 4 层 |
+| **位置 (Position)** | 左→右 | 该层第几个节点 | `pos` 或 `c` | `1` 到 `L` | 第 4 层有 4 个位置 |
+| **深度 (Depth)** | 外→里 | 该位置第几个神经元 | `d` | `1` 到 `depth[L]` | `depth=[2,2,2,2]` 表示每层深度=2 |
+
+**节点示例**（L=4, depth=[2,2,2,2]）：
+- `(4, 1, 1)` = 第 4 层，第 1 个位置，第 1 个神经元（最外层）
+- `(4, 1, 2)` = 第 4 层，第 1 个位置，第 2 个神经元（最里层）
+- `(4, 4, 2)` = 第 4 层，第 4 个位置，第 2 个神经元（右下角最里层）
+
+### 连接规则
+
+**禁止的连接**：
+- **深度连接**：同一位置内的神经元之间**不直接相连**（即 `(L, pos, 1) → (L, pos, 2)` 不存在）
+
+**允许的连接**（两种）：
+
+| 类型 | 方向 | 规则 | 示例 |
+|------|------|------|------|
+| **层内连接** | 左→右 | 相邻位置之间全连接 | `(4,1,2) → (4,2,1)` |
+| **跨层连接** | 上→下 | 上层→下层（保持三角结构） | `(3,1,2) → (4,2,1)` |
+
+**连出/连入约定**：
+- **连出**：从源位置的**最里层**神经元连出（`depth = depth[layer]`）
+- **连入**：连入目标位置的**最外层**神经元（`depth = 1`）
+
+### 参数表示
+
+```yaml
+# 三角形层数（上到下）
+L: 4
+
+# 每层的深度（外到里），长度 = L
+# depth[i] = 第 i+1 层每个位置的神经元数量
+depth: [1, 1, 1, 1]  # 原始 TMN（每个位置 1 个神经元）
+# 或
+depth: [2, 2, 2, 2]  # 每层扩充到 2 层 MLP 结构
+```
+
+**边的数量计算**（L=4, depth=[2,2,2,2]）：
+- 层内边：`(L-1) × d² + (L-2) × d² + ... = d² × L(L-1)/2`
+- 跨层边：原始三角边数 × d²
+- 总计：约 72 条边（原始 15 条）
+
+---
 
 ## 当前实现
 
@@ -55,6 +109,8 @@ t(T_(r,c)) = L - r + 2c
 
 ### 2. `TMNNetwork`
 
+**标量节点版本**（depth=[1,1,1,...]）：
+
 每个节点是一个标量，每条边有一个可学习的标量权重：
 
 ```text
@@ -62,12 +118,24 @@ node(v) = ReLU( Σ w(u→v) × node(u) + bias(v) )
 output  = Tanh( Σ w(u→out) × node(u) + bias_out )
 ```
 
+**深度扩展版本**（depth=[2,2,2,...]）：
+
+每个位置有多个神经元，相邻位置之间全连接：
+- 连出：从源位置的**最里层**神经元
+- 连入：到目标位置的**最外层**神经元
+
+```text
+位置 (L,pos) 内部：[d=1, d=2, ..., d=depth[L]]
+层内连接：(L, pos, depth[L]) → (L, pos+1, 1)  全连接 d² 条边
+跨层连接：(L, pos, depth[L]) → (L+1, pos', 1) 全连接 d² 条边
+```
+
 **关于跳层（relay node）**：motivation 里提到过，如果框架不支持跳层连接，需要在中间补"死点"（relay node，权重和偏置固定不更新）来让信号逐层传递。PyTorch 的动态计算图天然支持任意 DAG，forward 时我们用一个 `states` 字典按拓扑序遍历节点，每个节点直接从字典里读取任意更早层的父节点状态，不需要补点。**所以当前实现没有 relay node。**
 
 forward 执行逻辑：
 
 - 按拓扑层从前往后遍历所有核心节点
-- 每个节点把所有父节点的状态加权求和，加 bias，过 ReLU
+- 每个节点把所有父节点的状态加权求和，加 bias，过激活函数
 - 输出节点聚合右对角线上的父节点，加 bias，过 tanh
 
 ### 3. `MLPBaseline`
@@ -157,15 +225,15 @@ python3 scripts/train.py --model-type mlp --run-name baby_mlp
 你主要会改这些参数：
 
 - 结构参数：
-  - `L`
-  - `n_in / n_out`
-  - `d_model`
+  - `L` — 三角形层数（上到下）
+  - `depth` — 每层的深度（外到里），如 `[1,1,1,1]` 或 `[2,2,2,2]`
+  - `n_in / n_out` — 输入/输出头数量
 - MLP baseline 参数：
   - `mlp_layers`
 - 函数参数：
   - `task_name`
   - `custom_function`
-  - `node_activation`
+  - `node_activation` — 支持 `relu`, `leaky_relu`, `gelu`, `tanh`
   - `output_activation`
 - 训练参数：
   - `lr`
@@ -233,17 +301,18 @@ task_name: piecewise
 3. [graph.py](/Users/shzhang/Documents/Github/memory_lm/exp0410_triangleNet/scripts/model/graph.py)：三角 DAG 是怎么生成的
 4. [tmn.py](/Users/shzhang/Documents/Github/memory_lm/exp0410_triangleNet/scripts/model/tmn.py)：TMN 前向传播怎么走
 5. [train.py](/Users/shzhang/Documents/Github/memory_lm/exp0410_triangleNet/scripts/train.py)：训练循环和产物保存
-```
+6. [plot.py](/Users/shzhang/Documents/Github/memory_lm/exp0410_triangleNet/scripts/plot.py)：可视化逻辑
+7. [timeline.md](/Users/shzhang/Documents/Github/memory_lm/exp0410_triangleNet/timeline.md)：科研进展记录
 
 ## 默认配置
 
-- `L=3`
+- `L=4`
+- `depth=[1,1,1,1]` — 原始 TMN，每个位置 1 个神经元
 - `n_in=1`
 - `n_out=1`
-- `d_model=32`
-- `node_activation=relu`
+- `node_activation=relu` — 也支持 `leaky_relu`, `gelu`, `tanh`
 - `output_activation=tanh`
-- 默认任务：`sin`
+- 默认任务：`sin_mix`
 
 注意：当前输出层仍然是 `tanh`，所以最适合拟合值域大致落在 `[-1, 1]` 的目标函数。你如果传一个值域很大的自定义函数，训练会受到输出层限制。
 
