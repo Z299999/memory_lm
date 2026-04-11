@@ -12,10 +12,10 @@ run_name: default
 #   3 nodes on the bottom
 L: 4
 
-# depth[z-1] = number of neurons at each position in layer z
-# Example: [1,1,1,1] means each position has 1 neuron (original TMN)
-# Example: [2,2,2,2] means each position has 2 neurons (3D extension)
-depth: [1, 1, 1, 1]
+# depth = number of neurons at each position (same for all layers)
+# depth=1 means each position has 1 neuron (original TMN)
+# depth=2 means each position has 2 neurons (3D extension)
+depth: 1
 
 # Number of input nodes.
 # Current first-stage experiments are designed around scalar input, so keep this at 1 for now.

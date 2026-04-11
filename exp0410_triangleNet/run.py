@@ -25,9 +25,8 @@ def build_trace_fn(config: Config):
     graph = model.graph
     L = config.L
 
-    # Bottom row core nodes (z=1): (core, x, y, 1) for y=1..L, x=1..depth[0]
+    # Bottom row core nodes (z=1): (core, x, y, 1) for y=1..L, x=1..depth
     # For visualization, we track the first neuron (x=1) at each position
-    depth_0 = config.depth[0] if config.depth else 1
     bottom_nodes = [("core", 1, y, 1) for y in range(1, L + 1)]
     core_to_nb_idx = {node: i for i, node in enumerate(graph.core_nodes)}
     edge_to_ew_idx = {edge: i for i, edge in enumerate(graph.edges)}

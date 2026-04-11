@@ -26,10 +26,10 @@ class Config:
     n_in: int = 1
     n_out: int = 1
 
-    # depth[z-1] = number of neurons at each position in layer z
-    # Example: [1,1,1,1] means each position has 1 neuron (original TMN)
-    # Example: [2,2,2,2] means each position has 2 neurons (3D extension)
-    depth: list[int] = field(default_factory=lambda: [1,1,1,1])
+    # depth = number of neurons at each position (same for all layers)
+    # Example: depth=1 means each position has 1 neuron (original TMN)
+    # Example: depth=2 means each position has 2 neurons (3D extension)
+    depth: int = 1
 
     # Example: [8, 8, 8] means 3 hidden layers, each with 8 nodes.
     mlp_layers: list[int] = field(default_factory=lambda: [8,8,8])

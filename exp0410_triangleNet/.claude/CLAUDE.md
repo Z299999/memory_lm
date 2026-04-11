@@ -3,10 +3,10 @@
 ## Project Overview
 
 This is a research experiment implementing a **Triangular Memory Network (TMN)** — a novel DAG architecture where:
-- Nodes are arranged in a triangle (L layers, layer z has z positions)
+- Nodes are arranged in a triangle (L layers, layer z has L-z+1 positions)
 - Each position can have multiple neurons (X/depth dimension)
 - **No X-direction connections**: neurons within the same position are NOT directly connected
-- Signal flows: **Y (left→right)** + **Z (top→bottom)**
+- Signal flows: **Y (left→right)** + **Z (vertical + diagonal)**
 
 ## 3D Coordinate System (XYZ)
 
@@ -14,13 +14,13 @@ All nodes use `(x, y, z)` notation — standard Cartesian axes:
 
 | Axis | Direction | Term | Range | Example |
 |------|-----------|------|-------|---------|
-| **X** | Inner→Outer | 深度 (Depth) | `1` to `depth[z]` | `x=1` is innermost, `x=2` is outer |
-| **Y** | Left→Right | 位置 (Position) | `1` to `z` | `y=1` is leftmost, `y=z` is rightmost |
+| **X** | Inner→Outer | 深度 (Depth) | `1` to `depth` | `x=1` is innermost, `x=2` is outer |
+| **Y** | Left→Right | 位置 (Position) | `1` to `L-z+1` | `y=1` is leftmost, `y=L-z+1` is rightmost |
 | **Z** | Bottom→Top | 层 (Layer) | `1` to `L` | `z=1` is bottom layer, `z=L` is top |
 
 **Node notation**: `(x, y, z)` = `(depth, position, layer)`
 
-**Node examples** (L=4, depth=[2,2,2,2]):
+**Node examples** (L=4, depth=2):
 - `(2, 1, 4)` = outer layer, left side, 4th layer from bottom (top-left outer)
 - `(1, 1, 4)` = inner layer, left side, 4th layer from bottom (top-left inner)
 - `(2, 4, 1)` = outer layer, rightmost, bottom layer (bottom-right outer)
@@ -28,12 +28,13 @@ All nodes use `(x, y, z)` notation — standard Cartesian axes:
 
 ## Connection Rules
 
-### Allowed Connections (2 types)
+### Allowed Connections (3 types)
 
 | Type | Direction | Rule | Example |
 |------|-----------|------|---------|
-| **Intra-layer** | Y (Left→Right) | Adjacent positions, full connect | `(2, 1, 4) → (1, 2, 4)` |
-| **Inter-layer** | Z (Top→Bottom) | Triangular structure preserved | `(2, 1, 4) → (1, 1, 3)` |
+| **Intra-layer** | Y (Left→Right) | Adjacent positions, full connect | `(1, 1, 4) → (1, 2, 4)` |
+| **Bottom→Top** | Z+ (Vertical up) | `(x,y,z) → (x,y,z+1)` | `(1, 1, 3) → (1, 1, 4)` |
+| **Top→Bottom** | Z- (Diagonal) | `(x,y,z) → (x,y+1,z-1)` | `(1, 1, 4) → (1, 2, 3)` |
 
 ### Forbidden Connections
 
@@ -42,7 +43,7 @@ All nodes use `(x, y, z)` notation — standard Cartesian axes:
 
 ### Connect-Out / Connect-In Convention
 
-- **Connect-out**: From source position's **maximum X** (outermost, `x = depth[z]`)
+- **Connect-out**: From source position's **maximum X** (outermost, `x = depth`)
 - **Connect-in**: To target position's **minimum X** (innermost, `x = 1`)
 
 ## Key Files
@@ -77,7 +78,7 @@ Output: `runs/<task_name>_<timestamp>/comparison_4panel.png` + `weights.png`
 
 ```yaml
 L: 4                        # Triangle layers
-depth: [1,1,1,1]           # Per-layer depth (use [2,2,2,2] for expansion)
+depth: 1                    # Neurons per position (use 2 for expansion)
 node_activation: relu      # relu, leaky_relu, gelu, tanh
 mlp_layers: [4,8,4]        # MLP baseline architecture
 task_name: sin_mix         # sin, sin_mix, poly_wave, piecewise
@@ -91,8 +92,9 @@ lr: 0.001
 
 | depth | Total Edges |
 |-------|-------------|
-| [1,1,1,1] | 15 edges |
-| [2,2,2,2] | ~72 edges (d² multiplier) |
+| 1 | 26 edges |
+| 2 | 64 edges |
+| d | 18d² + 8d edges |
 
 ### Known Issues / Research Questions
 
