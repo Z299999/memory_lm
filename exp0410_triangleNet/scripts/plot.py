@@ -43,6 +43,7 @@ def save_four_panel_plot(
     )
     axes[0, 0].set_xlabel("Epoch")
     axes[0, 0].set_ylabel(f"{loss_fn}")
+    axes[0, 0].set_yscale("log")
     axes[0, 0].legend()
 
     axes[0, 1].plot(tmn_x, tmn_y_true, label="target")
@@ -60,6 +61,7 @@ def save_four_panel_plot(
     )
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].set_ylabel(f"{loss_fn}")
+    axes[1, 0].set_yscale("log")
     axes[1, 0].legend()
 
     axes[1, 1].plot(mlp_x, mlp_y_true, label="target")

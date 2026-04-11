@@ -10,12 +10,12 @@ run_name: default
 #   1 node on top
 #   2 nodes in the middle
 #   3 nodes on the bottom
-L: 4
+L: 3
 
 # depth = number of neurons at each position (same for all layers)
 # depth=1 means each position has 1 neuron (original TMN)
 # depth=2 means each position has 2 neurons (3D extension)
-depth: 1
+depth: 2
 
 # Number of input nodes.
 # Current first-stage experiments are designed around scalar input, so keep this at 1 for now.
@@ -54,7 +54,7 @@ custom_function: ""
 # - leaky_relu: allows small negative gradient, helps prevent dead nodes
 # - gelu: smooth activation, commonly used in transformers
 # - tanh: bounded output, may saturate for large inputs
-node_activation: leaky_relu
+node_activation: relu
 
 # Final output activation.
 # Current code uses tanh, so the easiest target functions are those whose values are roughly in [-1, 1].
@@ -70,7 +70,7 @@ batch_size: 64
 
 # Number of training epochs.
 # Increase this if the function fit is still poor.
-epochs: 20000
+epochs: 10000
 
 # Input x range.
 # Training samples are drawn uniformly from [x_min, x_max].

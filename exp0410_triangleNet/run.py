@@ -78,14 +78,44 @@ def clone_config(base: Config, model_type: str, run_name: str) -> Config:
 
 
 def tmn_architecture_text(config: Config) -> str:
-    core_nodes = config.L * (config.L + 1) // 2
-    edge_count = 3 * config.L * (config.L - 1) // 2 + config.n_in * config.L + config.n_out * config.L
+    # Core nodes: each position has 'depth' neurons
+    # Total positions in triangle = L*(L+1)/2
+    L = config.L
+    d = config.depth
+    total_positions = L * (L + 1) // 2
+    core_nodes = total_positions * d
+
+    # Edge count:
+    # Intra-layer (Y): d² × L(L-1)/2
+    # Vertical (Z+): d × L(L-1)/2
+    # Diagonal (Z-): d × L(L-1)/2
+    # Input: L × d
+    # Output: L × d
+    intra_edges = d * d * L * (L - 1) // 2
+    vert_edges = d * L * (L - 1) // 2
+    diag_edges = d * L * (L - 1) // 2
+    input_edges = L * d
+    output_edges = L * d
+    edge_count = intra_edges + vert_edges + diag_edges + input_edges + output_edges
+
     param_count = edge_count + core_nodes + 1
-    return f"L={config.L}, core_nodes={core_nodes}, params={param_count}"
+    return f"L={config.L}, depth={config.depth}, params={param_count}"
 
 
 def mlp_architecture_text(config: Config) -> str:
-    return f"layers={config.mlp_layers}"
+    # Calculate total parameters
+    # Input is 1D (scalar), output is 1D (scalar)
+    layers = config.mlp_layers
+    if len(layers) == 0:
+        param_count = 1  # Just input->output
+    else:
+        param_count = 0
+        prev_size = 1  # Input is scalar
+        for h_size in layers:
+            param_count += prev_size * h_size + h_size  # weights + bias
+            prev_size = h_size
+        param_count += prev_size * 1 + 1  # Output layer (weights + bias)
+    return f"layers={config.mlp_layers}, params={param_count}"
 
 
 def main() -> None:
