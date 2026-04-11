@@ -80,11 +80,16 @@ def _node_pos(node, L):
     if node[0] == "out":
         return (L + 1, (L - 1) / 2.0)
     # New 3D format: ("core", x, y, z)
-    # Use y (position) and z (layer) for 2D visualization
+    # Pyramid layout: bottom layer (z=1) has L positions, top layer (z=L) has 1 position
+    # Center each layer horizontally
     _, x, y, z = node
-    # Map to 2D: x-axis = position (y), y-axis = layer (z)
-    # Invert z so higher layers appear at top
-    return (y - 1, z - 1)
+    # Layer z has (L-z+1) positions, center them around x=0
+    n_pos_in_layer = L - z + 1
+    # Position y goes from 1 to n_pos_in_layer
+    # Center: x = y - (n_pos_in_layer + 1) / 2
+    x_pos = y - (n_pos_in_layer + 1) / 2
+    y_pos = z - 1  # z=1 at bottom (y=0), z=L at top (y=L-1)
+    return (x_pos, y_pos)
 
 
 def _draw_tmn_weights(ax, model):
