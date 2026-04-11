@@ -3,25 +3,28 @@
 ## Project Overview
 
 This is a research experiment implementing a **Triangular Memory Network (TMN)** — a novel DAG architecture where:
-- Nodes are arranged in a triangle (L layers, layer r has r positions)
-- Each position can have multiple neurons (depth dimension)
-- **No depth connections**: neurons within the same position are NOT directly connected
-- Signal flows: **layer (top→bottom)** + **position (left→right)**
+- Nodes are arranged in a triangle (L layers, layer z has z positions)
+- Each position can have multiple neurons (X/depth dimension)
+- **No X-direction connections**: neurons within the same position are NOT directly connected
+- Signal flows: **Y (left→right)** + **Z (top→bottom)**
 
-## 3D Coordinate System
+## 3D Coordinate System (XYZ)
 
-All nodes use `(layer, pos, depth)` notation:
+All nodes use `(x, y, z)` notation — standard Cartesian axes:
 
-| Dimension | Direction | Term | Range | Example |
-|-----------|-----------|------|-------|---------|
-| **Layer** | Top→Bottom | 层 | `1` to `L` | L=4 means 4 layers |
-| **Position** | Left→Right | 位置 | `1` to `layer` | Layer 4 has 4 positions |
-| **Depth** | Outer→Inner | 深度 | `1` to `depth[layer]` | depth=[2,2,2,2] means 2 neurons per position |
+| Axis | Direction | Term | Range | Example |
+|------|-----------|------|-------|---------|
+| **X** | Inner→Outer | 深度 (Depth) | `1` to `depth[z]` | `x=1` is innermost, `x=2` is outer |
+| **Y** | Left→Right | 位置 (Position) | `1` to `z` | `y=1` is leftmost, `y=z` is rightmost |
+| **Z** | Bottom→Top | 层 (Layer) | `1` to `L` | `z=1` is bottom layer, `z=L` is top |
+
+**Node notation**: `(x, y, z)` = `(depth, position, layer)`
 
 **Node examples** (L=4, depth=[2,2,2,2]):
-- `(4, 1, 1)` = Layer 4, Position 1, outermost neuron
-- `(4, 1, 2)` = Layer 4, Position 1, innermost neuron
-- `(4, 4, 2)` = Layer 4, Position 4, bottom-right innermost neuron
+- `(2, 1, 4)` = outer layer, left side, 4th layer from bottom (top-left outer)
+- `(1, 1, 4)` = inner layer, left side, 4th layer from bottom (top-left inner)
+- `(2, 4, 1)` = outer layer, rightmost, bottom layer (bottom-right outer)
+- `(1, 1, 1)` = inner layer, leftmost, bottom layer (bottom-left inner)
 
 ## Connection Rules
 
@@ -29,18 +32,18 @@ All nodes use `(layer, pos, depth)` notation:
 
 | Type | Direction | Rule | Example |
 |------|-----------|------|---------|
-| **Intra-layer** | Left→Right | Adjacent positions, full connect | `(4,1,2) → (4,2,1)` |
-| **Inter-layer** | Top→Bottom | Triangular structure preserved | `(3,1,2) → (4,2,1)` |
+| **Intra-layer** | Y (Left→Right) | Adjacent positions, full connect | `(2, 1, 4) → (1, 2, 4)` |
+| **Inter-layer** | Z (Top→Bottom) | Triangular structure preserved | `(2, 1, 4) → (1, 1, 3)` |
 
 ### Forbidden Connections
 
-- **Depth connections**: `(L, pos, 1) → (L, pos, 2)` does NOT exist
+- **X-direction connections**: `(x, y, z) → (x+1, y, z)` does NOT exist
 - Neurons within the same position never connect directly
 
 ### Connect-Out / Connect-In Convention
 
-- **Connect-out**: From source position's **innermost** neuron (`depth = depth[layer]`)
-- **Connect-in**: To target position's **outermost** neuron (`depth = 1`)
+- **Connect-out**: From source position's **maximum X** (outermost, `x = depth[z]`)
+- **Connect-in**: To target position's **minimum X** (innermost, `x = 1`)
 
 ## Key Files
 
@@ -93,7 +96,7 @@ lr: 0.001
 
 ### Known Issues / Research Questions
 
-1. **Dying neurons**: Bottom-right nodes (e.g., (4,4)) often stay at ~0 bias
+1. **Dying neurons**: Bottom layer nodes (e.g., z=1) often stay at ~0 bias
 2. **LeakyReLU helps**: 0.01 slope activates some dead nodes, but not all
 3. **Signal attenuation**: Long paths through ReLU layers decay to 0
 
@@ -116,6 +119,6 @@ Use `trace_fn` callback in `train_with_config()` — see `run.py::build_trace_fn
 ## Things to Avoid
 
 - Don't re-add `d_model` — we use scalar nodes now
-- Don't add depth connections — violates TMN design
+- Don't add X-direction connections — violates TMN design (no depth connections within same position)
 - Don't revert to string-based forward pass — use integer indices
 - Don't commit `runs/` — already in .gitignore
