@@ -154,7 +154,8 @@ def _draw_tmn_weights(ax, model):
     ax.set_aspect("equal")
     ax.autoscale_view()
     ax.axis("off")
-    ax.set_title(f"TMN weights  (L={L})")
+    depth = graph.depth
+    ax.set_title(f"TMN weights  (L={L}, depth={depth})")
 
 
 def save_weights_plot(tmn_model, traced_params: dict[str, list[float]], output_path: Path) -> None:
