@@ -63,6 +63,7 @@ def clone_config(base: Config, model_type: str, run_name: str) -> Config:
         L=base.L,
         n_in=base.n_in,
         n_out=base.n_out,
+        depth=base.depth,
         mlp_layers=list(base.mlp_layers),
         task_name=base.task_name,
         custom_function=base.custom_function,
