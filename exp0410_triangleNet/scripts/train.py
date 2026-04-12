@@ -108,13 +108,36 @@ def train_with_config(config, trace_fn=None):
         "final_val_loss": final_val_loss,
     }
 
-    return {
-        "metrics": metrics,
-        "model": model,
-        "train_losses": train_losses,
-        "val_losses": val_losses,
-        "traced_params": traced_params,
-        "x_plot": dataset.x_plot.squeeze(-1).cpu().numpy(),
-        "y_plot": dataset.y_plot.squeeze(-1).cpu().numpy(),
-        "y_pred": y_pred.squeeze(-1),
-    }
+    # Handle 1D vs 2D output
+    x_plot_np = dataset.x_plot.cpu().numpy()
+    y_plot_np = dataset.y_plot.cpu().numpy()
+    y_pred_np = y_pred
+
+    if config.n_in == 2:
+        # 2D input: return grid info for plotting
+        n_side = int(math.sqrt(len(x_plot_np)))
+        x1_grid = x_plot_np[:, 0].reshape(n_side, n_side)
+        x2_grid = x_plot_np[:, 1].reshape(n_side, n_side)
+        return {
+            "metrics": metrics,
+            "model": model,
+            "train_losses": train_losses,
+            "val_losses": val_losses,
+            "traced_params": traced_params,
+            "x_plot": x_plot_np,
+            "y_plot": y_plot_np,
+            "y_pred": y_pred_np,
+            "x1_grid": x1_grid,
+            "x2_grid": x2_grid,
+        }
+    else:
+        return {
+            "metrics": metrics,
+            "model": model,
+            "train_losses": train_losses,
+            "val_losses": val_losses,
+            "traced_params": traced_params,
+            "x_plot": x_plot_np.squeeze(-1),
+            "y_plot": y_plot_np.squeeze(-1),
+            "y_pred": y_pred_np.squeeze(-1),
+        }

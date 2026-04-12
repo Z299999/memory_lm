@@ -274,3 +274,59 @@ def save_weights_plot(
 
     plt.savefig(output_path, dpi=150)
     plt.close()
+
+
+def save_2d_comparison_plot(
+    tmn_y_true: np.ndarray,
+    tmn_y_pred: np.ndarray,
+    tmn_x1_grid: np.ndarray,
+    tmn_x2_grid: np.ndarray,
+    tmn_architecture: str,
+    tmn_final_val_loss: float,
+    train_losses: list[float],
+    val_losses: list[float],
+    output_path: Path,
+) -> None:
+    """Save 4-panel comparison plot for 2D -> 1D functions."""
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(f"2D Function Fit | {tmn_architecture} | final val loss={tmn_final_val_loss:.6f}", fontsize=12)
+
+    # Reshape for plotting
+    n_side = int(np.sqrt(len(tmn_y_true)))
+    y_true_2d = tmn_y_true.reshape(n_side, n_side)
+    y_pred_2d = tmn_y_pred.reshape(n_side, n_side)
+    error_2d = y_true_2d - y_pred_2d
+
+    # Panel 1: Target function heatmap
+    im0 = axes[0, 0].pcolormesh(tmn_x1_grid, tmn_x2_grid, y_true_2d.T, cmap='viridis', shading='auto')
+    axes[0, 0].set_title("Target Function")
+    axes[0, 0].set_xlabel("x1")
+    axes[0, 0].set_ylabel("x2")
+    fig.colorbar(im0, ax=axes[0, 0])
+
+    # Panel 2: TMN prediction heatmap
+    im1 = axes[0, 1].pcolormesh(tmn_x1_grid, tmn_x2_grid, y_pred_2d.T, cmap='viridis', shading='auto')
+    axes[0, 1].set_title(f"TMN Prediction")
+    axes[0, 1].set_xlabel("x1")
+    axes[0, 1].set_ylabel("x2")
+    fig.colorbar(im1, ax=axes[0, 1])
+
+    # Panel 3: Error heatmap
+    im2 = axes[1, 0].pcolormesh(tmn_x1_grid, tmn_x2_grid, error_2d.T, cmap='RdBu_r', shading='auto')
+    axes[1, 0].set_title("Error (Target - Prediction)")
+    axes[1, 0].set_xlabel("x1")
+    axes[1, 0].set_ylabel("x2")
+    fig.colorbar(im2, ax=axes[1, 0])
+
+    # Panel 4: Loss curves
+    axes[1, 1].plot(train_losses, label="train")
+    axes[1, 1].plot(val_losses, label="val")
+    axes[1, 1].set_title("Training Loss")
+    axes[1, 1].set_xlabel("Epoch")
+    axes[1, 1].set_ylabel("Loss")
+    axes[1, 1].set_yscale("log")
+    axes[1, 1].legend()
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.savefig(output_path, dpi=150)
+    plt.close()

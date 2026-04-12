@@ -21,8 +21,8 @@ from model.graph import NodeKey, TMNGraph
 class TMNNetwork(nn.Module):
     def __init__(self, config: Config) -> None:
         super().__init__()
-        if config.n_in != 1 or config.n_out != 1:
-            raise ValueError("TMNNetwork currently supports scalar input and scalar output only.")
+        if config.n_in < 1 or config.n_out != 1:
+            raise ValueError("TMNNetwork currently supports n_in >= 1 and n_out = 1.")
 
         self.config = config
         self.graph  = TMNGraph(
@@ -109,10 +109,18 @@ class TMNNetwork(nn.Module):
         self._out_src_t = torch.tensor([hist_idx[node_to_idx[p]] for p in preds], dtype=torch.long)
         self._out_ew_t  = torch.tensor([edge_to_idx[(p, out_node)] for p in preds], dtype=torch.long)
 
+        # Input node mapping: input node i receives x[:, i]
+        self._input_node_indices = [node_to_idx[node] for node in self.graph.input_nodes]
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, 1)
+        # x: (batch, n_in)
         batch = x.shape[0]
-        hist  = x                                               # (batch, 1)
+        # Build initial hist from input nodes
+        # Each input node gets one dimension of x
+        hist_cols = []
+        for i, node_idx in enumerate(self._input_node_indices):
+            hist_cols.append(x[:, i:i+1])  # keep dim for concat
+        hist = torch.cat(hist_cols, dim=1)  # (batch, n_in)
 
         for src_t, dst_rows_0, ew_idx_t, bias_t, n_level in self._level_schedule:
             src_states = hist[:, src_t]                         # (batch, n_edges)
