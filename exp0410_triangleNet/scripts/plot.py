@@ -78,9 +78,9 @@ def save_four_panel_plot(
 
 def _node_pos(node, L, depth=1):
     if node[0] == "in":
-        return (-(L + 1.5), (L - 1) / 2.0)
+        return (-(L + 1.5), (L - 1) / 2.0 + 0.3)
     if node[0] == "out":
-        return (L + 1.5, (L - 1) / 2.0)
+        return (L + 1.5, (L - 1) / 2.0 + 0.3)
     # 3D format: ("core", x, y, z)
     # Pyramid layout: bottom layer (z=1) has L positions, top layer (z=L) has 1 position
     # Center each layer horizontally
@@ -92,21 +92,46 @@ def _node_pos(node, L, depth=1):
     # Increase spacing between nodes
     x_pos = (y - 1) * 1.5 - (n_pos_in_layer - 1) * 1.5 / 2
     y_pos = (z - 1) * 1.2  # z=1 at bottom (y=0), z=L at top
+
+    # For tetrahedron mode: add x-offset for depth dimension (3D projection)
+    # Shift nodes with higher x to the right and slightly down for perspective
+    # Compute depth_at_z: how many neurons at layer z
+    if depth == "tetrahedron":
+        depth_at_z = z  # depth(z) = z
+    elif callable(depth):
+        depth_at_z = depth(z)
+    else:
+        depth_at_z = depth if isinstance(depth, int) else 1
+
+    if depth_at_z > 1:
+        # Spread x layers across a range, centered around original position
+        x_offset = (x - (depth_at_z + 1) / 2) * 0.5
+        y_offset = -(x - 1) * 0.15  # Higher x appears slightly lower (perspective)
+        x_pos += x_offset
+        y_pos += y_offset
     return (x_pos, y_pos)
 
 
 def _should_visualize_node(node):
-    """Return True if node should be visualized. Only visualize inner layer (x=1)."""
+    """Return True if node should be visualized. Visualize all nodes."""
     if node[0] in ("in", "out"):
         return True
-    # Core node: ("core", x, y, z) - only visualize x=1 (inner layer)
-    return node[1] == 1
+    # Core node: ("core", x, y, z) - visualize all depths
+    return True
 
 
 def _draw_tmn_weights(ax, model):
     graph = model.graph
     L = graph.L
     depth = graph.depth
+
+    # Get max depth for color scaling
+    if depth == "tetrahedron":
+        max_d = L
+    elif callable(depth):
+        max_d = depth(L)
+    else:
+        max_d = depth if isinstance(depth, int) else 1
 
     edge_to_idx = {edge: i for i, edge in enumerate(graph.edges)}
 
@@ -115,7 +140,7 @@ def _draw_tmn_weights(ax, model):
         (src, dst) for src, dst in graph.edges
         if _should_visualize_node(src) and _should_visualize_node(dst)
     ]
-    show_labels = len(visible_edges) <= 30
+    show_labels = len(visible_edges) <= 40
 
     for src, dst in visible_edges:
         w = model.ew[edge_to_idx[(src, dst)]].item()
@@ -131,38 +156,48 @@ def _draw_tmn_weights(ax, model):
         )
         if show_labels:
             mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-            ax.text(mx, my, f"{w:.2f}", fontsize=7, ha="center", va="center",
+            ax.text(mx, my, f"{w:.2f}", fontsize=6, ha="center", va="center",
                     color=color, zorder=4,
                     bbox=dict(boxstyle="round,pad=0.1", facecolor="white", alpha=0.75, edgecolor="none"))
 
     core_to_bias_idx = {node: i for i, node in enumerate(graph.core_nodes)}
 
+    # Color map for depth (x value) - from light to dark blue
+    depth_colors = ["#e5f5f9", "#99d8c9", "#2ca25f", "#8856a7", "#810f7c"]
+
     for node in graph.nodes:
-        # Skip nodes not in the inner layer (x=1)
         if not _should_visualize_node(node):
             continue
         x, y = _node_pos(node, L, depth)
+
         if node[0] == "core":
             bias = model.nb[core_to_bias_idx[node]].item()
             label = f"b={bias:.2f}"
-            fc = "#d1e5f0"
+            # Color by depth (x value)
+            x_val = node[1]
+            color_idx = min(x_val - 1, len(depth_colors) - 1)
+            fc = depth_colors[color_idx]
+            # Size decreases with depth for perspective
+            radius = 0.28 - (x_val - 1) * 0.03
         elif node[0] == "in":
             label = "in"
             fc = "#e0e0e0"
-        else:
+            radius = 0.35
+        else:  # output
             bias = model.output_bias.item()
             label = f"b={bias:.2f}"
             fc = "#fddbc7"
+            radius = 0.35
 
-        circle = mpatches.Circle((x, y), 0.45, color=fc, ec="#555555", lw=0.8, zorder=3)
+        circle = mpatches.Circle((x, y), radius, color=fc, ec="#555555", lw=0.8, zorder=3)
         ax.add_patch(circle)
-        ax.text(x, y, label, ha="center", va="center", fontsize=7, zorder=5)
+        ax.text(x, y, label, ha="center", va="center", fontsize=6, zorder=5)
 
     ax.set_aspect("equal")
     ax.autoscale_view()
     ax.axis("off")
-    depth = graph.depth
-    ax.set_title(f"TMN weights\nL={L}, depth={depth}, mode={graph.cross_layer_mode}")
+    depth_str = f"depth(z)=z" if depth == "tetrahedron" else f"depth={depth}"
+    ax.set_title(f"TMN weights\nL={L}, {depth_str}, mode={graph.cross_layer_mode}")
 
 
 def save_weights_plot(
@@ -183,30 +218,59 @@ def save_weights_plot(
     n_epochs = len(next(iter(traced_params.values())))
 
     # Separate keys into edge weights and node biases
-    ew_keys = sorted([k for k in traced_params if k.startswith("w(")])
-    nb_keys = sorted([k for k in traced_params if k.startswith("b(")])
+    # New format: "bottom_w(...)" and "top_w(...)", "bottom_b(...)" and "top_b(...)"
+    ew_keys = sorted([k for k in traced_params if "_w(" in k])
+    nb_keys = sorted([k for k in traced_params if "_b(" in k])
 
     ax_ew = fig.add_axes([0.52, 0.52, 0.46, 0.38])
     ax_nb = fig.add_axes([0.52, 0.08, 0.46, 0.38])
 
     epochs = list(range(1, n_epochs + 1))
 
+    # Color map for bottom (blue) and top (orange)
+    row_colors = {"bottom": "#1f77b4", "top": "#ff7f0e"}
+
     # Plot edge weights
     for key in ew_keys:
-        ax_ew.plot(epochs, traced_params[key], label=key, linewidth=0.8)
+        row = "bottom" if key.startswith("bottom_") else "top"
+        # Simplify label: extract just the edge info
+        # e.g., "bottom_w(in,1)->(1,1,1)" -> "bot: in->(1,1,1)" or "top: in->(1,1,1)"
+        row_short = "bot" if row == "bottom" else "top"
+        edge_info = key.replace(f"{row}_w(", "").rstrip(")")
+        label = f"{row_short}: {edge_info}"
+        ax_ew.plot(epochs, traced_params[key], label=label, linewidth=0.8, color=row_colors.get(row, None))
     ax_ew.set_ylabel("edge weight")
-    ax_ew.set_title("Edge weights evolution (bottom row)")
-    if len(ew_keys) <= 12:
-        ax_ew.legend(fontsize=6, ncol=2)
+    ax_ew.set_title("Edge weights evolution (top and bottom rows)")
+    ax_ew.legend(
+        fontsize=4,
+        ncol=3,
+        loc="upper right",
+        framealpha=0.8,
+        borderpad=0.3,
+        handlelength=1.2,
+        labelspacing=0.2,
+    )
 
     # Plot node biases
     for key in nb_keys:
-        ax_nb.plot(epochs, traced_params[key], label=key, linewidth=0.8)
+        row = "bottom" if key.startswith("bottom_") else "top"
+        row_short = "bot" if row == "bottom" else "top"
+        # e.g., "bottom_b(1,3,1)" -> "bot: (1,3,1)"
+        coord = key.split("(")[1].rstrip(")")
+        label = f"{row_short}: ({coord})"
+        ax_nb.plot(epochs, traced_params[key], label=label, linewidth=0.8, color=row_colors.get(row, None))
     ax_nb.set_xlabel("epoch")
     ax_nb.set_ylabel("node bias")
-    ax_nb.set_title("Node biases evolution (bottom row)")
-    if len(nb_keys) <= 8:
-        ax_nb.legend(fontsize=8)
+    ax_nb.set_title("Node biases evolution (top and bottom rows)")
+    ax_nb.legend(
+        fontsize=5,
+        ncol=2,
+        loc="upper right",
+        framealpha=0.8,
+        borderpad=0.3,
+        handlelength=1.2,
+        labelspacing=0.2,
+    )
 
     plt.savefig(output_path, dpi=150)
     plt.close()

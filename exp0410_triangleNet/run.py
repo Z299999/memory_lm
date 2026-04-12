@@ -21,20 +21,38 @@ from model.tmn import TMNNetwork
 
 
 def build_trace_fn(config: Config):
-    """Build a trace function that records bottom-row node params each epoch."""
+    """Build a trace function that records top and bottom row node params each epoch."""
     model = TMNNetwork(config)
     graph = model.graph
     L = config.L
 
-    # Bottom row core nodes (z=1): (core, x, y, 1) for y=1..L, x=1..depth
-    # For visualization, we track the first neuron (x=1) at each position
-    bottom_nodes = [("core", 1, y, 1) for y in range(1, L + 1)]
+    # Get depth at layer z
+    def depth_at(z: int) -> int:
+        if config.depth == "tetrahedron":
+            return z
+        elif callable(config.depth):
+            return config.depth(z)
+        else:
+            return config.depth if isinstance(config.depth, int) else 1
+
     core_to_nb_idx = {node: i for i, node in enumerate(graph.core_nodes)}
     edge_to_ew_idx = {edge: i for i, edge in enumerate(graph.edges)}
 
-    # For each bottom node, get its bias idx and incoming edge idxs
+    # Bottom row (z=1): first neuron (x=1) at each position y=1..L
+    bottom_nodes = [("core", 1, y, 1) for y in range(1, L + 1)]
+
+    # Top row (z=L): all neurons at the single position y=1
+    # depth(L) = L for tetrahedron mode
+    top_depth = depth_at(L)
+    top_nodes = [("core", x, 1, L) for x in range(1, top_depth + 1)]
+
+    traced_nodes = bottom_nodes + top_nodes
+
+    # For each node, get its bias idx and incoming edge idxs
     traced = []
-    for node in bottom_nodes:
+    for node in traced_nodes:
+        if node not in graph.core_nodes:
+            continue  # Skip if node doesn't exist
         nb_idx = core_to_nb_idx[node]
         in_edges = graph.preds[node]
         ew_idxs = [edge_to_ew_idx[(p, node)] for p in in_edges]
@@ -44,14 +62,15 @@ def build_trace_fn(config: Config):
         result = {}
         for node, nb_idx, ew_idxs in traced:
             x, y, z = node[1], node[2], node[3]
-            result[f"b({x},{y},{z})"] = float(model.nb[nb_idx].item())
+            row = "bottom" if z == 1 else ("top" if z == L else f"z{z}")
+            result[f"{row}_b({x},{y},{z})"] = float(model.nb[nb_idx].item())
             for i, ew_idx in enumerate(ew_idxs):
                 src = graph.preds[node][i]
                 if src[0] == "in":
                     src_label = f"in,{src[1]}"
                 else:
                     src_label = f"{src[1]},{src[2]},{src[3]}"
-                result[f"w({src_label})->({x},{y},{z})"] = float(model.ew[ew_idx].item())
+                result[f"{row}_w({src_label})->({x},{y},{z})"] = float(model.ew[ew_idx].item())
         return result
 
     return trace_fn
@@ -88,8 +107,9 @@ def tmn_architecture_text(config: Config) -> str:
         cross_layer_mode=config.cross_layer_mode,
     )
     param_count = len(graph.edges) + graph.core_node_count + config.n_out
+    depth_str = "depth(z)=z" if config.depth == "tetrahedron" else f"depth={config.depth}"
     return (
-        f"L={config.L}, depth={config.depth}, mode={config.cross_layer_mode}, "
+        f"L={config.L}, {depth_str}, mode={config.cross_layer_mode}, "
         f"edges={len(graph.edges)}, params={param_count}"
     )
 
