@@ -16,7 +16,7 @@ class TMNGraph:
     L: int
     n_in: int = 1
     n_out: int = 1
-    depth: int = 1  # depth = neurons per position (same for all layers)
+    depth: int | str = 1  # int: uniform depth; "tetrahedron": depth(z) = z
     cross_layer_mode: str = "shared_x"
 
     def __post_init__(self) -> None:
@@ -24,19 +24,22 @@ class TMNGraph:
             raise ValueError("L must be >= 1")
         if self.n_in < 1 or self.n_out < 1:
             raise ValueError("n_in and n_out must be >= 1")
-        if self.depth < 1:
+        if isinstance(self.depth, int) and self.depth < 1:
             raise ValueError("depth must be >= 1")
+        if isinstance(self.depth, str) and self.depth != "tetrahedron":
+            raise ValueError("depth string must be 'tetrahedron'")
         if self.cross_layer_mode not in {"shared_x", "full_x"}:
             raise ValueError("cross_layer_mode must be 'shared_x' or 'full_x'")
 
         self.input_nodes = [("in", a) for a in range(1, self.n_in + 1)]
         # 3D nodes: (x, y, z) = (depth, position, layer)
         # z from 1 (bottom) to L (top), layer z has (L-z+1) positions (zheng triangle)
+        # depth(z): number of neurons at layer z
         self.core_nodes = [
             ("core", x, y, z)
             for z in range(1, self.L + 1)           # layer (Z axis, bottom→top)
             for y in range(1, self.L - z + 2)        # position (Y axis, left→right), layer z has L-z+1 positions
-            for x in range(1, self.depth + 1)       # depth (X axis, inner→outer)
+            for x in range(1, self._depth_at(z) + 1) # depth (X axis, inner→outer)
         ]
         self.output_nodes = [("out", b) for b in range(1, self.n_out + 1)]
         self.nodes = self.input_nodes + self.core_nodes + self.output_nodes
@@ -48,21 +51,30 @@ class TMNGraph:
         self.topological_levels = self._build_topological_levels()
         self.validate()
 
+    def _depth_at(self, z: int) -> int:
+        """Get depth at layer z."""
+        if isinstance(self.depth, int):
+            return self.depth
+        elif self.depth == "tetrahedron":
+            return z  # depth(z) = z, forms tetrahedron
+        else:
+            raise ValueError(f"Invalid depth: {self.depth}")
+
     def _build_edges(self) -> List[Edge]:
         edges: List[Edge] = []
 
         # Layer z has (L-z+1) positions: y from 1 to L-z+1
         # z=1 (bottom): L positions
         # z=L (top): 1 position
-        d = self.depth  # same depth for all layers
 
         # === 1. Intra-layer connections (Y direction, left→right) ===
         # Full connect between adjacent positions within layer z
         for z in range(1, self.L + 1):
             n_pos = self.L - z + 1  # number of positions in layer z
+            d_z = self._depth_at(z)  # depth at layer z
             for y in range(1, n_pos):  # y from 1 to n_pos-1
-                for x_out in range(1, d + 1):
-                    for x_in in range(1, d + 1):
+                for x_out in range(1, d_z + 1):
+                    for x_in in range(1, d_z + 1):
                         src = ("core", x_out, y, z)
                         dst = ("core", x_in, y + 1, z)
                         edges.append((src, dst))
@@ -73,15 +85,18 @@ class TMNGraph:
         # Target layer z+1 has L-(z+1)+1 = L-z positions
         for z in range(1, self.L):  # z from 1 to L-1
             n_pos_dst = self.L - z  # positions in layer z+1
+            d_z = self._depth_at(z)
+            d_z1 = self._depth_at(z + 1)
             for y in range(1, n_pos_dst + 1):  # y must exist in both layers
                 if self.cross_layer_mode == "shared_x":
-                    for x in range(1, d + 1):
+                    # x must exist in both layers
+                    for x in range(1, min(d_z, d_z1) + 1):
                         src = ("core", x, y, z)
                         dst = ("core", x, y, z + 1)
                         edges.append((src, dst))
                 else:
-                    for x_out in range(1, d + 1):
-                        for x_in in range(1, d + 1):
+                    for x_out in range(1, d_z + 1):
+                        for x_in in range(1, d_z1 + 1):
                             src = ("core", x_out, y, z)
                             dst = ("core", x_in, y, z + 1)
                             edges.append((src, dst))
@@ -92,16 +107,19 @@ class TMNGraph:
         for z in range(2, self.L + 1):  # z from 2 to L
             n_pos_src = self.L - z + 1  # positions in layer z
             n_pos_dst = self.L - z + 2  # positions in layer z-1
+            d_z = self._depth_at(z)
+            d_zm1 = self._depth_at(z - 1)
             for y in range(1, n_pos_src + 1):  # y from 1 to n_pos_src (all positions)
                 if y + 1 <= n_pos_dst:  # target position must exist
                     if self.cross_layer_mode == "shared_x":
-                        for x in range(1, d + 1):
+                        # x must exist in both layers
+                        for x in range(1, min(d_z, d_zm1) + 1):
                             src = ("core", x, y, z)
                             dst = ("core", x, y + 1, z - 1)
                             edges.append((src, dst))
                     else:
-                        for x_out in range(1, d + 1):
-                            for x_in in range(1, d + 1):
+                        for x_out in range(1, d_z + 1):
+                            for x_in in range(1, d_zm1 + 1):
                                 src = ("core", x_out, y, z)
                                 dst = ("core", x_in, y + 1, z - 1)
                                 edges.append((src, dst))
@@ -111,7 +129,8 @@ class TMNGraph:
         # Connect-in: to all depths of target position
         for input_node in self.input_nodes:
             for z in range(1, self.L + 1):
-                for x in range(1, d + 1):
+                d_z = self._depth_at(z)
+                for x in range(1, d_z + 1):
                     dst = ("core", x, 1, z)
                     edges.append((input_node, dst))
 
@@ -123,7 +142,8 @@ class TMNGraph:
             out_node = ("out", b)
             for z in range(1, self.L + 1):
                 y = self.L - z + 1  # rightmost position of layer z
-                for x in range(1, d + 1):
+                d_z = self._depth_at(z)
+                for x in range(1, d_z + 1):
                     src = ("core", x, y, z)
                     edges.append((src, out_node))
 
