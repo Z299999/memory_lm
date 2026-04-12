@@ -12,22 +12,19 @@ run_name: default
 #   3 nodes on the bottom
 L: 3
 
-# depth = number of neurons at each position (same for all layers)
-# depth=1 means each position has 1 neuron (original TMN)
-# depth=2 means each position has 2 neurons (3D extension)
+# depth = number of neurons at each position
+# int: same depth for all layers (e.g., depth=1 means 1 neuron per position)
+# "tetrahedron": depth(z) = z, forms a tetrahedron (L(L+1)(L+2)/6 nodes)
 depth: 3
 
 # Cross-layer connection mode.
-# shared_x = current version:
-#   (*, y, z)   -> (*, y, z+1) only connects x -> same x
-#   (*, y, z+1) -> (*, y+1, z) only connects x -> same x
-# full_x = stronger version:
-#   both cross-layer directions become full connection across x
-#   so each position-to-position cross-layer link has depth^2 edges
+# shared_x: (x,y,z)->(x,y,z+1) connects same x only
+# full_x:   all source x connect to all target x (more connections)
 cross_layer_mode: full_x
 
 # Number of input nodes.
-# Current first-stage experiments are designed around scalar input, so keep this at 1 for now.
+# n_in=1: 1D functions (input is scalar)
+# n_in=2: 2D functions (input is 2D vector, visualized as heatmap)
 n_in: 1
 
 # Number of output nodes.
@@ -43,11 +40,19 @@ n_out: 1
 mlp_layers: [4, 8, 4]
 
 # Built-in target function name.
-# Available built-in choices:
-#   sin
-#   sin_mix
-#   poly_wave
-#   piecewise
+#
+# 1D functions (n_in=1):
+#   sin         - Simple sine wave: sin(x)
+#   sin_mix     - Mixed sine waves: 0.6*sin(x) + 0.3*sin(3x+0.4) + 0.1*cos(5x)
+#   poly_wave   - Polynomial + sine: 0.15*x^3/10 + 0.6*sin(2x)
+#   piecewise   - Piecewise: linear-sine-linear (3 segments)
+#
+# 2D functions (n_in=2):
+#   sin2d        - Sine-cosine product: sin(x1)*cos(x2)
+#   distance2d   - Radial sine wave: sin(sqrt(x1^2 + x2^2))
+#   saddle2d     - Saddle surface: (x1^2 - x2^2) / 10
+#   peakvalley2d - Two Gaussian peaks: exp(-(x1^2+x2^2)) - 0.5*exp(-((x1-1)^2+(x2+1)^2))
+#   mix2d        - Mixed frequencies: 0.5*sin(2x1) + 0.3*sin(5x2) + 0.2*cos(3(x1+x2))
 task_name: piecewise
 
 # Optional custom target function.
@@ -58,11 +63,7 @@ task_name: piecewise
 custom_function: ""
 
 # Activation used inside TMN node blocks.
-# Available options: relu, leaky_relu, gelu, tanh
-# - relu: standard ReLU, may cause "dying" nodes that never activate
-# - leaky_relu: allows small negative gradient, helps prevent dead nodes
-# - gelu: smooth activation, commonly used in transformers
-# - tanh: bounded output, may saturate for large inputs
+# Options: relu, leaky_relu, gelu, tanh
 node_activation: leaky_relu
 
 # Final output activation.
