@@ -1,0 +1,1 @@
+- [Debug smoke test](feedback_debug_smoke_test.md) — Use 50-epoch smoke tests for debugging, not full runs
