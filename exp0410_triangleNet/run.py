@@ -144,6 +144,16 @@ def main() -> None:
 
     tmn_trace_fn = build_trace_fn(tmn_config)
 
+    # Print model parameter counts before training
+    tmn_arch = tmn_architecture_text(tmn_config)
+    mlp_arch = mlp_architecture_text(mlp_config)
+    tmn_params = tmn_arch.split("params=")[1].split(",")[0] if "params=" in tmn_arch else "N/A"
+    mlp_params = mlp_arch.split("params=")[1].split(",")[0] if "params=" in mlp_arch else "N/A"
+    print(f"\n{'='*50}")
+    print(f"TMN: {tmn_params} parameters")
+    print(f"MLP: {mlp_params} parameters")
+    print(f"{'='*50}\n")
+
     print("Training TMN...")
     tmn_result = train_with_config(tmn_config, trace_fn=tmn_trace_fn)
 
