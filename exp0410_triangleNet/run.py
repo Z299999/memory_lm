@@ -187,6 +187,7 @@ def main() -> None:
             mlp_val_losses=mlp_result["val_losses"],
             traced_params=tmn_result["traced_params"],
             output_path=comparison_path,
+            batch_size=base.batch_size,
         )
     else:
         print("Building 4-panel comparison image...")
@@ -210,6 +211,7 @@ def main() -> None:
             figure_title=f"Task={base.task_name if not base.custom_function else 'custom'} | TMN vs MLP",
             loss_fn="MSELoss",
             output_path=comparison_path,
+            batch_size=base.batch_size,
         )
 
     if is_2d:

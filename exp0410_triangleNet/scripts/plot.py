@@ -31,9 +31,10 @@ def save_four_panel_plot(
     figure_title: str,
     loss_fn: str,
     output_path: Path,
+    batch_size: int = 64,
 ) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle(f"{figure_title} | loss={loss_fn}", fontsize=14)
+    fig.suptitle(f"{figure_title} | batch_size={batch_size} | loss={loss_fn}", fontsize=14)
 
     axes[0, 0].plot(tmn_train_losses, label="train")
     axes[0, 0].plot(tmn_val_losses, label="val")
@@ -315,6 +316,7 @@ def save_2d_comparison_with_mlp(
     mlp_val_losses: list[float],
     traced_params: dict[str, list[float]] | None,
     output_path: Path,
+    batch_size: int = 64,
 ) -> None:
     """Save 2D comparison plot with TMN vs MLP.
 
@@ -338,7 +340,8 @@ def save_2d_comparison_with_mlp(
             tmn_final_val_loss, mlp_final_val_loss,
             tmn_train_losses, tmn_val_losses,
             mlp_train_losses, mlp_val_losses,
-            traced_params, output_path
+            traced_params, output_path,
+            batch_size
         )
         return
 
@@ -351,7 +354,8 @@ def save_2d_comparison_with_mlp(
         tmn_final_val_loss, mlp_final_val_loss,
         tmn_train_losses, tmn_val_losses,
         mlp_train_losses, mlp_val_losses,
-        traced_params, output_path
+        traced_params, output_path,
+        batch_size=batch_size
     )
 
 
@@ -372,6 +376,7 @@ def _save_2d_comparison_multi_output(
     mlp_val_losses: list[float],
     traced_params: dict[str, list[float]] | None,
     output_path: Path,
+    batch_size: int = 64,
 ) -> None:
     """Save 2D comparison for multi-output: all dimensions on one figure.
 
@@ -540,6 +545,7 @@ def _save_2d_comparison_multi_output(
 
     plt.suptitle(
         f"2D Function Fit | TMN vs MLP | Task: {tmn_architecture.split(',')[0]} | n_out={n_out} | "
+        f"batch_size={batch_size} | "
         f"TMN params={tmn_architecture.split('params=')[1].split(',')[0] if 'params=' in tmn_architecture else 'N/A'} | "
         f"MLP {mlp_layers_match} params={mlp_architecture.split('params=')[1].split(',')[0] if 'params=' in mlp_architecture else 'N/A'}",
         fontsize=14, y=0.98
@@ -567,6 +573,7 @@ def _save_2d_comparison_single_output(
     output_path: Path,
     output_idx: int = 0,
     n_out: int = 1,
+    batch_size: int = 64,
 ) -> None:
     """Helper function to save 2D comparison for a single output dimension."""
     import re
@@ -738,8 +745,11 @@ def _save_2d_comparison_single_output(
     if n_out > 1:
         output_path = output_path.parent / f"{output_path.stem}_dim{output_idx+1}{output_path.suffix}"
 
-    plt.suptitle(f"2D Function Fit | TMN vs MLP | Task: {tmn_architecture.split(',')[0]}",
-                 fontsize=14, y=0.98)
+    plt.suptitle(
+        f"2D Function Fit | TMN vs MLP | Task: {tmn_architecture.split(',')[0]} | "
+        f"batch_size={batch_size}",
+        fontsize=14, y=0.98
+    )
     plt.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close()
 

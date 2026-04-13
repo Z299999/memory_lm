@@ -10,7 +10,7 @@ run_name: default
 #   1 node on top
 #   2 nodes in the middle
 #   3 nodes on the bottom
-L: 7
+L: 3
 
 # depth = number of neurons at each position
 # int: same depth for all layers (e.g., depth=1 means 1 neuron per position)
@@ -25,13 +25,13 @@ cross_layer_mode: full_x
 # Number of input nodes.
 # n_in=1: 1D functions (input is scalar)
 # n_in=2: 2D functions (input is 2D vector, visualized as heatmap)
-n_in: 2
+n_in: 1
 
 # Number of output nodes.
 # n_out=1: single output (scalar regression)
 # n_out>1: multi-output (vector regression, each output learns independently)
 # For multi-output, each output dimension is a different frequency combination of the base function.
-n_out: 2
+n_out: 1
 
 # MLP baseline structure.
 # [8, 8, 8] means 3 hidden layers and each hidden layer has 8 nodes.
@@ -39,7 +39,7 @@ n_out: 2
 #   [16]
 #   [16, 16]
 #   [16, 32, 16]
-mlp_layers: [8, 24, 24, 8]
+mlp_layers: [4,4,4]
 
 # Built-in target function name.
 #
@@ -65,7 +65,7 @@ mlp_layers: [8, 24, 24, 8]
 #   sin2d        - Good starting point, moderate difficulty
 #   distance2d   - Tests radial symmetry learning
 #   mix2d        - Most challenging, multiple frequency components
-task_name: mix2d
+task_name: piecewise
 
 # Optional custom target function.
 # If this is not empty, it overrides task_name.
@@ -88,11 +88,11 @@ lr: 0.001
 
 # Batch size for training.
 # Larger batch is smoother but uses more memory.
-batch_size: 64
+batch_size: 1
 
 # Number of training epochs.
 # Increase this if the function fit is still poor.
-epochs: 10000
+epochs: 500
 
 # Input x range.
 # Training samples are drawn uniformly from [x_min, x_max].
