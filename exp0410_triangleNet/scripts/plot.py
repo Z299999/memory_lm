@@ -46,8 +46,17 @@ def save_four_panel_plot(
     axes[0, 0].set_yscale("log")
     axes[0, 0].legend()
 
-    axes[0, 1].plot(tmn_x, tmn_y_true, label="target")
-    axes[0, 1].plot(tmn_x, tmn_y_pred, label="prediction")
+    # TMN prediction plot - support multi-output
+    if tmn_y_true.ndim == 1 or tmn_y_true.shape[1] == 1:
+        # Single output
+        axes[0, 1].plot(tmn_x, tmn_y_true, label="target")
+        axes[0, 1].plot(tmn_x, tmn_y_pred, label="prediction")
+    else:
+        # Multi-output: plot each dimension with different color
+        n_out = tmn_y_true.shape[1]
+        for i in range(n_out):
+            axes[0, 1].plot(tmn_x, tmn_y_true[:, i], label=f"target dim {i+1}", alpha=0.7)
+            axes[0, 1].plot(tmn_x, tmn_y_pred[:, i], label=f"pred dim {i+1}", alpha=0.7, linestyle='--')
     axes[0, 1].set_title(f"TMN Prediction\n{tmn_architecture}")
     axes[0, 1].set_xlabel("normalized x")
     axes[0, 1].set_ylabel("y")
@@ -64,8 +73,17 @@ def save_four_panel_plot(
     axes[1, 0].set_yscale("log")
     axes[1, 0].legend()
 
-    axes[1, 1].plot(mlp_x, mlp_y_true, label="target")
-    axes[1, 1].plot(mlp_x, mlp_y_pred, label="prediction")
+    # MLP prediction plot - support multi-output
+    if mlp_y_true.ndim == 1 or mlp_y_true.shape[1] == 1:
+        # Single output
+        axes[1, 1].plot(mlp_x, mlp_y_true, label="target")
+        axes[1, 1].plot(mlp_x, mlp_y_pred, label="prediction")
+    else:
+        # Multi-output
+        n_out = mlp_y_true.shape[1]
+        for i in range(n_out):
+            axes[1, 1].plot(mlp_x, mlp_y_true[:, i], label=f"target dim {i+1}", alpha=0.7)
+            axes[1, 1].plot(mlp_x, mlp_y_pred[:, i], label=f"pred dim {i+1}", alpha=0.7, linestyle='--')
     axes[1, 1].set_title(f"MLP Prediction\n{mlp_architecture}")
     axes[1, 1].set_xlabel("normalized x")
     axes[1, 1].set_ylabel("y")
@@ -184,7 +202,11 @@ def _draw_tmn_weights(ax, model):
             fc = "#e0e0e0"
             radius = 0.35
         else:  # output
-            bias = model.output_bias.item()
+            # Multi-output support: show first output bias
+            if model.output_bias.numel() == 1:
+                bias = model.output_bias.item()
+            else:
+                bias = model.output_bias[0].item()
             label = f"b={bias:.2f}"
             fc = "#fddbc7"
             radius = 0.35
@@ -296,14 +318,260 @@ def save_2d_comparison_with_mlp(
 ) -> None:
     """Save 2D comparison plot with TMN vs MLP.
 
-    Layout:
+    Layout for n_out=1:
     Row 0: TMN Target | TMN Pred | MLP Target | MLP Pred
     Row 1: TMN Error  |          | MLP Error  |
     Row 2: Bottom params | Top params | Loss comparison (span 2 cols)
+
+    For n_out > 1: all dimensions on one figure (one row per output dim + params + loss).
     """
     import re
 
-    # Parse L from tmn_architecture string (e.g., "L=3, depth(z)=z, mode=full_x, ...")
+    # Check if multi-output
+    if tmn_y_true.ndim > 1 and tmn_y_true.shape[1] > 1:
+        # Multi-output: single figure with all dimensions
+        _save_2d_comparison_multi_output(
+            tmn_y_true, tmn_y_pred,
+            mlp_y_true, mlp_y_pred,
+            x1_grid, x2_grid,
+            tmn_architecture, mlp_architecture,
+            tmn_final_val_loss, mlp_final_val_loss,
+            tmn_train_losses, tmn_val_losses,
+            mlp_train_losses, mlp_val_losses,
+            traced_params, output_path
+        )
+        return
+
+    # Single output case - existing logic
+    _save_2d_comparison_single_output(
+        tmn_y_true, tmn_y_pred,
+        mlp_y_true, mlp_y_pred,
+        x1_grid, x2_grid,
+        tmn_architecture, mlp_architecture,
+        tmn_final_val_loss, mlp_final_val_loss,
+        tmn_train_losses, tmn_val_losses,
+        mlp_train_losses, mlp_val_losses,
+        traced_params, output_path
+    )
+
+
+def _save_2d_comparison_multi_output(
+    tmn_y_true: np.ndarray,
+    tmn_y_pred: np.ndarray,
+    mlp_y_true: np.ndarray,
+    mlp_y_pred: np.ndarray,
+    x1_grid: np.ndarray,
+    x2_grid: np.ndarray,
+    tmn_architecture: str,
+    mlp_architecture: str,
+    tmn_final_val_loss: float,
+    mlp_final_val_loss: float,
+    tmn_train_losses: list[float],
+    tmn_val_losses: list[float],
+    mlp_train_losses: list[float],
+    mlp_val_losses: list[float],
+    traced_params: dict[str, list[float]] | None,
+    output_path: Path,
+) -> None:
+    """Save 2D comparison for multi-output: all dimensions on one figure.
+
+    Layout (example for n_out=2):
+    Row 0: TMN Target dim1 | TMN Pred dim1 | MLP Target dim1 | MLP Pred dim1
+    Row 1: TMN Target dim2 | TMN Pred dim2 | MLP Target dim2 | MLP Pred dim2
+    Row 2: TMN Error dim1 | TMN Error dim2 | MLP Error dim1 | MLP Error dim2
+    Row 3: Bottom params | Top params | Loss comparison (span 2 cols)
+    """
+    import re
+
+    n_out = tmn_y_true.shape[1]
+    n_side = int(np.sqrt(len(tmn_y_true)))
+    x_min = float(x1_grid.min())
+    x_max = float(x1_grid.max())
+
+    # Parse L for param titles
+    l_match = re.search(r'L=(\d+)', tmn_architecture)
+    L = int(l_match.group(1)) if l_match else 3
+
+    # Use 12 columns:
+    # - Heatmap rows: 4 panels × 3 cols each = 12 cols
+    # - Bottom row: 3 panels × 4 cols each = 12 cols (all equal width!)
+    fig = plt.figure(figsize=(22, 5 * (n_out + 2)))
+    total_rows = n_out + 2
+    height_ratios = [1.0] * total_rows
+    gs = fig.add_gridspec(total_rows, 12, height_ratios=height_ratios, hspace=0.30, wspace=0.25)
+
+    # Determine common color scale across all dimensions
+    all_values = []
+    for i in range(n_out):
+        all_values.extend([
+            tmn_y_true[:, i].ravel(), tmn_y_pred[:, i].ravel(),
+            mlp_y_true[:, i].ravel(), mlp_y_pred[:, i].ravel()
+        ])
+    all_values = np.concatenate(all_values)
+    vmin, vmax = float(all_values.min()), float(all_values.max())
+
+    # === Rows 0 to n_out-1: Predictions for each dimension ===
+    # 4 panels: TMN Target | TMN Pred | MLP Target | MLP Pred
+    # Each spans 3 cols: [0:3], [3:6], [6:9], [9:12]
+    for dim in range(n_out):
+        tmn_true_2d = tmn_y_true[:, dim].reshape(n_side, n_side)
+        tmn_pred_2d = tmn_y_pred[:, dim].reshape(n_side, n_side)
+        mlp_true_2d = mlp_y_true[:, dim].reshape(n_side, n_side)
+        mlp_pred_2d = mlp_y_pred[:, dim].reshape(n_side, n_side)
+
+        # TMN Target (cols 0-3)
+        ax_target = fig.add_subplot(gs[dim, 0:3])
+        im = ax_target.imshow(tmn_true_2d.T, origin='lower',
+                              extent=[x_min, x_max, x_min, x_max],
+                              cmap='viridis', vmin=vmin, vmax=vmax, interpolation='bilinear')
+        ax_target.set_title(f"TMN Target (dim {dim+1})")
+        ax_target.set_xlabel("x1")
+        ax_target.set_ylabel("x2")
+        fig.colorbar(im, ax=ax_target, fraction=0.046, pad=0.04)
+
+        # TMN Prediction (cols 3-6)
+        ax_pred = fig.add_subplot(gs[dim, 3:6])
+        im = ax_pred.imshow(tmn_pred_2d.T, origin='lower',
+                            extent=[x_min, x_max, x_min, x_max],
+                            cmap='viridis', vmin=vmin, vmax=vmax, interpolation='bilinear')
+        ax_pred.set_title(f"TMN Prediction (dim {dim+1})")
+        ax_pred.set_xlabel("x1")
+        ax_pred.set_ylabel("x2")
+        fig.colorbar(im, ax=ax_pred, fraction=0.046, pad=0.04)
+
+        # MLP Target (cols 6-9)
+        ax_mlp_target = fig.add_subplot(gs[dim, 6:9])
+        im = ax_mlp_target.imshow(mlp_true_2d.T, origin='lower',
+                                  extent=[x_min, x_max, x_min, x_max],
+                                  cmap='viridis', vmin=vmin, vmax=vmax, interpolation='bilinear')
+        ax_mlp_target.set_title(f"MLP Target (dim {dim+1})")
+        ax_mlp_target.set_xlabel("x1")
+        ax_mlp_target.set_ylabel("x2")
+        fig.colorbar(im, ax=ax_mlp_target, fraction=0.046, pad=0.04)
+
+        # MLP Prediction (cols 9-12)
+        ax_mlp_pred = fig.add_subplot(gs[dim, 9:12])
+        im = ax_mlp_pred.imshow(mlp_pred_2d.T, origin='lower',
+                                extent=[x_min, x_max, x_min, x_max],
+                                cmap='viridis', vmin=vmin, vmax=vmax, interpolation='bilinear')
+        ax_mlp_pred.set_title(f"MLP Prediction (dim {dim+1})")
+        ax_mlp_pred.set_xlabel("x1")
+        ax_mlp_pred.set_ylabel("x2")
+        fig.colorbar(im, ax=ax_mlp_pred, fraction=0.046, pad=0.04)
+
+    # === Row n_out: Errors (4 panels, each 3 cols) ===
+    error_row = n_out
+    err_max = 0.0
+    for dim in range(n_out):
+        tmn_err = np.abs(tmn_y_true[:, dim] - tmn_y_pred[:, dim]).max()
+        mlp_err = np.abs(mlp_y_true[:, dim] - mlp_y_pred[:, dim]).max()
+        err_max = max(err_max, tmn_err, mlp_err)
+
+    for dim in range(n_out):
+        tmn_error_2d = (tmn_y_true[:, dim].reshape(n_side, n_side) -
+                        tmn_y_pred[:, dim].reshape(n_side, n_side))
+        mlp_error_2d = (mlp_y_true[:, dim].reshape(n_side, n_side) -
+                        mlp_y_pred[:, dim].reshape(n_side, n_side))
+
+        # TMN Error (cols 0:3 for dim 0, etc. - spread across row)
+        ax_tmn_err = fig.add_subplot(gs[error_row, dim*3:(dim+1)*3])
+        im = ax_tmn_err.imshow(tmn_error_2d.T, origin='lower',
+                               extent=[x_min, x_max, x_min, x_max],
+                               cmap='RdBu_r', vmin=-err_max, vmax=err_max, interpolation='bilinear')
+        ax_tmn_err.set_title(f"TMN Error (dim {dim+1})")
+        ax_tmn_err.set_xlabel("x1")
+        ax_tmn_err.set_ylabel("x2")
+        fig.colorbar(im, ax=ax_tmn_err, fraction=0.046, pad=0.04)
+
+    # === Row n_out+1: Params and Loss (3 equal-width plots) ===
+    # Each plot spans 4 cols: [0:4], [4:8], [8:12]
+    param_row = n_out + 1
+    epochs = list(range(1, len(tmn_train_losses) + 1))
+
+    if traced_params:
+        ew_keys = sorted([k for k in traced_params if "_w(" in k])
+        nb_keys = sorted([k for k in traced_params if "_b(" in k])
+
+        # Bottom params (cols 0-4)
+        ax_bottom = fig.add_subplot(gs[param_row, 0:4])
+        for key in ew_keys:
+            if key.startswith("bottom_"):
+                edge_info = key.replace("bottom_w(", "").rstrip(")")
+                ax_bottom.plot(epochs, traced_params[key], label=f"w: {edge_info}", linewidth=0.8)
+        for key in nb_keys:
+            if key.startswith("bottom_"):
+                coord = key.split("(")[1].rstrip(")")
+                ax_bottom.plot(epochs, traced_params[key], label=f"b: ({coord})", linewidth=0.8, linestyle='--')
+        ax_bottom.set_ylabel("bottom params")
+        ax_bottom.set_title(f"Bottom row (z=1)")
+        ax_bottom.legend(fontsize=4, ncol=1, loc="upper right", framealpha=0.8)
+
+        # Top params (cols 4-8)
+        ax_top = fig.add_subplot(gs[param_row, 4:8])
+        for key in ew_keys:
+            if key.startswith("top_"):
+                edge_info = key.replace("top_w(", "").rstrip(")")
+                ax_top.plot(epochs, traced_params[key], label=f"w: {edge_info}", linewidth=0.8)
+        for key in nb_keys:
+            if key.startswith("top_"):
+                coord = key.split("(")[1].rstrip(")")
+                ax_top.plot(epochs, traced_params[key], label=f"b: ({coord})", linewidth=0.8, linestyle='--')
+        ax_top.set_ylabel("top params")
+        ax_top.set_title(f"Top row (z={L})")
+        ax_top.legend(fontsize=4, ncol=2, loc="upper right", framealpha=0.8)
+
+        # Loss (cols 8-12)
+        ax_loss = fig.add_subplot(gs[param_row, 8:12])
+    else:
+        ax_loss = fig.add_subplot(gs[param_row, :])
+
+    ax_loss.plot(tmn_train_losses, label="TMN train", color='#1f77b4', linewidth=1)
+    ax_loss.plot(tmn_val_losses, label="TMN val", color='#1f77b4', linestyle='--', linewidth=1)
+    ax_loss.plot(mlp_train_losses, label="MLP train", color='#ff7f0e', linewidth=1)
+    ax_loss.plot(mlp_val_losses, label="MLP val", color='#ff7f0e', linestyle='--', linewidth=1)
+    ax_loss.set_title("Training Loss Comparison")
+    ax_loss.set_xlabel("Epoch")
+    ax_loss.set_ylabel("Loss")
+    ax_loss.set_yscale("log")
+    ax_loss.legend(loc="upper right", ncol=2)
+
+    # Extract MLP layers from architecture string
+    mlp_layers_match = mlp_architecture.split('layers=')[1].split('],')[0] + ']' if 'layers=' in mlp_architecture else 'N/A'
+
+    plt.suptitle(
+        f"2D Function Fit | TMN vs MLP | Task: {tmn_architecture.split(',')[0]} | n_out={n_out} | "
+        f"TMN params={tmn_architecture.split('params=')[1].split(',')[0] if 'params=' in tmn_architecture else 'N/A'} | "
+        f"MLP {mlp_layers_match} params={mlp_architecture.split('params=')[1].split(',')[0] if 'params=' in mlp_architecture else 'N/A'}",
+        fontsize=14, y=0.98
+    )
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+
+
+def _save_2d_comparison_single_output(
+    tmn_y_true: np.ndarray,
+    tmn_y_pred: np.ndarray,
+    mlp_y_true: np.ndarray,
+    mlp_y_pred: np.ndarray,
+    x1_grid: np.ndarray,
+    x2_grid: np.ndarray,
+    tmn_architecture: str,
+    mlp_architecture: str,
+    tmn_final_val_loss: float,
+    mlp_final_val_loss: float,
+    tmn_train_losses: list[float],
+    tmn_val_losses: list[float],
+    mlp_train_losses: list[float],
+    mlp_val_losses: list[float],
+    traced_params: dict[str, list[float]] | None,
+    output_path: Path,
+    output_idx: int = 0,
+    n_out: int = 1,
+) -> None:
+    """Helper function to save 2D comparison for a single output dimension."""
+    import re
+
+    # Parse L from tmn_architecture string
     l_match = re.search(r'L=(\d+)', tmn_architecture)
     L = int(l_match.group(1)) if l_match else 3
 
@@ -340,7 +608,8 @@ def save_2d_comparison_with_mlp(
                                 extent=[x_min, x_max, x_min, x_max],
                                 cmap='viridis', vmin=vmin, vmax=vmax,
                                 interpolation='bilinear')
-    ax_tmn_target.set_title(f"TMN Target\n{tmn_architecture}")
+    title_suffix = f" (dim {output_idx+1}/{n_out})" if n_out > 1 else ""
+    ax_tmn_target.set_title(f"TMN Target{title_suffix}\n{tmn_architecture}")
     ax_tmn_target.set_xlabel("x1")
     ax_tmn_target.set_ylabel("x2")
     fig.colorbar(im0, ax=ax_tmn_target, fraction=0.046, pad=0.04)
@@ -351,7 +620,7 @@ def save_2d_comparison_with_mlp(
                               extent=[x_min, x_max, x_min, x_max],
                               cmap='viridis', vmin=vmin, vmax=vmax,
                               interpolation='bilinear')
-    ax_tmn_pred.set_title(f"TMN Prediction\nval loss={tmn_final_val_loss:.6f}")
+    ax_tmn_pred.set_title(f"TMN Prediction{title_suffix}\nval loss={tmn_final_val_loss:.6f}")
     ax_tmn_pred.set_xlabel("x1")
     ax_tmn_pred.set_ylabel("x2")
     fig.colorbar(im1, ax=ax_tmn_pred, fraction=0.046, pad=0.04)
@@ -362,7 +631,7 @@ def save_2d_comparison_with_mlp(
                                 extent=[x_min, x_max, x_min, x_max],
                                 cmap='viridis', vmin=vmin, vmax=vmax,
                                 interpolation='bilinear')
-    ax_mlp_target.set_title(f"MLP Target\n{mlp_architecture}")
+    ax_mlp_target.set_title(f"MLP Target{title_suffix}\n{mlp_architecture}")
     ax_mlp_target.set_xlabel("x1")
     ax_mlp_target.set_ylabel("x2")
     fig.colorbar(im2, ax=ax_mlp_target, fraction=0.046, pad=0.04)
@@ -373,7 +642,7 @@ def save_2d_comparison_with_mlp(
                               extent=[x_min, x_max, x_min, x_max],
                               cmap='viridis', vmin=vmin, vmax=vmax,
                               interpolation='bilinear')
-    ax_mlp_pred.set_title(f"MLP Prediction\nval loss={mlp_final_val_loss:.6f}")
+    ax_mlp_pred.set_title(f"MLP Prediction{title_suffix}\nval loss={mlp_final_val_loss:.6f}")
     ax_mlp_pred.set_xlabel("x1")
     ax_mlp_pred.set_ylabel("x2")
     fig.colorbar(im3, ax=ax_mlp_pred, fraction=0.046, pad=0.04)
@@ -464,6 +733,10 @@ def save_2d_comparison_with_mlp(
     ax_loss.set_ylabel("Loss")
     ax_loss.set_yscale("log")
     ax_loss.legend(loc="upper right", ncol=4)
+
+    # Modify output path for multi-output
+    if n_out > 1:
+        output_path = output_path.parent / f"{output_path.stem}_dim{output_idx+1}{output_path.suffix}"
 
     plt.suptitle(f"2D Function Fit | TMN vs MLP | Task: {tmn_architecture.split(',')[0]}",
                  fontsize=14, y=0.98)

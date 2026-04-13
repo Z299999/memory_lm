@@ -22,44 +22,106 @@ class DatasetBundle:
     y_plot: torch.Tensor
 
 
-def target_function(x: torch.Tensor, task_name: str) -> torch.Tensor:
+def target_function(x: torch.Tensor, task_name: str, n_out: int = 1) -> torch.Tensor:
     # This is the main place to read or edit built-in fitting targets.
-    # x shape: (batch, n_in) for n_in >= 1
+    # x shape: (batch, n_in)
+    # Returns: (batch, n_out) for n_out >= 1
 
-    if task_name == "sin":
-        return torch.sin(x)
-    if task_name == "sin_mix":
-        return 0.6 * torch.sin(x) + 0.3 * torch.sin(3 * x + 0.4) + 0.1 * torch.cos(5 * x)
-    if task_name == "poly_wave":
-        return 0.15 * (x ** 3) / 10.0 + 0.6 * torch.sin(2 * x)
-    if task_name == "piecewise":
-        return torch.where(
-            x < -1.5,
-            -0.8 + 0.15 * x,
-            torch.where(x < 1.5, 0.5 * torch.sin(3 * x), 0.8 - 0.15 * x),
-        )
+    # === 1D → 1D functions (n_in = 1) ===
+    # These functions expect scalar input. For n_in > 1, use only the first dimension.
+    if task_name in ("sin", "sin_mix", "poly_wave", "piecewise"):
+        x1 = x[:, 0:1] if x.dim() > 1 and x.shape[1] > 1 else x
+        base = None
+
+        if task_name == "sin":
+            base = torch.sin(x1)
+        elif task_name == "sin_mix":
+            base = 0.6 * torch.sin(x1) + 0.3 * torch.sin(3 * x1 + 0.4) + 0.1 * torch.cos(5 * x1)
+        elif task_name == "poly_wave":
+            base = 0.15 * (x1 ** 3) / 10.0 + 0.6 * torch.sin(2 * x1)
+        elif task_name == "piecewise":
+            base = torch.where(
+                x1 < -1.5,
+                -0.8 + 0.15 * x1,
+                torch.where(x1 < 1.5, 0.5 * torch.sin(3 * x1), 0.8 - 0.15 * x1),
+            )
+
+        if n_out == 1:
+            return base
+        else:
+            y = torch.zeros(x.shape[0], n_out)
+            y[:, 0:1] = base
+            for i in range(1, n_out):
+                y[:, i:i+1] = base * (0.5 ** i)
+            return y
 
     # 2D → 1D functions (n_in = 2)
     if task_name == "sin2d":
         x1, x2 = x[:, 0:1], x[:, 1:2]
-        return torch.sin(x1) * torch.cos(x2)
+        if n_out == 1:
+            return torch.sin(x1) * torch.cos(x2)
+        else:
+            # Multi-output: different frequency combinations
+            y = torch.zeros(x.shape[0], n_out)
+            for i in range(n_out):
+                freq = i + 1
+                y[:, i:i+1] = torch.sin(freq * x1) * torch.cos(freq * x2)
+            return y
 
     if task_name == "distance2d":
         x1, x2 = x[:, 0:1], x[:, 1:2]
         r = torch.sqrt(x1 ** 2 + x2 ** 2)
-        return torch.sin(r)
+        if n_out == 1:
+            return torch.sin(r)
+        else:
+            y = torch.zeros(x.shape[0], n_out)
+            for i in range(n_out):
+                freq = i + 1
+                y[:, i:i+1] = torch.sin(freq * r)
+            return y
 
     if task_name == "saddle2d":
         x1, x2 = x[:, 0:1], x[:, 1:2]
-        return (x1 ** 2 - x2 ** 2) / 10.0
+        if n_out == 1:
+            return (x1 ** 2 - x2 ** 2) / 10.0
+        else:
+            # Multi-output: different scales/frequencies
+            y = torch.zeros(x.shape[0], n_out)
+            for i in range(n_out):
+                scale = i + 1
+                y[:, i:i+1] = (x1 ** 2 - x2 ** 2) * scale / 10.0
+            return y
 
     if task_name == "peakvalley2d":
         x1, x2 = x[:, 0:1], x[:, 1:2]
-        return torch.exp(-(x1 ** 2 + x2 ** 2)) - 0.5 * torch.exp(-((x1 - 1) ** 2 + (x2 + 1) ** 2))
+        if n_out == 1:
+            return torch.exp(-(x1 ** 2 + x2 ** 2)) - 0.5 * torch.exp(-((x1 - 1) ** 2 + (x2 + 1) ** 2))
+        else:
+            # Multi-output: different relative positions of peaks
+            y = torch.zeros(x.shape[0], n_out)
+            for i in range(n_out):
+                offset = i * 0.5
+                y[:, i:i+1] = (
+                    torch.exp(-((x1 - offset) ** 2 + (x2 + offset) ** 2)) -
+                    0.5 * torch.exp(-((x1 - 1 + offset) ** 2 + (x2 + 1 - offset) ** 2))
+                )
+            return y
 
     if task_name == "mix2d":
         x1, x2 = x[:, 0:1], x[:, 1:2]
-        return 0.5 * torch.sin(2 * x1) + 0.3 * torch.sin(5 * x2) + 0.2 * torch.cos(3 * (x1 + x2))
+        if n_out == 1:
+            return 0.5 * torch.sin(2 * x1) + 0.3 * torch.sin(5 * x2) + 0.2 * torch.cos(3 * (x1 + x2))
+        else:
+            # Multi-output: different frequency combinations
+            y = torch.zeros(x.shape[0], n_out)
+            for i in range(n_out):
+                freq = i + 1
+                y[:, i:i+1] = (
+                    0.5 * torch.sin(freq * 2 * x1) +
+                    0.3 * torch.sin(freq * 5 * x2) +
+                    0.2 * torch.cos(freq * 3 * (x1 + x2))
+                )
+            return y
 
     raise ValueError(f"Unsupported built-in task_name: {task_name}")
 
@@ -72,7 +134,7 @@ def target_function_from_config(x: torch.Tensor, config: Config) -> torch.Tensor
     # Example custom_function:
     #   torch.sin(2 * x) + 0.2 * torch.cos(7 * x)
     if not config.custom_function.strip():
-        return target_function(x, config.task_name)
+        return target_function(x, config.task_name, config.n_out)
 
     allowed_globals = {"torch": torch, "__builtins__": {}}
     allowed_locals = {"x": x}

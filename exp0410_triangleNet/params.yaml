@@ -10,7 +10,7 @@ run_name: default
 #   1 node on top
 #   2 nodes in the middle
 #   3 nodes on the bottom
-L: 5
+L: 7
 
 # depth = number of neurons at each position
 # int: same depth for all layers (e.g., depth=1 means 1 neuron per position)
@@ -28,8 +28,10 @@ cross_layer_mode: full_x
 n_in: 2
 
 # Number of output nodes.
-# Current first-stage experiments are designed around scalar output, so keep this at 1 for now.
-n_out: 1
+# n_out=1: single output (scalar regression)
+# n_out>1: multi-output (vector regression, each output learns independently)
+# For multi-output, each output dimension is a different frequency combination of the base function.
+n_out: 2
 
 # MLP baseline structure.
 # [8, 8, 8] means 3 hidden layers and each hidden layer has 8 nodes.
@@ -37,7 +39,7 @@ n_out: 1
 #   [16]
 #   [16, 16]
 #   [16, 32, 16]
-mlp_layers: [4, 16, 16, 4]
+mlp_layers: [8, 24, 24, 8]
 
 # Built-in target function name.
 #
@@ -49,11 +51,21 @@ mlp_layers: [4, 16, 16, 4]
 #
 # 2D functions (n_in=2):
 #   sin2d        - Sine-cosine product: sin(x1)*cos(x2)
+#                  Multi-output: freq scales by (i+1) → dim2 is sin(2x1)*cos(2x2)
 #   distance2d   - Radial sine wave: sin(sqrt(x1^2 + x2^2))
+#                  Multi-output: freq scales by (i+1) → dim2 has 2x frequency rings
 #   saddle2d     - Saddle surface: (x1^2 - x2^2) / 10
+#                  Multi-output: scale scales by (i+1) → dim2 is 2x steeper
 #   peakvalley2d - Two Gaussian peaks: exp(-(x1^2+x2^2)) - 0.5*exp(-((x1-1)^2+(x2+1)^2))
+#                  Multi-output: peak positions shift by offset=i*0.5
 #   mix2d        - Mixed frequencies: 0.5*sin(2x1) + 0.3*sin(5x2) + 0.2*cos(3(x1+x2))
-task_name: sin2d
+#                  Multi-output: all freqs scale by (i+1) → dim2 has 2x frequencies
+#
+# Recommended 2in2out tasks (n_in=2, n_out=2):
+#   sin2d        - Good starting point, moderate difficulty
+#   distance2d   - Tests radial symmetry learning
+#   mix2d        - Most challenging, multiple frequency components
+task_name: mix2d
 
 # Optional custom target function.
 # If this is not empty, it overrides task_name.

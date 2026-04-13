@@ -12,8 +12,8 @@ from config import Config
 class MLPBaseline(nn.Module):
     def __init__(self, config: Config) -> None:
         super().__init__()
-        if config.n_in < 1 or config.n_out != 1:
-            raise ValueError("MLPBaseline currently supports n_in >= 1 and n_out = 1.")
+        if config.n_in < 1 or config.n_out < 1:
+            raise ValueError("MLPBaseline requires n_in >= 1 and n_out >= 1.")
 
         layers = []
         in_dim = config.n_in

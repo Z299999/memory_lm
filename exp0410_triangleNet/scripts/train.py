@@ -108,7 +108,7 @@ def train_with_config(config, trace_fn=None):
         "final_val_loss": final_val_loss,
     }
 
-    # Handle 1D vs 2D output
+    # Handle 1D vs 2D input and 1D vs multi-output
     x_plot_np = dataset.x_plot.cpu().numpy()
     y_plot_np = dataset.y_plot.cpu().numpy()
     y_pred_np = y_pred
@@ -125,19 +125,20 @@ def train_with_config(config, trace_fn=None):
             "val_losses": val_losses,
             "traced_params": traced_params,
             "x_plot": x_plot_np,
-            "y_plot": y_plot_np,
-            "y_pred": y_pred_np,
+            "y_plot": y_plot_np,  # (n, n_out) for multi-output
+            "y_pred": y_pred_np,  # (n, n_out) for multi-output
             "x1_grid": x1_grid,
             "x2_grid": x2_grid,
         }
     else:
+        # 1D input: squeeze x but not y (to support multi-output)
         return {
             "metrics": metrics,
             "model": model,
             "train_losses": train_losses,
             "val_losses": val_losses,
             "traced_params": traced_params,
-            "x_plot": x_plot_np.squeeze(-1),
-            "y_plot": y_plot_np.squeeze(-1),
-            "y_pred": y_pred_np.squeeze(-1),
+            "x_plot": x_plot_np.squeeze(-1),  # (n, 1) -> (n,)
+            "y_plot": y_plot_np,  # (n, n_out) for multi-output, (n, 1) for single
+            "y_pred": y_pred_np,  # (n, n_out) for multi-output, (n, 1) for single
         }

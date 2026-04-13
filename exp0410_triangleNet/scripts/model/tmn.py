@@ -21,8 +21,8 @@ from model.graph import NodeKey, TMNGraph
 class TMNNetwork(nn.Module):
     def __init__(self, config: Config) -> None:
         super().__init__()
-        if config.n_in < 1 or config.n_out != 1:
-            raise ValueError("TMNNetwork currently supports n_in >= 1 and n_out = 1.")
+        if config.n_in < 1 or config.n_out < 1:
+            raise ValueError("TMNNetwork requires n_in >= 1 and n_out >= 1.")
 
         self.config = config
         self.graph  = TMNGraph(
@@ -57,7 +57,7 @@ class TMNNetwork(nn.Module):
         ])
         self.ew          = nn.Parameter(torch.randn(n_edges) * kaiming_stds)
         self.nb          = nn.Parameter(torch.zeros(n_core))
-        self.output_bias = nn.Parameter(torch.zeros(1))
+        self.output_bias = nn.Parameter(torch.zeros(config.n_out))
 
         node_to_idx  = {node: i for i, node in enumerate(self.graph.nodes)}
         edge_to_idx  = {edge: i for i, edge in enumerate(self.graph.edges)}
@@ -104,10 +104,13 @@ class TMNNetwork(nn.Module):
                 len(nodes),
             ))
 
-        out_node        = self.graph.output_nodes[0]
-        preds           = self.graph.preds[out_node]
-        self._out_src_t = torch.tensor([hist_idx[node_to_idx[p]] for p in preds], dtype=torch.long)
-        self._out_ew_t  = torch.tensor([edge_to_idx[(p, out_node)] for p in preds], dtype=torch.long)
+        # Output mappings: one per output node
+        self._output_mappings = []
+        for out_node in self.graph.output_nodes:
+            preds = self.graph.preds[out_node]
+            out_src_t = torch.tensor([hist_idx[node_to_idx[p]] for p in preds], dtype=torch.long)
+            out_ew_t = torch.tensor([edge_to_idx[(p, out_node)] for p in preds], dtype=torch.long)
+            self._output_mappings.append((out_src_t, out_ew_t))
 
         # Input node mapping: input node i receives x[:, i]
         self._input_node_indices = [node_to_idx[node] for node in self.graph.input_nodes]
@@ -131,9 +134,15 @@ class TMNNetwork(nn.Module):
             out  = self.activation_fn(agg + self.nb[bias_t])
             hist = torch.cat([hist, out], dim=1)                # (batch, n_hist + n_level)
 
-        src_states = hist[:, self._out_src_t]                   # (batch, n_preds)
-        output     = (src_states * self.ew[self._out_ew_t]).sum(1, keepdim=True)
-        return torch.tanh(output + self.output_bias)
+        # Multi-output: compute each output dimension independently
+        outputs = []
+        for _, (out_src_t, out_ew_t) in enumerate(self._output_mappings):
+            src_states = hist[:, out_src_t]                     # (batch, n_preds)
+            out_val = (src_states * self.ew[out_ew_t]).sum(1, keepdim=True)
+            outputs.append(out_val)
+
+        output = torch.cat(outputs, dim=1)                      # (batch, n_out)
+        return torch.tanh(output + self.output_bias)            # broadcast: (batch, n_out) + (n_out,)
 
     # kept for plot.py
     def _node_name(self, node: NodeKey) -> str:
