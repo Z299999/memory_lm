@@ -11,9 +11,9 @@ import yaml
 # Internal defaults. These still exist, but you usually do not need to edit them.
 DEFAULT_SEED = 42
 DEFAULT_WEIGHT_DECAY = 1e-5
-DEFAULT_NUM_TRAIN = 512
-DEFAULT_NUM_VAL = 256
-DEFAULT_NUM_PLOT = 512
+DEFAULT_NUM_TRAIN = 2500  # Increased for better 2D grid resolution (50x50)
+DEFAULT_NUM_VAL = 500
+DEFAULT_NUM_PLOT = 2500   # Increased for smooth 2D heatmaps (50x50 grid)
 
 
 @dataclass

@@ -15,7 +15,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from config import Config, load_config_from_yaml
 from train import train_with_config
-from plot import save_four_panel_plot, save_weights_plot, save_2d_comparison_plot
+from plot import save_four_panel_plot, save_weights_plot, save_2d_comparison_plot, save_2d_comparison_with_mlp
 from model.graph import TMNGraph
 from model.tmn import TMNNetwork
 
@@ -25,12 +25,6 @@ def build_trace_fn(config: Config):
     model = TMNNetwork(config)
     graph = model.graph
     L = config.L
-
-    # For 2D inputs, input nodes have multiple entries, skip tracing for now
-    if config.n_in > 1:
-        def trace_fn(model):
-            return {}  # Skip tracing for 2D inputs
-        return trace_fn
 
     # Get depth at layer z
     def depth_at(z: int) -> int:
@@ -162,19 +156,26 @@ def main() -> None:
     is_2d = base.n_in == 2
 
     if is_2d:
-        print("Building 2D comparison image...")
+        print("Building 2D comparison image with MLP...")
         # Get grid info for plotting
         x1_plot = tmn_result["x1_grid"]
         x2_plot = tmn_result["x2_grid"]
-        save_2d_comparison_plot(
+        save_2d_comparison_with_mlp(
             tmn_y_true=tmn_result["y_plot"],
             tmn_y_pred=tmn_result["y_pred"],
-            tmn_x1_grid=x1_plot,
-            tmn_x2_grid=x2_plot,
+            mlp_y_true=mlp_result["y_plot"],
+            mlp_y_pred=mlp_result["y_pred"],
+            x1_grid=x1_plot,
+            x2_grid=x2_plot,
             tmn_architecture=tmn_architecture_text(tmn_config),
+            mlp_architecture=mlp_architecture_text(mlp_config),
             tmn_final_val_loss=tmn_result["metrics"]["final_val_loss"],
-            train_losses=tmn_result["train_losses"],
-            val_losses=tmn_result["val_losses"],
+            mlp_final_val_loss=mlp_result["metrics"]["final_val_loss"],
+            tmn_train_losses=tmn_result["train_losses"],
+            tmn_val_losses=tmn_result["val_losses"],
+            mlp_train_losses=mlp_result["train_losses"],
+            mlp_val_losses=mlp_result["val_losses"],
+            traced_params=tmn_result["traced_params"],
             output_path=comparison_path,
         )
     else:

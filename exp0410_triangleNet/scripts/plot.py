@@ -276,6 +276,201 @@ def save_weights_plot(
     plt.close()
 
 
+def save_2d_comparison_with_mlp(
+    tmn_y_true: np.ndarray,
+    tmn_y_pred: np.ndarray,
+    mlp_y_true: np.ndarray,
+    mlp_y_pred: np.ndarray,
+    x1_grid: np.ndarray,
+    x2_grid: np.ndarray,
+    tmn_architecture: str,
+    mlp_architecture: str,
+    tmn_final_val_loss: float,
+    mlp_final_val_loss: float,
+    tmn_train_losses: list[float],
+    tmn_val_losses: list[float],
+    mlp_train_losses: list[float],
+    mlp_val_losses: list[float],
+    traced_params: dict[str, list[float]] | None,
+    output_path: Path,
+) -> None:
+    """Save 2D comparison plot with TMN vs MLP.
+
+    Layout:
+    Row 0: TMN Target | TMN Pred | MLP Target | MLP Pred
+    Row 1: TMN Error  |          | MLP Error  |
+    Row 2: Bottom params | Top params | Loss comparison (span 2 cols)
+    """
+    import re
+
+    # Parse L from tmn_architecture string (e.g., "L=3, depth(z)=z, mode=full_x, ...")
+    l_match = re.search(r'L=(\d+)', tmn_architecture)
+    L = int(l_match.group(1)) if l_match else 3
+
+    fig = plt.figure(figsize=(18, 14))
+    gs = fig.add_gridspec(4, 4, height_ratios=[1, 1, 0.5, 0.5], hspace=0.35, wspace=0.3)
+
+    # Reshape for plotting
+    n_side = int(np.sqrt(len(tmn_y_true)))
+    tmn_true_2d = tmn_y_true.reshape(n_side, n_side)
+    tmn_pred_2d = tmn_y_pred.reshape(n_side, n_side)
+    tmn_error_2d = tmn_true_2d - tmn_pred_2d
+
+    mlp_true_2d = mlp_y_true.reshape(n_side, n_side)
+    mlp_pred_2d = mlp_y_pred.reshape(n_side, n_side)
+    mlp_error_2d = mlp_true_2d - mlp_pred_2d
+
+    # Get axis limits from grids
+    x_min = float(x1_grid.min())
+    x_max = float(x1_grid.max())
+
+    # Determine common color scale for all heatmaps
+    all_values = np.concatenate([tmn_true_2d.ravel(), tmn_pred_2d.ravel(),
+                                  mlp_true_2d.ravel(), mlp_pred_2d.ravel()])
+    vmin, vmax = float(all_values.min()), float(all_values.max())
+
+    # Error color scale (diverging, centered at 0)
+    err_max = max(abs(tmn_error_2d).max(), abs(mlp_error_2d).max())
+
+    # === Row 0: Predictions ===
+
+    # TMN Target (0, 0)
+    ax_tmn_target = fig.add_subplot(gs[0, 0])
+    im0 = ax_tmn_target.imshow(tmn_true_2d.T, origin='lower',
+                                extent=[x_min, x_max, x_min, x_max],
+                                cmap='viridis', vmin=vmin, vmax=vmax,
+                                interpolation='bilinear')
+    ax_tmn_target.set_title(f"TMN Target\n{tmn_architecture}")
+    ax_tmn_target.set_xlabel("x1")
+    ax_tmn_target.set_ylabel("x2")
+    fig.colorbar(im0, ax=ax_tmn_target, fraction=0.046, pad=0.04)
+
+    # TMN Prediction (0, 1)
+    ax_tmn_pred = fig.add_subplot(gs[0, 1])
+    im1 = ax_tmn_pred.imshow(tmn_pred_2d.T, origin='lower',
+                              extent=[x_min, x_max, x_min, x_max],
+                              cmap='viridis', vmin=vmin, vmax=vmax,
+                              interpolation='bilinear')
+    ax_tmn_pred.set_title(f"TMN Prediction\nval loss={tmn_final_val_loss:.6f}")
+    ax_tmn_pred.set_xlabel("x1")
+    ax_tmn_pred.set_ylabel("x2")
+    fig.colorbar(im1, ax=ax_tmn_pred, fraction=0.046, pad=0.04)
+
+    # MLP Target (0, 2)
+    ax_mlp_target = fig.add_subplot(gs[0, 2])
+    im2 = ax_mlp_target.imshow(mlp_true_2d.T, origin='lower',
+                                extent=[x_min, x_max, x_min, x_max],
+                                cmap='viridis', vmin=vmin, vmax=vmax,
+                                interpolation='bilinear')
+    ax_mlp_target.set_title(f"MLP Target\n{mlp_architecture}")
+    ax_mlp_target.set_xlabel("x1")
+    ax_mlp_target.set_ylabel("x2")
+    fig.colorbar(im2, ax=ax_mlp_target, fraction=0.046, pad=0.04)
+
+    # MLP Prediction (0, 3)
+    ax_mlp_pred = fig.add_subplot(gs[0, 3])
+    im3 = ax_mlp_pred.imshow(mlp_pred_2d.T, origin='lower',
+                              extent=[x_min, x_max, x_min, x_max],
+                              cmap='viridis', vmin=vmin, vmax=vmax,
+                              interpolation='bilinear')
+    ax_mlp_pred.set_title(f"MLP Prediction\nval loss={mlp_final_val_loss:.6f}")
+    ax_mlp_pred.set_xlabel("x1")
+    ax_mlp_pred.set_ylabel("x2")
+    fig.colorbar(im3, ax=ax_mlp_pred, fraction=0.046, pad=0.04)
+
+    # === Row 1: Errors ===
+
+    # TMN Error (1, 0)
+    ax_tmn_error = fig.add_subplot(gs[1, 0])
+    im4 = ax_tmn_error.imshow(tmn_error_2d.T, origin='lower',
+                               extent=[x_min, x_max, x_min, x_max],
+                               cmap='RdBu_r', vmin=-err_max, vmax=err_max,
+                               interpolation='bilinear')
+    ax_tmn_error.set_title("TMN Error (Target - Prediction)")
+    ax_tmn_error.set_xlabel("x1")
+    ax_tmn_error.set_ylabel("x2")
+    fig.colorbar(im4, ax=ax_tmn_error, fraction=0.046, pad=0.04)
+
+    # MLP Error (1, 2) - span columns 2-3
+    ax_mlp_error = fig.add_subplot(gs[1, 2:4])
+    im5 = ax_mlp_error.imshow(mlp_error_2d.T, origin='lower',
+                               extent=[x_min, x_max, x_min, x_max],
+                               cmap='RdBu_r', vmin=-err_max, vmax=err_max,
+                               interpolation='bilinear')
+    ax_mlp_error.set_title("MLP Error (Target - Prediction)")
+    ax_mlp_error.set_xlabel("x1")
+    ax_mlp_error.set_ylabel("x2")
+    fig.colorbar(im5, ax=ax_mlp_error, fraction=0.046, pad=0.04)
+
+    # === Row 2-3: Parameter evolution and Loss curves ===
+    epochs = list(range(1, len(tmn_train_losses) + 1))
+
+    # Separate traced params into edge weights and node biases
+    if traced_params:
+        ew_keys = sorted([k for k in traced_params if "_w(" in k])
+        nb_keys = sorted([k for k in traced_params if "_b(" in k])
+
+        # Color map for bottom (blue) and top (orange)
+        row_colors = {"bottom": "#1f77b4", "top": "#ff7f0e"}
+
+        # Bottom row params (2, 0) - span 2 columns
+        ax_bottom = fig.add_subplot(gs[2, 0:2])
+        for key in ew_keys:
+            if key.startswith("bottom_"):
+                row_short = "bot"
+                edge_info = key.replace(f"bottom_w(", "").rstrip(")")
+                label = f"{row_short} w: {edge_info}"
+                ax_bottom.plot(epochs, traced_params[key], label=label, linewidth=0.8)
+        for key in nb_keys:
+            if key.startswith("bottom_"):
+                row_short = "bot"
+                coord = key.split("(")[1].rstrip(")")
+                label = f"{row_short} b: ({coord})"
+                ax_bottom.plot(epochs, traced_params[key], label=label, linewidth=0.8, linestyle='--')
+        ax_bottom.set_ylabel("bottom params")
+        ax_bottom.set_title("Bottom row (z=1) - Edge weights (solid) and Biases (dashed)")
+        ax_bottom.legend(fontsize=5, ncol=2, loc="upper right", framealpha=0.8)
+
+        # Top row params (2, 2) - span 2 columns
+        ax_top = fig.add_subplot(gs[2, 2:4])
+        for key in ew_keys:
+            if key.startswith("top_"):
+                row_short = "top"
+                edge_info = key.replace(f"top_w(", "").rstrip(")")
+                label = f"{row_short} w: {edge_info}"
+                ax_top.plot(epochs, traced_params[key], label=label, linewidth=0.8)
+        for key in nb_keys:
+            if key.startswith("top_"):
+                row_short = "top"
+                coord = key.split("(")[1].rstrip(")")
+                label = f"{row_short} b: ({coord})"
+                ax_top.plot(epochs, traced_params[key], label=label, linewidth=0.8, linestyle='--')
+        ax_top.set_ylabel("top params")
+        ax_top.set_title(f"Top row (z={L}) - Edge weights (solid) and Biases (dashed)")
+        ax_top.legend(fontsize=5, ncol=2, loc="upper right", framealpha=0.8)
+
+        # Row 3: Loss comparison (span all 4 columns)
+        ax_loss = fig.add_subplot(gs[3, :])
+    else:
+        # No traced params, use row 2 for loss
+        ax_loss = fig.add_subplot(gs[2, :])
+
+    ax_loss.plot(tmn_train_losses, label="TMN train", color='#1f77b4', linewidth=1)
+    ax_loss.plot(tmn_val_losses, label="TMN val", color='#1f77b4', linestyle='--', linewidth=1)
+    ax_loss.plot(mlp_train_losses, label="MLP train", color='#ff7f0e', linewidth=1)
+    ax_loss.plot(mlp_val_losses, label="MLP val", color='#ff7f0e', linestyle='--', linewidth=1)
+    ax_loss.set_title("Training Loss Comparison")
+    ax_loss.set_xlabel("Epoch")
+    ax_loss.set_ylabel("Loss")
+    ax_loss.set_yscale("log")
+    ax_loss.legend(loc="upper right", ncol=4)
+
+    plt.suptitle(f"2D Function Fit | TMN vs MLP | Task: {tmn_architecture.split(',')[0]}",
+                 fontsize=14, y=0.98)
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+
+
 def save_2d_comparison_plot(
     tmn_y_true: np.ndarray,
     tmn_y_pred: np.ndarray,
@@ -287,7 +482,7 @@ def save_2d_comparison_plot(
     val_losses: list[float],
     output_path: Path,
 ) -> None:
-    """Save 4-panel comparison plot for 2D -> 1D functions."""
+    """Save 4-panel comparison plot for 2D -> 1D functions (TMN only, legacy)."""
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle(f"2D Function Fit | {tmn_architecture} | final val loss={tmn_final_val_loss:.6f}", fontsize=12)
 
@@ -297,22 +492,32 @@ def save_2d_comparison_plot(
     y_pred_2d = tmn_y_pred.reshape(n_side, n_side)
     error_2d = y_true_2d - y_pred_2d
 
-    # Panel 1: Target function heatmap
-    im0 = axes[0, 0].pcolormesh(tmn_x1_grid, tmn_x2_grid, y_true_2d.T, cmap='viridis', shading='auto')
+    # Get axis limits
+    x_min = float(tmn_x1_grid.min())
+    x_max = float(tmn_x1_grid.max())
+
+    # Panel 1: Target function heatmap (using imshow with interpolation)
+    im0 = axes[0, 0].imshow(y_true_2d.T, origin='lower',
+                            extent=[x_min, x_max, x_min, x_max],
+                            cmap='viridis', interpolation='bilinear')
     axes[0, 0].set_title("Target Function")
     axes[0, 0].set_xlabel("x1")
     axes[0, 0].set_ylabel("x2")
     fig.colorbar(im0, ax=axes[0, 0])
 
     # Panel 2: TMN prediction heatmap
-    im1 = axes[0, 1].pcolormesh(tmn_x1_grid, tmn_x2_grid, y_pred_2d.T, cmap='viridis', shading='auto')
+    im1 = axes[0, 1].imshow(y_pred_2d.T, origin='lower',
+                            extent=[x_min, x_max, x_min, x_max],
+                            cmap='viridis', interpolation='bilinear')
     axes[0, 1].set_title(f"TMN Prediction")
     axes[0, 1].set_xlabel("x1")
     axes[0, 1].set_ylabel("x2")
     fig.colorbar(im1, ax=axes[0, 1])
 
     # Panel 3: Error heatmap
-    im2 = axes[1, 0].pcolormesh(tmn_x1_grid, tmn_x2_grid, error_2d.T, cmap='RdBu_r', shading='auto')
+    im2 = axes[1, 0].imshow(error_2d.T, origin='lower',
+                            extent=[x_min, x_max, x_min, x_max],
+                            cmap='RdBu_r', interpolation='bilinear')
     axes[1, 0].set_title("Error (Target - Prediction)")
     axes[1, 0].set_xlabel("x1")
     axes[1, 0].set_ylabel("x2")
@@ -328,5 +533,5 @@ def save_2d_comparison_plot(
     axes[1, 1].legend()
 
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.savefig(output_path, dpi=150)
+    plt.savefig(output_path, dpi=200)
     plt.close()
