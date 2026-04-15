@@ -1,8 +1,14 @@
 # exp0415 — MLP online learning smoke test
-# Constant input 1, targets alternate 0 1 0 1 ...
+# The target sequence repeats target_pattern cyclically.
+# Examples:
+#   [0, 1]        →  0 1 0 1 0 1 ...
+#   [-1, 0, 1, 0] →  -1 0 1 0 -1 0 1 0 ...
+#   [0, 0, 1]     →  0 0 1 0 0 1 ...
 
-hidden: [4, 4]       # MLP hidden layer widths; full arch = [1, 4, 4, 1]
-lr: 0.5              # sweet spot: delayed_grad=98/100, standard=3/100
+target_pattern: [0, 1]   # repeating target pattern
+
+hidden: [4, 4]       # MLP hidden layer widths; full arch = [1, hidden..., 1]
+lr: 0.5              # sweet spot for [0,1] pattern: delayed_grad=98/100, standard=3/100
 optimizer: sgd       # sgd | adam
 steps: 100           # number of online time steps
 seed: 42

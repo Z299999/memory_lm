@@ -1,7 +1,9 @@
 """exp0415 — MLP Online Learning Smoke Test
 
 A shallow MLP receives a constant input (1.0) at every time step.
-The targets alternate: 0, 1, 0, 1, ...
+The targets repeat a configurable pattern cyclically, e.g.:
+  [0, 1]        →  0 1 0 1 0 1 ...
+  [-1, 0, 1, 0] → -1 0 1 0 -1 0 1 0 ...
 
 Two training modes are compared side by side:
 
@@ -10,10 +12,10 @@ Two training modes are compared side by side:
                   for the next step
 
 The delayed-gradient insight:
-  At time t, grad_{t-1} was computed for target_{t-1} = (t-1)%2.
-  Because the sequence alternates with period 2, target_{t-1} = target_{t+1}.
-  So applying grad_{t-1} at time t nudges the weights toward producing
-  the CORRECT output at t+1 — naturally aligning updates with future targets.
+  At time t, grad_{t-1} was computed for target_{t-1}.
+  For a length-P pattern, target_{t-1} = target_{t-1+P} = target_{t+P-1}.
+  When P=2: target_{t-1} = target_{t+1}, so each update aligns perfectly
+  with the NEXT correct answer.
 
 Run:  python3 run.py
 Config: params.yaml
@@ -44,7 +46,10 @@ def load_params(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 class MLP(nn.Module):
-    """Simple MLP: [1] → hidden... → [1] with Tanh activations + Sigmoid output."""
+    """Simple MLP: [1] → hidden... → [1] with Tanh activations + Tanh output.
+
+    Tanh output covers (-1, 1), supporting any target pattern in that range.
+    """
 
     def __init__(self, hidden: list[int]) -> None:
         super().__init__()
@@ -55,7 +60,7 @@ class MLP(nn.Module):
             layers.append(nn.Tanh())
             in_dim = h
         layers.append(nn.Linear(in_dim, 1))
-        layers.append(nn.Sigmoid())   # output ∈ (0, 1); targets are 0 and 1
+        layers.append(nn.Tanh())   # output ∈ (-1, 1); covers all pattern values in [-1, 1]
         self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -88,6 +93,8 @@ def run_online(params: dict, delayed_grad: bool = False) -> dict:
     lr = params["lr"]
     steps = params["steps"]
     opt_name = params.get("optimizer", "sgd").lower()
+    pattern = [float(v) for v in params.get("target_pattern", [0, 1])]
+    period = len(pattern)
 
     model = MLP(hidden)
     loss_fn = nn.MSELoss()
@@ -106,7 +113,7 @@ def run_online(params: dict, delayed_grad: bool = False) -> dict:
     prev_grads: list[torch.Tensor] | None = None
 
     for t in range(steps):
-        target_val = float(t % 2)
+        target_val = pattern[t % period]
         y_hat = torch.tensor([[target_val]])
 
         # Record output BEFORE any weight update
@@ -148,6 +155,7 @@ def run_online(params: dict, delayed_grad: bool = False) -> dict:
         "lr": lr,
         "optimizer": opt_name,
         "steps": steps,
+        "pattern": pattern,
         "mode": "delayed_grad" if delayed_grad else "standard",
     }
 
@@ -156,8 +164,15 @@ def run_online(params: dict, delayed_grad: bool = False) -> dict:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _correct_count(outputs: list[float], targets: list[float]) -> int:
-    return sum(1 for o, t in zip(outputs, targets) if abs(o - t) < 0.5)
+def _correct_count(outputs: list[float], targets: list[float], pattern: list[float]) -> int:
+    """Count steps where output is closer to the correct target than to any other pattern value."""
+    if len(pattern) == 1:
+        return sum(1 for o, t in zip(outputs, targets) if abs(o - t) < 0.1)
+    # threshold = half the minimum distance between adjacent distinct pattern values
+    vals = sorted(set(pattern))
+    min_gap = min(abs(vals[i+1] - vals[i]) for i in range(len(vals)-1))
+    thresh = min_gap / 2
+    return sum(1 for o, t in zip(outputs, targets) if abs(o - t) < thresh)
 
 
 def _avg_loss(losses: list[float], n: int = 10) -> float:
@@ -180,6 +195,15 @@ def save_comparison_plot(
     n_params = std_result["params"]
     t_axis = list(range(steps))
 
+    pattern = std_result["pattern"]
+    targets = std_result["targets"]   # same for both runs
+
+    # y-axis range: slightly beyond the pattern value range
+    y_lo = min(pattern) - 0.15
+    y_hi = max(pattern) + 0.15
+    y_mid = (min(pattern) + max(pattern)) / 2
+    pat_str = str(pattern).replace(" ", "")
+
     fig = plt.figure(figsize=(14, 11))
     gs = gridspec.GridSpec(3, 2, figure=fig, hspace=0.48, wspace=0.32)
 
@@ -187,17 +211,15 @@ def save_comparison_plot(
     labels = {"standard": "standard (grad_t → step t)",
               "delayed_grad": "delayed  (grad_{t-1} → step t)"}
 
-    targets = std_result["targets"]   # same for both runs
-
     # ── Row 0: output vs target, standard ───────────────────────────────────
     ax0 = fig.add_subplot(gs[0, 0])
     ax0.plot(t_axis, targets, color="gray", linestyle="--", linewidth=1, alpha=0.6)
     ax0.plot(t_axis, std_result["outputs"], color=colors["standard"],
              linewidth=1.4, label=labels["standard"])
     ax0.scatter(t_axis, std_result["outputs"], s=8, color=colors["standard"], zorder=3)
-    ax0.axhline(0.5, color="black", linestyle=":", linewidth=0.6, alpha=0.35)
-    ax0.set_ylim(-0.05, 1.05)
-    ax0.set_title(f"standard  |  correct={_correct_count(std_result['outputs'], targets)}/{steps}"
+    ax0.axhline(y_mid, color="black", linestyle=":", linewidth=0.6, alpha=0.35)
+    ax0.set_ylim(y_lo, y_hi)
+    ax0.set_title(f"standard  |  correct={_correct_count(std_result['outputs'], targets, pattern)}/{steps}"
                   f"  |  last10_loss={_avg_loss(std_result['losses']):.4f}")
     ax0.set_ylabel("output")
     ax0.legend(fontsize=8)
@@ -209,9 +231,9 @@ def save_comparison_plot(
     ax1.plot(t_axis, dg_result["outputs"], color=colors["delayed_grad"],
              linewidth=1.4, label=labels["delayed_grad"])
     ax1.scatter(t_axis, dg_result["outputs"], s=8, color=colors["delayed_grad"], zorder=3)
-    ax1.axhline(0.5, color="black", linestyle=":", linewidth=0.6, alpha=0.35)
-    ax1.set_ylim(-0.05, 1.05)
-    ax1.set_title(f"delayed grad  |  correct={_correct_count(dg_result['outputs'], targets)}/{steps}"
+    ax1.axhline(y_mid, color="black", linestyle=":", linewidth=0.6, alpha=0.35)
+    ax1.set_ylim(y_lo, y_hi)
+    ax1.set_title(f"delayed grad  |  correct={_correct_count(dg_result['outputs'], targets, pattern)}/{steps}"
                   f"  |  last10_loss={_avg_loss(dg_result['losses']):.4f}")
     ax1.legend(fontsize=8)
     ax1.grid(True, alpha=0.22)
@@ -242,7 +264,8 @@ def save_comparison_plot(
     ax4.set_title("signed error — standard")
     ax4.set_xlabel("time step")
     ax4.set_ylabel("output − target")
-    ax4.set_ylim(-1.1, 1.1)
+    err_range = max(abs(y_hi - y_lo), 0.5) + 0.05
+    ax4.set_ylim(-err_range, err_range)
     ax4.grid(True, alpha=0.22)
 
     ax5 = fig.add_subplot(gs[2, 1])
@@ -252,12 +275,12 @@ def save_comparison_plot(
     ax5.axhline(0, color="black", linewidth=0.8)
     ax5.set_title("signed error — delayed grad")
     ax5.set_xlabel("time step")
-    ax5.set_ylim(-1.1, 1.1)
+    ax5.set_ylim(-err_range, err_range)
     ax5.grid(True, alpha=0.22)
 
     fig.suptitle(
         f"MLP online learning — arch={arch}  lr={lr}  opt={opt}  params={n_params}\n"
-        f"Constant input x=1; targets alternate 0→1→0→1→…   "
+        f"Constant input x=1 every step; target pattern={pat_str} repeating   "
         f"Left: standard SGD   Right: delayed-gradient SGD",
         fontsize=11,
     )
@@ -282,6 +305,7 @@ def main() -> None:
     print(f"  lr            : {params['lr']}")
     print(f"  optimizer     : {params.get('optimizer', 'sgd')}")
     print(f"  steps         : {params['steps']}")
+    print(f"  target_pattern: {params.get('target_pattern', [0, 1])}")
     print(f"  seed          : {params.get('seed', 42)}")
     print()
 
@@ -290,9 +314,10 @@ def main() -> None:
 
     steps = std_result["steps"]
     targets = std_result["targets"]
+    pattern = std_result["pattern"]
 
     for label, result in [("standard    ", std_result), ("delayed_grad", dg_result)]:
-        correct = _correct_count(result["outputs"], targets)
+        correct = _correct_count(result["outputs"], targets, pattern)
         ll = _avg_loss(result["losses"])
         print(f"  [{label}]  correct={correct}/{steps}  avg_last10_loss={ll:.4f}")
     print()
