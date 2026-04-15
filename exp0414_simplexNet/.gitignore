@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.venv/
+venv/
+
+# PyTorch
+*.pth
+*.pt
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project outputs
+runs/
+
+# LaTeX (keep report.pdf, ignore build artifacts)
+report_tex/*.aux
+report_tex/*.log
+report_tex/*.out
+report_tex/*.synctex.gz
+report_tex/*.fdb_latexmk
+report_tex/*.fls
+report_tex/*.bbl
+report_tex/*.blg
+report_tex/*.toc
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
