@@ -22,8 +22,6 @@ exp0406_distil/models/student/final/
 
 # Exp0408 - ignore model weights (too large for git), see models/README.md for download instructions
 exp0408_memory_backprop/models/student/
-# Exp0408 - ignore run artifacts by default; unignore specific runs worth keeping
-exp0408_memory_backprop/runs/
 # Exp0408 - ignore generated plots (reproducible from model + runs)
 exp0408_memory_backprop/plots/
 
