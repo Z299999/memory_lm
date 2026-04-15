@@ -1,0 +1,10 @@
+# exp0415 — MLP online learning smoke test
+# Constant input 1, targets alternate 0 1 0 1 ...
+
+hidden: [4, 4]       # MLP hidden layer widths; full arch = [1, 4, 4, 1]
+lr: 10.0             # high LR drives weight overcorrection that encodes alternation
+                     # low LR (<1) → network averages to 0.5 (no memory)
+                     # high LR (≥5) → each backprop overshoots → next output flips
+optimizer: sgd       # sgd | adam
+steps: 100           # number of online time steps
+seed: 42
