@@ -1,0 +1,12 @@
+\contentsline {section}{\tocsection {}{1}{Introduction}}{2}{section.1}%
+\contentsline {section}{\tocsection {}{2}{Geometric and Combinatorial Preliminaries}}{2}{section.2}%
+\contentsline {section}{\tocsection {}{3}{Directed Simplex Memory Graph}}{5}{section.3}%
+\contentsline {section}{\tocsection {}{4}{Minimal Motifs: Triangle and Tetrahedron}}{7}{section.4}%
+\contentsline {section}{\tocsection {}{5}{Forward and Backward Propagation}}{8}{section.5}%
+\contentsline {subsection}{\tocsubsection {}{5.1}{General forward propagation}}{9}{subsection.5.1}%
+\contentsline {subsection}{\tocsubsection {}{5.2}{Triangle and tetrahedron forward laws}}{9}{subsection.5.2}%
+\contentsline {subsection}{\tocsubsection {}{5.3}{Backward propagation and bidirectional coupling}}{9}{subsection.5.3}%
+\contentsline {section}{\tocsection {}{6}{A Geometric Interpretation of Short- and Long-Term Memory}}{10}{section.6}%
+\contentsline {section}{\tocsection {}{7}{Open Directions}}{11}{section.7}%
+\contentsline {section}{\tocsection {}{8}{Conclusion}}{11}{section.8}%
+\contentsline {section}{\tocsection {}{}{References}}{12}{section*.2}%

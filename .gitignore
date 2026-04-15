@@ -29,3 +29,14 @@ exp0408_memory_backprop/plots/
 
 # Exp0410 - ignore run artifacts
 exp0410_triangleNet/runs/
+
+# Exp0414 - ignore LaTeX auxiliary files (keep .tex, .bib, and .pdf)
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+*.bbl
+*.blg
+

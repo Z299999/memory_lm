@@ -1,0 +1,12 @@
+\section{A Geometric Interpretation of Short- and Long-Term Memory}
+\label{sec:interpretation}
+
+We analyze how the geometric structure of $\mathrm{SMN}(n,m)$ determines its long- and short-term memory properties.  The reader may find it helpful to keep the tetrahedron case $\mathrm{SMN}(3,m)$ in mind as a concrete reference throughout.
+
+Long-term memory is encoded along the narrow backbone $\mathcal{B}_{n,m} := \{\alpha \in V_{n,m} : \alpha_2 = \cdots = \alpha_n = 0\}$, a chain of $m$ nodes with potentials $H = 0, 2, \ldots, 2(m{-}1)$ from $a$ to $b$.  Its width is always $1$ while its depth scales with $m$, and skip edges of type $a \to b$ allow this channel to bypass the interior entirely.
+
+Short-term memory resides in $F_{\mathrm{mid}} = F_{\mathrm{in}} \cap F_{\mathrm{out}}$, an isopotential buffer at $H = m-1$ whose cardinality $\binom{m+n-3}{n-2}$ grows with $n$ at fixed depth.  Since $F_{\mathrm{mid}} \subset F_{\mathrm{out}}$, every buffer node is immediately readable at the output interface, making $F_{\mathrm{mid}}$ wide and shallow where the backbone is narrow and deep.
+
+In forward propagation, the backbone and the buffer influence each other's expression through the simplex interior.  Pre-midpoint backbone nodes send activations of type $a \to c_k$ into $F_{\mathrm{mid}}$, so the short-term output is modulated by whatever long-term state the backbone carries.  Symmetrically, $F_{\mathrm{mid}}$ feeds into the post-midpoint backbone via edges of type $c_k \to b$, so the long-term output at $b$ depends on the current short-term buffer.  Each half of the architecture conditions the other's readout at inference time.
+
+In backward propagation, gradients flow in the reverse direction and couple the encoding of the two memory components.  An error signal at the output reaches the backbone directly through the $ab$-skip path, but also reaches $F_{\mathrm{mid}}$ through the post-midpoint interior; the buffer's weights are therefore shaped by the same objective that trains the long-term pathway.  Conversely, gradients propagating back through $F_{\mathrm{mid}}$ reach the pre-midpoint backbone via the $c_k \to b$ reverse path, so long-term encoding is updated in response to how well the short-term buffer performed.  Over training, this mutual gradient flow causes the two components to co-adapt: patterns that recur in the short-term buffer are progressively absorbed into the backbone, while the backbone's evolving state continuously reshapes what the buffer learns to store.

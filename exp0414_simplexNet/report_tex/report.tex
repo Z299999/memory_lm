@@ -1,0 +1,73 @@
+\documentclass[11pt]{amsart}
+
+% \usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{mathrsfs}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{assumption}[theorem]{Assumption}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\1}{\mathbf{1}}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\SMN}{\mathrm{SMN}}
+\newcommand{\Vin}{V_{n,m}}
+\newcommand{\Fin}{F_{\mathrm{in}}}
+\newcommand{\Fout}{F_{\mathrm{out}}}
+\newcommand{\Fmid}{F_{\mathrm{mid}}}
+\newcommand{\Ein}{E^{\rightarrow}_{n,m}}
+\newcommand{\conv}{\operatorname{conv}}
+\newcommand{\card}[1]{\left|#1\right|}
+
+\title[Simplex Memory Networks]{Simplex Memory Networks: A Geometric Feedforward Architecture for Coupled Short- and Long-Term Memory}
+\author{Shuheng Zhang}
+\date{\today}
+
+\begin{document}
+
+\begin{abstract}
+We introduce a simplex-based feedforward neural architecture built on a discrete lattice inside a regular $n$-simplex. The hidden nodes are the lattice points of the simplex, the input and output interfaces are realized by two opposite facets, and information propagates along a directed nearest-neighbor graph induced by a linear potential. The resulting architecture is a directed acyclic graph with a distinguished narrow backbone and a broad shared interface between the input and output facets. In the minimal cases of the triangle and the tetrahedron, the architecture reduces to MLP-like motifs with geometrically induced parallel channels and skip paths. We formulate forward and backward propagation laws on the resulting hidden graph and propose a geometric interpretation in which the backbone models long-term memory while the shared intermediate face models a broad short-term memory buffer. We conclude by outlining several mathematical directions, including memory-aware backpropagation laws, architectural scaling in $(n,m)$, and continuous-time or PDE limits on simplicial domains.
+\end{abstract}
+
+\maketitle
+
+\tableofcontents
+
+\input{sections/01_introduction.tex}
+\input{sections/02_preliminaries.tex}
+\input{sections/03_directed_graph.tex}
+\input{sections/04_motifs.tex}
+\input{sections/05_propagation.tex}
+\input{sections/06_interpretation.tex}
+\input{sections/07_open_directions.tex}
+\input{sections/08_conclusion.tex}
+
+\bibliographystyle{plain}
+\bibliography{report}
+
+\end{document}
