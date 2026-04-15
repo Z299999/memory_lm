@@ -1,0 +1,33 @@
+# Simplex Memory Network Configuration
+
+# Model type: "smn" or "mlp"
+model_type: smn
+
+# Experiment name (used in run folder name)
+run_name: exp0414_smn
+
+# SMN architecture parameters
+n: 2            # Simplex dimension (2 = triangle, 3 = tetrahedron)
+m: 3            # Resolution (each edge has m lattice points)
+n_in: 1         # Input dimension
+n_out: 1        # Output dimension
+
+# MLP baseline architecture (used when model_type: mlp)
+mlp_layers: [8, 8, 8]
+
+# Activation function: "relu", "leaky_relu", "gelu", "tanh"
+node_activation: relu
+
+# Task: "sin", "sin_mix", "poly_wave", "piecewise" (1D)
+#       "sin_sum", "sin_product", "quadratic" (2D)
+task_name: sin_mix
+custom_function: ""  # For custom tasks (eval-based, use with care)
+
+# Training parameters
+lr: 0.001
+batch_size: 64
+epochs: 300
+
+# Data range (for 1D tasks)
+x_min: -6.283185307179586  # -2π
+x_max: 6.283185307179586   #  2π
