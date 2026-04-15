@@ -1,15 +1,3 @@
-# Exp0404 runs:
-# - default: ignore all concrete run artifacts
-# - keep runs/log.md tracked
-# - if a future run is worth keeping, unignore it explicitly, e.g.
-#   !exp0404_three_world/runs/good_run_001/
-#   !exp0404_three_world/runs/good_run_001/**
-exp0404_three_world/runs/*
-!exp0404_three_world/runs/log.md
-!exp0404_three_world/runs/orthfall_frontier_001/
-!exp0404_three_world/runs/orthfall_frontier_001/**
-!exp0404_three_world/runs/confluence_002/
-!exp0404_three_world/runs/confluence_002/**
 __pycache__/
 *.pyc
 .env
