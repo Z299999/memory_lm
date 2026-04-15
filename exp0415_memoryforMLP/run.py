@@ -5,7 +5,7 @@ The targets repeat a configurable pattern cyclically, e.g.:
   [0, 1]        →  0 1 0 1 0 1 ...
   [-1, 0, 1, 0] → -1 0 1 0 -1 0 1 0 ...
 
-Three training modes are compared side by side:
+Four training modes are compared side by side:
 
   standard      — apply current step's gradient to every layer immediately
                   W_{t+1}^(ℓ) = W_t^(ℓ) − η · g_t^(ℓ)
@@ -19,6 +19,14 @@ Three training modes are compared side by side:
                     W_{t+1}^(ℓ) = W_t^(ℓ) − η_ℓ · g_{t-(d-ℓ)}^(ℓ)
                   Output layer (ℓ=d): delay 0 — fast, short-term memory
                   Input  layer (ℓ=1): delay d-1 — slow, long-term memory
+
+  layer_ave     — Layer-wise Gradient Time-Window Averaging (layerAveBP.md):
+                  each layer ℓ uses the mean of its last k_ℓ gradients:
+                    k_ℓ = d − ℓ + 1  →  window grows toward the input
+                    ḡ_t^(ℓ) = (1/m) Σ g_{t-i}^(ℓ),  m = min(k_ℓ, t+1)
+                    W_{t+1}^(ℓ) = W_t^(ℓ) − η_ℓ · ḡ_t^(ℓ)
+                  Output layer: window=1 (current only) — short-term memory
+                  Input  layer: window=d (long running average) — long-term memory
 
 Run:  python3 run.py
 Config: params.yaml
@@ -92,7 +100,7 @@ def run_online(params: dict, mode: str = "standard") -> dict:
     mode="delayed_grad"— apply grad_{t-1} to all layers at step t
     mode="layer_delay" — layer-delayed BP: layer ℓ uses grad_{t-(d-ℓ)}
     """
-    assert mode in ("standard", "delayed_grad", "layer_delay")
+    assert mode in ("standard", "delayed_grad", "layer_delay", "layer_ave")
 
     seed = params.get("seed", 42)
     torch.manual_seed(seed)
@@ -114,13 +122,17 @@ def run_online(params: dict, mode: str = "standard") -> dict:
 
     x = torch.tensor([[1.0]])
 
-    # For layer_delay: identify Linear layers and set up gradient cache.
-    # linear_layers[i] is layer i (0=input side, d-1=output side).
-    # delay for layer i = d - 1 - i
-    # Cache stores G_t = list of (w_grad, b_grad) tuples, one per linear layer.
+    # Identify Linear layers (0=input side, d-1=output side).
     lin_layers = model.linear_layers()
     d = len(lin_layers)
-    grad_cache: deque = deque(maxlen=d)   # used for both delayed modes
+
+    # layer_delay / delayed_grad: shared gradient pack cache (maxlen=d)
+    grad_cache: deque = deque(maxlen=d)
+
+    # layer_ave: per-layer gradient history buffers.
+    # Layer i (0=input) has window k_i = d - i.
+    # Keeps the last k_i gradient tuples (w_grad, b_grad).
+    layer_bufs: list[deque] = [deque(maxlen=d - i) for i in range(d)]
 
     rec_outputs: list[float] = []
     rec_targets: list[float] = []
@@ -194,6 +206,25 @@ def run_online(params: dict, mode: str = "standard") -> dict:
                 any_updated = True
             optimizer.step()
 
+        elif mode == "layer_ave":
+            # Layer i (0=input, d-1=output) has window k_i = d - i.
+            # Append current gradient to this layer's buffer, then set
+            # p.grad = mean of all gradients in the buffer before stepping.
+            for i, layer in enumerate(lin_layers):
+                w_g = layer.weight.grad.detach().clone() if layer.weight.grad is not None else None
+                b_g = (layer.bias.grad.detach().clone()
+                       if layer.bias is not None and layer.bias.grad is not None else None)
+                layer_bufs[i].append((w_g, b_g))
+
+                # Mean over the buffer (at most k_i = d-i entries)
+                if w_g is not None:
+                    w_mean = torch.stack([g[0] for g in layer_bufs[i]]).mean(0)
+                    layer.weight.grad = w_mean
+                if b_g is not None and layer.bias is not None:
+                    b_mean = torch.stack([g[1] for g in layer_bufs[i]]).mean(0)
+                    layer.bias.grad = b_mean
+            optimizer.step()
+
     return {
         "outputs": rec_outputs,
         "targets": rec_targets,
@@ -236,11 +267,13 @@ MODE_COLORS = {
     "standard":    "steelblue",
     "delayed_grad":"darkorange",
     "layer_delay": "mediumseagreen",
+    "layer_ave":   "mediumpurple",
 }
 MODE_LABELS = {
     "standard":    "standard  (grad_t → all layers)",
     "delayed_grad":"delayed   (grad_{t-1} → all layers)",
     "layer_delay": "layer-delay (grad_{t-(d-ℓ)} → layer ℓ)",
+    "layer_ave":   "layer-ave  (mean of last k_ℓ grads → layer ℓ)",
 }
 
 
@@ -342,7 +375,8 @@ def save_comparison_plot(results: list[dict], output_path: Path) -> None:
     fig.suptitle(
         f"MLP online learning — arch={arch}  lr={lr}  opt={opt}  params={n_params}  d={d}\n"
         f"Constant input x=1; target pattern={pat_str} repeating\n"
-        f"layer_delay: output layer delay=0, input layer delay={d-1}",
+        f"layer_delay: delay 0→{d-1} (output→input)   "
+        f"layer_ave: window 1→{d} (output→input)",
         fontsize=11,
     )
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -359,7 +393,7 @@ def main() -> None:
     params = load_params(here / "params.yaml")
 
     print("=" * 65)
-    print("exp0415 — MLP Online Learning Smoke Test (3 modes)")
+    print("exp0415 — MLP Online Learning Smoke Test (4 modes)")
     print("=" * 65)
     print(f"  hidden layers  : {params['hidden']}")
     print(f"  lr             : {params['lr']}")
@@ -370,7 +404,7 @@ def main() -> None:
     print()
 
     results = []
-    for mode in ("standard", "delayed_grad", "layer_delay"):
+    for mode in ("standard", "delayed_grad", "layer_delay", "layer_ave"):
         res = run_online(params, mode=mode)
         results.append(res)
         correct = _correct_count(res["outputs"], res["targets"], res["pattern"])
