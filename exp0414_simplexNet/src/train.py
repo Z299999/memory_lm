@@ -43,9 +43,7 @@ def build_model(config: Config):
     """
     if config.model_type == "smn":
         from model import SMNNetwork
-        model = SMNNetwork(config)
-        model.set_compiled(True)  # Enable compiled forward for faster training
-        return model
+        return SMNNetwork(config)
     elif config.model_type == "mlp":
         from mlp import MLPBaseline
         return MLPBaseline(config)
