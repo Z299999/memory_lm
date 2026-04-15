@@ -28,6 +28,14 @@ lr: 0.001
 batch_size: 64
 epochs: 1000
 
+# Moving window training (set window_width > 0 to enable)
+# Window slides from left to right without cycling
+# Each window position trains for `window_hold` epochs before sliding
+# Note: Window training may result in higher val_loss as model learns
+# sequentially and may experience catastrophic forgetting
+window_width: 0.0    # 0.0 = disabled, 0.5 = 50% domain width
+window_hold: 20      # epochs per window position
+
 # Data range (for 1D tasks)
 x_min: -6.283185307179586  # -2π
 x_max: 6.283185307179586   #  2π

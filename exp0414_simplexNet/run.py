@@ -20,7 +20,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from config import Config, load_config_from_yaml
-from train import train_with_config
+from train import train_with_config, train_with_window
 from plot import save_four_panel_plot, save_2d_comparison, smn_architecture_text, mlp_architecture_text
 
 
@@ -42,6 +42,8 @@ def clone_config(base: Config, model_type: str, run_name: str) -> Config:
         epochs=base.epochs,
         x_min=base.x_min,
         x_max=base.x_max,
+        window_width=base.window_width,
+        window_hold=base.window_hold,
     )
 
 
@@ -70,11 +72,16 @@ def main() -> None:
     print(f"\n{'='*50}")
     print(f"SMN: {smn_arch}")
     print(f"MLP: {mlp_arch}")
+    if base.use_windowed_training:
+        print(f"Window training: width={base.window_width*100:.0f}%, hold={base.window_hold} epochs/position")
     print(f"{'='*50}\n")
 
     # Train SMN
     print("Training SMN...")
-    smn_result = train_with_config(smn_config)
+    if base.use_windowed_training:
+        smn_result = train_with_window(smn_config)
+    else:
+        smn_result = train_with_config(smn_config)
 
     # Train MLP
     print("\nTraining MLP...")
