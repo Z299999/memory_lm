@@ -27,8 +27,8 @@ exp0408_memory_backprop/runs/
 # Exp0408 - ignore generated plots (reproducible from model + runs)
 exp0408_memory_backprop/plots/
 
-# Exp0410 - ignore run artifacts
-exp0410_triangleNet/runs/
+# Ignore all runs/ directories across all experiments
+**/runs/
 
 # Exp0414 - ignore LaTeX auxiliary files (keep .tex, .bib, and .pdf)
 *.aux
