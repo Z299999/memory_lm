@@ -83,9 +83,12 @@ def main() -> None:
     else:
         smn_result = train_with_config(smn_config)
 
-    # Train MLP
+    # Train MLP (same training mode as SMN for fair comparison)
     print("\nTraining MLP...")
-    mlp_result = train_with_config(mlp_config)
+    if base.use_windowed_training:
+        mlp_result = train_with_window(mlp_config)
+    else:
+        mlp_result = train_with_config(mlp_config)
 
     # Create comparison plot
     comparison_path = experiment_dir / "comparison.png"
