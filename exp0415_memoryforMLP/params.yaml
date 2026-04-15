@@ -7,8 +7,8 @@
 
 target_pattern: [0, 1]   # repeating target pattern
 
-hidden: [4, 4]       # MLP hidden layer widths; full arch = [1, hidden..., 1]
-lr: 0.5              # sweet spot for [0,1] pattern: delayed_grad=98/100, standard=3/100
-optimizer: sgd       # sgd | adam
-steps: 100           # number of online time steps
+hidden: [8, 8, 8, 8, 8, 8]  # 6 hidden layers → d=7; delays=[6,5,4,3,2,1,0]
+lr: 0.5
+optimizer: sgd
+steps: 200
 seed: 42

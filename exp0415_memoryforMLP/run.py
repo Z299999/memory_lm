@@ -137,6 +137,8 @@ def run_online(params: dict, mode: str = "standard") -> dict:
     rec_outputs: list[float] = []
     rec_targets: list[float] = []
     rec_losses: list[float] = []
+    # per-layer weight-change norm: rec_dw[i][t] = ||W_i(t+1) - W_i(t)||_F
+    rec_dw: list[list[float]] = [[] for _ in range(d)]
 
     for t in range(steps):
         target_val = pattern[t % period]
@@ -153,6 +155,9 @@ def run_online(params: dict, mode: str = "standard") -> dict:
         y = model(x)
         loss = loss_fn(y, y_hat)
         loss.backward()
+
+        # Snapshot weights before update to measure per-layer change
+        w_before = [layer.weight.detach().clone() for layer in lin_layers]
 
         # ---------- build and cache current gradient pack ----------
         G_t: list[tuple] = []
@@ -225,6 +230,11 @@ def run_online(params: dict, mode: str = "standard") -> dict:
                     layer.bias.grad = b_mean
             optimizer.step()
 
+        # Record per-layer weight-change norm after update
+        for i, layer in enumerate(lin_layers):
+            dw = (layer.weight.detach() - w_before[i]).norm().item()
+            rec_dw[i].append(dw)
+
     return {
         "outputs": rec_outputs,
         "targets": rec_targets,
@@ -238,6 +248,7 @@ def run_online(params: dict, mode: str = "standard") -> dict:
         "pattern": pattern,
         "mode": mode,
         "d": d,
+        "dw": rec_dw,   # list[d] of list[steps]: per-layer weight-change norm
     }
 
 
@@ -295,8 +306,8 @@ def save_comparison_plot(results: list[dict], output_path: Path) -> None:
     err_range = max(abs(y_hi - y_lo), 0.5) + 0.05
 
     fig_w = 6.5 * n_modes
-    fig = plt.figure(figsize=(fig_w, 15))
-    gs  = gridspec.GridSpec(4, n_modes, figure=fig, hspace=0.50, wspace=0.30)
+    fig = plt.figure(figsize=(fig_w, 19))
+    gs  = gridspec.GridSpec(5, n_modes, figure=fig, hspace=0.52, wspace=0.30)
 
     def _bar_colors(outs, tgts):
         return ["tomato" if o - t > 0 else "steelblue" for o, t in zip(outs, tgts)]
@@ -369,6 +380,33 @@ def save_comparison_plot(results: list[dict], output_path: Path) -> None:
         if col == 0:
             ax.set_ylabel("value")
         ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.22)
+
+        # ── Row 4: per-layer |ΔW| over time ─────────────────────────────────
+        # Shows how fast each linear layer is actually changing — the
+        # multi-timescale effect should be visible here: output layer (i=d-1)
+        # changes most each step; input layer (i=0) changes least / slowest.
+        dw = res["dw"]   # list[d] of list[steps]
+        n_layers = res["d"]
+        ax = fig.add_subplot(gs[4, col])
+        layer_palette = plt.cm.plasma_r(
+            [i / max(n_layers - 1, 1) for i in range(n_layers)]
+        )
+        for i in range(n_layers):
+            # smooth with a small rolling mean for readability
+            window = max(1, steps // 200)
+            raw = dw[i]
+            smoothed = [
+                sum(raw[max(0, k - window): k + 1]) / len(raw[max(0, k - window): k + 1])
+                for k in range(len(raw))
+            ]
+            lbl = f"L{i}(in)" if i == 0 else (f"L{i}(out)" if i == n_layers-1 else f"L{i}")
+            ax.plot(t_axis, smoothed, color=layer_palette[i], lw=1.0, alpha=0.85, label=lbl)
+        ax.set_title(f"|ΔW| per layer — {mode}", fontsize=9)
+        ax.set_xlabel("time step")
+        if col == 0:
+            ax.set_ylabel("|ΔW| (Frobenius)")
+        ax.legend(fontsize=6, ncol=2)
         ax.grid(True, alpha=0.22)
 
     d = results[0]["d"]
