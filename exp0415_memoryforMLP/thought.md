@@ -28,3 +28,6 @@ and the MLP can be simple like [1 4 4 1]
 the goal we want to see:
 
 online training allows the MLP to predict next output if input is constant 1 all the time, while the change comes from the change in MLP parameter by iteslf through back propagation.
+
+修改：
+我们在每一个时间步，可以使用上一个时间步的梯度信息进行反向传播，而不是用这时的梯度信息。而这时的梯度信息，留给下一个时间步进行反向传播。
