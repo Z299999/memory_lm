@@ -101,7 +101,9 @@ class SMNNetwork(nn.Module):
             ))
 
         # Output mappings: one per output node
+        # Store 1/sqrt(n_preds) for variance-preserving normalization
         self._output_mappings: list[tuple] = []
+        self._output_norm_scales: list[float] = []
         for out_node in self.graph.output_nodes:
             preds = self.graph.preds[out_node]
             out_src_t = torch.tensor(
@@ -111,6 +113,7 @@ class SMNNetwork(nn.Module):
                 [edge_to_idx[(p, out_node)] for p in preds], dtype=torch.long
             )
             self._output_mappings.append((out_src_t, out_ew_t))
+            self._output_norm_scales.append(1.0 / (len(preds) ** 0.5))
 
         # Input node mapping
         self._input_node_indices = [
@@ -128,6 +131,14 @@ class SMNNetwork(nn.Module):
         """
         batch = x.shape[0]
 
+        # Normalize input to [-1, 1] range for stable activation
+        # This prevents ReLU/gelu saturation from large inputs
+        if self.config.n_in == 1:
+            # For 1D input: map [x_min, x_max] to [-1, 1]
+            x_min = self.config.x_min
+            x_max = self.config.x_max
+            x = 2 * (x - x_min) / (x_max - x_min) - 1
+
         # Build initial hist from input nodes
         hist_cols = []
         for i, node_idx in enumerate(self._input_node_indices):
@@ -144,11 +155,13 @@ class SMNNetwork(nn.Module):
             out = self.activation_fn(agg + self.nb[bias_t])     # (batch, n_level)
             hist = torch.cat([hist, out], dim=1)                # (batch, n_hist + n_level)
 
-        # Compute outputs
+        # Compute outputs with variance-preserving normalization
         outputs = []
-        for _, (out_src_t, out_ew_t) in enumerate(self._output_mappings):
+        for i, (out_src_t, out_ew_t) in enumerate(self._output_mappings):
             src_states = hist[:, out_src_t]                     # (batch, n_preds)
-            out_val = (src_states * out_ew_t).sum(1, keepdim=True)
+            out_weights = self.ew[out_ew_t]                     # Get actual edge weights
+            out_val = (src_states * out_weights).sum(1, keepdim=True)
+            out_val = out_val * self._output_norm_scales[i]     # Normalize by 1/sqrt(n_preds)
             outputs.append(out_val)
 
         output = torch.cat(outputs, dim=1)                      # (batch, n_out)
