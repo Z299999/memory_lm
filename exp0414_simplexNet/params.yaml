@@ -33,9 +33,10 @@ epochs: 1000
 # Each window position trains for `window_hold` epochs before sliding
 # Note: Window training may result in higher val_loss as model learns
 # sequentially and may experience catastrophic forgetting
-window_width: 0.0    # 0.0 = disabled, 0.5 = 50% domain width
+window_width: 0.05   # 0.0 = disabled, 0.05 = 5% of 200π domain
 window_hold: 20      # epochs per window position
 
 # Data range (for 1D tasks)
-x_min: -6.283185307179586  # -2π
-x_max: 6.283185307179586   #  2π
+# Extended range: 0 to 200π (about 100 periods of sin)
+x_min: 0.0
+x_max: 628.3185307179587  # 200π

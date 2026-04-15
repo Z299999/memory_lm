@@ -14,9 +14,9 @@ import yaml
 # Internal defaults
 DEFAULT_SEED = 42
 DEFAULT_WEIGHT_DECAY = 1e-5
-DEFAULT_NUM_TRAIN = 2500
-DEFAULT_NUM_VAL = 500
-DEFAULT_NUM_PLOT = 2500
+DEFAULT_NUM_TRAIN = 10000
+DEFAULT_NUM_VAL = 1000
+DEFAULT_NUM_PLOT = 10000
 
 
 @dataclass
@@ -65,11 +65,21 @@ class Config:
     batch_size: int = 64
     epochs: int = 300
 
+    # Data sampling
+    num_train: int = 10000
+    num_val: int = 1000
+    num_plot: int = 10000
+
     # Moving window training (for 1D tasks)
     # If window_width > 0, use moving window training instead of full-domain training
     # Window slides from left to right without cycling
     window_width: float = 0.0   # Window width as fraction of domain (0.0 = disabled, 0.5 = 50%)
     window_hold: int = 1        # Number of epochs per window position before sliding
+
+    # Data sampling
+    num_train: int = 10000
+    num_val: int = 1000
+    num_plot: int = 10000
 
     # Data range (1D tasks)
     x_min: float = -6.283185307179586
@@ -82,18 +92,6 @@ class Config:
     @property
     def weight_decay(self) -> float:
         return DEFAULT_WEIGHT_DECAY
-
-    @property
-    def num_train(self) -> int:
-        return DEFAULT_NUM_TRAIN
-
-    @property
-    def num_val(self) -> int:
-        return DEFAULT_NUM_VAL
-
-    @property
-    def num_plot(self) -> int:
-        return DEFAULT_NUM_PLOT
 
     @property
     def use_windowed_training(self) -> bool:
