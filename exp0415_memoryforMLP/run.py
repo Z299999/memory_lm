@@ -204,8 +204,8 @@ def save_comparison_plot(
     y_mid = (min(pattern) + max(pattern)) / 2
     pat_str = str(pattern).replace(" ", "")
 
-    fig = plt.figure(figsize=(14, 11))
-    gs = gridspec.GridSpec(3, 2, figure=fig, hspace=0.48, wspace=0.32)
+    fig = plt.figure(figsize=(14, 15))
+    gs = gridspec.GridSpec(4, 2, figure=fig, hspace=0.50, wspace=0.32)
 
     colors = {"standard": "steelblue", "delayed_grad": "darkorange"}
     labels = {"standard": "standard (grad_t → step t)",
@@ -277,6 +277,41 @@ def save_comparison_plot(
     ax5.set_xlabel("time step")
     ax5.set_ylim(-err_range, err_range)
     ax5.grid(True, alpha=0.22)
+
+    # ── Row 3: last-period zoom ──────────────────────────────────────────────
+    # Show the last 5 complete periods so convergence quality is visible
+    # even when total steps is very large.
+    period = len(pattern)
+    n_show = 5 * period
+    n_show = min(n_show, steps)
+    # align to a complete period boundary
+    n_show = (n_show // period) * period
+    n_show = max(n_show, period)
+
+    t_zoom = t_axis[-n_show:]
+    tgt_zoom = targets[-n_show:]
+    pos_axis = list(range(n_show))   # relative positions within the zoom window
+
+    for ax, result, key in [(fig.add_subplot(gs[3, 0]), std_result, "standard"),
+                             (fig.add_subplot(gs[3, 1]), dg_result, "delayed_grad")]:
+        out_zoom = result["outputs"][-n_show:]
+        ax.plot(pos_axis, tgt_zoom, color="gray", linestyle="--", linewidth=1.2,
+                alpha=0.7, label="target")
+        ax.plot(pos_axis, out_zoom, color=colors[key], linewidth=1.6,
+                label=f"output ({key})")
+        ax.scatter(pos_axis, out_zoom, s=18, color=colors[key], zorder=4)
+        ax.axhline(y_mid, color="black", linestyle=":", linewidth=0.6, alpha=0.3)
+        # mark period boundaries
+        for k in range(0, n_show + 1, period):
+            ax.axvline(k - 0.5, color="gray", linewidth=0.5, alpha=0.4)
+        ax.set_ylim(y_lo, y_hi)
+        ax.set_xlim(-0.5, n_show - 0.5)
+        ax.set_xlabel(f"relative step (last {n_show} steps = {n_show // period} periods)")
+        ax.set_ylabel("value")
+        n_correct_zoom = _correct_count(out_zoom, tgt_zoom, pattern)
+        ax.set_title(f"last-period zoom — {key}  |  correct={n_correct_zoom}/{n_show}")
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.22)
 
     fig.suptitle(
         f"MLP online learning — arch={arch}  lr={lr}  opt={opt}  params={n_params}\n"
