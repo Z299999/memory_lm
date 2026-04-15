@@ -80,8 +80,12 @@ class SMNNetwork(nn.Module):
                 h += 1
 
         # Level schedule for forward pass
-        # Each entry: (src_t, dst_rows_0, ew_idx_t, bias_t, n_level)
+        # Pre-compute total core nodes for hist pre-allocation
+        n_core_nodes = len(self.graph.core_nodes)
+
+        # Each entry: (src_t, dst_rows_0, ew_idx_t, bias_t, n_level, write_start)
         self._level_schedule: list[tuple] = []
+        write_offset = config.n_in  # Start after input nodes
         for level, nodes in sorted(self.graph.topological_levels.items()):
             if nodes[0][0] in ("in", "out"):
                 continue
@@ -92,13 +96,17 @@ class SMNNetwork(nn.Module):
                     src_list.append(hist_idx[node_to_idx[pred]])
                     dst_list.append(i)
                     ew_list.append(edge_to_idx[(pred, node)])
+                # Store write position for this node
+                hist_idx[node_to_idx[node]] = write_offset + i
             self._level_schedule.append((
                 torch.tensor(src_list, dtype=torch.long),
                 torch.tensor(dst_list, dtype=torch.long).unsqueeze(0),
                 torch.tensor(ew_list, dtype=torch.long),
                 torch.tensor(bias_list, dtype=torch.long),
                 len(nodes),
+                write_offset,  # Where to write output
             ))
+            write_offset += len(nodes)
 
         # Output mappings: one per output node
         # Store 1/sqrt(n_preds) for variance-preserving normalization
@@ -120,6 +128,13 @@ class SMNNetwork(nn.Module):
             node_to_idx[node] for node in self.graph.input_nodes
         ]
 
+        # Pre-compile forward for faster training (optional)
+        self._use_compiled = False
+
+    def set_compiled(self, use_compiled: bool = True) -> None:
+        """Enable or disable compiled forward pass."""
+        self._use_compiled = use_compiled
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass.
 
@@ -129,6 +144,22 @@ class SMNNetwork(nn.Module):
         Returns:
             Output tensor of shape (batch, n_out)
         """
+        if self._use_compiled:
+            return _forward_compiled(
+                x,
+                self.config,
+                self.activation_fn,
+                self.ew,
+                self.nb,
+                self.output_bias,
+                self._level_schedule,
+                self._output_mappings,
+                self._output_norm_scales,
+                self._input_node_indices,
+                len(self.graph.core_nodes),
+            )
+
+        # Use standard Python forward
         batch = x.shape[0]
 
         # Normalize input to [-1, 1] range for stable activation
@@ -139,21 +170,23 @@ class SMNNetwork(nn.Module):
             x_max = self.config.x_max
             x = 2 * (x - x_min) / (x_max - x_min) - 1
 
-        # Build initial hist from input nodes
-        hist_cols = []
-        for i, node_idx in enumerate(self._input_node_indices):
-            hist_cols.append(x[:, i:i+1])
-        hist = torch.cat(hist_cols, dim=1)  # (batch, n_in)
+        # Pre-allocate hist: [input nodes + all core nodes]
+        total_hist_size = self.config.n_in + len(self.graph.core_nodes)
+        hist = x.new_zeros(batch, total_hist_size)
 
-        # Process core nodes level by level
-        for src_t, dst_rows_0, ew_idx_t, bias_t, n_level in self._level_schedule:
+        # Write inputs to their positions
+        for i, node_idx in enumerate(self._input_node_indices):
+            hist[:, i] = x[:, i]
+
+        # Process core nodes level by level, writing directly to pre-allocated hist
+        for src_t, dst_rows_0, ew_idx_t, bias_t, n_level, write_start in self._level_schedule:
             src_states = hist[:, src_t]                          # (batch, n_edges)
             weighted = src_states * self.ew[ew_idx_t]           # (batch, n_edges)
             agg = weighted.new_zeros(batch, n_level).scatter_add(
                 1, dst_rows_0.expand(batch, -1), weighted
             )                                                    # (batch, n_level)
             out = self.activation_fn(agg + self.nb[bias_t])     # (batch, n_level)
-            hist = torch.cat([hist, out], dim=1)                # (batch, n_hist + n_level)
+            hist[:, write_start:write_start + n_level] = out    # Direct write, no cat
 
         # Compute outputs with variance-preserving normalization
         outputs = []
@@ -166,6 +199,61 @@ class SMNNetwork(nn.Module):
 
         output = torch.cat(outputs, dim=1)                      # (batch, n_out)
         return torch.tanh(output + self.output_bias)
+
+
+# Compiled forward for faster training
+@torch.compile(mode="reduce-overhead")
+def _forward_compiled(
+    x: torch.Tensor,
+    config,
+    activation_fn,
+    ew: torch.Tensor,
+    nb: torch.Tensor,
+    output_bias: torch.Tensor,
+    level_schedule: list,
+    output_mappings: list,
+    output_norm_scales: list,
+    input_node_indices: list,
+    n_core: int,
+) -> torch.Tensor:
+    """Compiled forward pass."""
+    batch = x.shape[0]
+
+    # Normalize input
+    if config.n_in == 1:
+        x_min = config.x_min
+        x_max = config.x_max
+        x = 2 * (x - x_min) / (x_max - x_min) - 1
+
+    # Pre-allocate hist
+    total_hist_size = config.n_in + n_core
+    hist = x.new_zeros(batch, total_hist_size)
+
+    # Write inputs
+    for i, node_idx in enumerate(input_node_indices):
+        hist[:, i] = x[:, i]
+
+    # Process levels
+    for src_t, dst_rows_0, ew_idx_t, bias_t, n_level, write_start in level_schedule:
+        src_states = hist[:, src_t]
+        weighted = src_states * ew[ew_idx_t]
+        agg = weighted.new_zeros(batch, n_level).scatter_add(
+            1, dst_rows_0.expand(batch, -1), weighted
+        )
+        out = activation_fn(agg + nb[bias_t])
+        hist[:, write_start:write_start + n_level] = out
+
+    # Output
+    outputs = []
+    for i, (out_src_t, out_ew_t) in enumerate(output_mappings):
+        src_states = hist[:, out_src_t]
+        out_weights = ew[out_ew_t]
+        out_val = (src_states * out_weights).sum(1, keepdim=True)
+        out_val = out_val * output_norm_scales[i]
+        outputs.append(out_val)
+
+    output = torch.cat(outputs, dim=1)
+    return torch.tanh(output + output_bias)
 
     def _node_name(self, node: NodeKey) -> str:
         """Get string name for a node (for visualization)."""
