@@ -1,0 +1,53 @@
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Pcal}{\mathcal{P}}
+\newcommand{\Wtwo}{W_2}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\supp}{\operatorname{supp}}
+\newcommand{\E}{\mathbb{E}}
+
+\title{LaTeX Reading Review:\\A Mean Field View of the Landscape of Two-Layer Neural Networks}
+\author{OpenAI Codex}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\input{sections/01_metadata_overview.tex}
+\input{sections/02_dependency_graph.tex}
+\input{sections/03_assumptions.tex}
+\input{sections/04_key_results.tex}
+\input{sections/05_proof_architecture.tex}
+\input{sections/06_dependency_tracking.tex}
+\input{sections/07_prerequisites.tex}
+\input{sections/08_section_notes.tex}
+\input{sections/09_reuse_notes.tex}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

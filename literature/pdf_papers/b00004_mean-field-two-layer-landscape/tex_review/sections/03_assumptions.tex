@@ -1,0 +1,42 @@
+\section{Key Mathematical Assumptions}
+
+\subsection*{Population-risk and one-pass setting}
+The paper works in the population setting with i.i.d.\ training samples and explicitly adopts the \emph{One-Pass Assumption}: examples are not revisited. SGD is written with step size
+\(
+s_k = \varepsilon \,\xi(k\varepsilon).
+\)
+This scaling is what permits a continuum-time limit.
+
+\subsection*{Main regularity assumptions in the paper}
+The generic PDE-limit results are stated under assumptions A1--A4.
+\begin{itemize}[leftmargin=1.5em]
+\item \textbf{A1.} $\xi$ is bounded and Lipschitz, with $\int_0^\infty \xi(t)\,\dd t=\infty$.
+\item \textbf{A2.} The activation $\sigma_*(x;\theta)$ is bounded, with sub-Gaussian gradient in $\theta$; labels are bounded.
+\item \textbf{A3.} $\nabla V$ and $\nabla_1 U$ are bounded and Lipschitz.
+\item \textbf{A4.} For the noisy-DD convergence theory, $V$ and $U$ are $C^4$ with bounded derivatives up to the stated order.
+\end{itemize}
+
+\subsection*{Two central PDEs}
+The \emph{distributional dynamics} (noiseless mean-field limit) is
+\begin{equation}
+\partial_t \rho_t
+=
+2\xi(t)\,\nabla_\theta \cdot \Bigl(\rho_t \nabla_\theta \Psi(\theta;\rho_t)\Bigr),
+\qquad
+\Psi(\theta;\rho)=V(\theta)+\int U(\theta,\theta')\,\rho(\dd\theta').
+\end{equation}
+The \emph{diffusion DD} for noisy / regularized SGD has the schematic form
+\begin{equation}
+\partial_t \rho_t
+=
+2\xi(t)\,\nabla_\theta \cdot \Bigl(\rho_t \nabla_\theta \Psi_\lambda(\theta;\rho_t)\Bigr)
+ + 2\xi(t)\beta^{-1}\Delta_\theta \rho_t,
+\end{equation}
+where $\beta$ is inverse temperature and $\lambda$ is the quadratic regularization strength.
+
+\subsection*{Why these assumptions matter}
+The assumptions are not cosmetic. A1--A3 are used to show existence / uniqueness of the PDE and to control the finite-time approximation error in Theorem~3. A4 is what allows the stronger free-energy analysis that yields Theorems~4--5. In short:
+\begin{itemize}[leftmargin=1.5em]
+\item A1--A3 support the \emph{PDE limit};
+\item A4 supports the \emph{global convergence of the noisy PDE}.
+\end{itemize}

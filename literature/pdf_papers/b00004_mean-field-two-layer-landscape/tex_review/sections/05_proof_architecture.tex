@@ -1,0 +1,48 @@
+\section{Proof-Sketch Architecture for the Main Results}
+
+\subsection*{Theorem 3: SGD $\to$ PDE}
+\begin{enumerate}[label=\arabic*.]
+\item Rewrite SGD in terms of the empirical measure of particles / parameters.
+\item Introduce the nonlinear McKean--Vlasov-style dynamics whose law solves the PDE.
+\item Compare discrete SGD trajectories with the nonlinear dynamics trajectory-by-trajectory.
+\item Control the discrepancy using boundedness / Lipschitz assumptions and concentration for martingale-difference terms.
+\item Conclude weak convergence of empirical measures to $\rho_t$.
+\end{enumerate}
+\paragraph{Uses.}
+A1--A3, propagation-of-chaos ideas, and the Supplementary Information Lemmas~3.1--3.4. This theorem is later used by Theorems~1, 2, and 5.
+
+\subsection*{Theorem 4: convergence of the noisy PDE}
+\begin{enumerate}[label=\arabic*.]
+\item Define the regularized free energy $F_{\beta,\lambda}(\rho)$.
+\item Prove the dissipation identity along the diffusion PDE.
+\item Use that identity to show every long-time limit must satisfy the Boltzmann fixed-point equation.
+\item Use convexity / regularization to show uniqueness of the minimizer and hence identify the limit.
+\end{enumerate}
+\paragraph{Uses.}
+Proposition~3, A1--A4, and the free-energy framework imported from Wasserstein-gradient-flow theory. Theorem~5 depends on this result.
+
+\subsection*{Theorem 5: noisy SGD reaches near-optimal regularized risk}
+\begin{enumerate}[label=\arabic*.]
+\item Apply Theorem~3 to replace finite-width noisy SGD by diffusion DD on a finite time window.
+\item Apply Theorem~4 to show the PDE reaches the unique free-energy minimizer.
+\item Compare the free-energy minimizer to the finite-width optimum using Proposition~1 and the entropy / regularization error terms.
+\end{enumerate}
+\paragraph{Uses.}
+This is the paper's main generic optimization conclusion. Its proof is modular: PDE limit + PDE convergence + mean-field approximation.
+
+\subsection*{Theorems 6 and 7: local structure of noiseless fixed points}
+\paragraph{Theorem 6.}
+The proof expands $\Psi(\theta;\rho)$ near a candidate atomic fixed point and checks the local Hessian
+\begin{equation}
+H_0(\rho^*)=\nabla^2 V(\theta^*)+\int \nabla^2_{1,1}U(\theta^*,\theta)\,\rho^*(\dd\theta).
+\end{equation}
+If $\lambda_{\min}(H_0)>0$, then the local drift points inward and the dynamics contracts toward $\delta_{\theta^*}$.
+
+\paragraph{Theorem 7.}
+The argument is essentially an instability exclusion: if a mixed fixed point has a negative Hessian direction and enough nearby mass, then a bounded-density initial condition cannot converge to it. The paper states this as a structural obstruction rather than as a full global classification theorem.
+
+\subsection*{Theorems 1 and 2: example-specific convergence}
+The examples reduce the PDE to lower-dimensional radial or symmetry-reduced equations. Then the authors identify good minimizers and show that the corresponding PDE trajectory reaches them under suitable initialization. The general Theorem~3 is what lifts these PDE conclusions back to finite-width SGD.
+
+\paragraph{Important uncertainty note.}
+The exact dependence of the convergence time $T$ on dimension and tolerance is not resolved in the generic theorems. The paper is explicit that the proof does not give a satisfactory estimate in full generality.

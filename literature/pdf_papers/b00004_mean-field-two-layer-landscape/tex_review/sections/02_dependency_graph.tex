@@ -1,0 +1,52 @@
+\section{Dependency Graph}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  >=Latex,
+  box/.style={
+    draw,
+    rounded corners,
+    align=left,
+    text width=3.4cm,
+    font=\small,
+    inner sep=4pt
+  },
+  imp/.style={box, fill=blue!6},
+  core/.style={box, fill=green!6},
+  res/.style={box, fill=orange!8},
+  ex/.style={box, fill=purple!7}
+]
+\node[imp]  (tools)  at (0, 0)   {Imported tools\\Wasserstein gradient flows\\Propagation of chaos\\Analytic zero-set facts};
+\node[core] (setup)  at (0,-2.5) {Setup\\two-layer model, empirical measure $\hat\rho^{(N)}$, mean-field risk $R(\rho)$, DD / noisy DD};
+\node[core] (assump) at (-5.2,-5.0) {Assumptions\\A1--A3 for PDE limit\\A4 for strong noisy-DD analysis};
+\node[res]  (prop1)  at (-1.8,-5.0) {Proposition 1\\finite-width optimum is within $O(1/N)$ of $\inf_\rho R(\rho)$};
+\node[res]  (thm3)   at (1.8,-5.0) {Theorem 3\\SGD / noisy SGD $\to$ PDE / diffusion PDE on finite time windows};
+\node[res]  (prop23) at (5.2,-5.0) {Propositions 2--3\\characterize fixed points\\and Boltzmann fixed point of noisy DD};
+\node[res]  (thm4)   at (1.8,-8.0) {Theorem 4\\unique minimizer of free energy\\and convergence of diffusion PDE};
+\node[res]  (thm67)  at (5.2,-8.0) {Theorems 6--7\\local stability of atomic fixed points\\and exclusion of unstable mixed fixed points};
+\node[res]  (thm5)   at (1.8,-10.8) {Theorem 5\\regularized noisy SGD reaches near-optimal risk};
+\node[ex]   (lemma1) at (-3.8,-13.5) {Lemma 1\\criterion for spherical-uniform minimizer in isotropic model};
+\node[ex]   (thm12)  at (1.8,-13.5) {Theorems 1--2\\application to isotropic / anisotropic Gaussian examples};
+
+\draw[->] (tools) -- (setup);
+\draw[->] (setup) -- (prop1);
+\draw[->] (setup) -- (thm3);
+\draw[->] (tools) -- (thm3);
+\draw[->] (assump) -- (thm3);
+\draw[->] (assump) -- (prop23);
+\draw[->] (thm3) -- (thm4);
+\draw[->] (prop23) -- (thm4);
+\draw[->] (thm4) -- (thm5);
+\draw[->] (prop1) -- (thm5);
+\draw[->] (prop23) -- (thm67);
+\draw[->] (setup) -- (lemma1);
+\draw[->] (lemma1) -- (thm12);
+\draw[->] (thm3) -- (thm12);
+\draw[->] (prop1) -- (thm12);
+\end{tikzpicture}
+\caption{Main proof spine of \cite{mei2018meanfield}. The central transition is from finite-width SGD to distributional dynamics, after which the analysis moves to fixed points, free energy, and example-specific PDE reductions. A few logically true but visually redundant edges are omitted so the main proof spine remains readable.}
+\end{figure}
+
+\paragraph{How to read the graph.}
+The paper's most important move is Theorem~3: once SGD is approximated by DD, the optimization problem is replaced by the study of a measure-valued flow. The noisy branch (Proposition~3 $\to$ Theorem~4 $\to$ Theorem~5) gives the cleanest generic convergence result. The noiseless branch (Propositions~2, Theorems~6--7) gives a weaker but structurally informative picture of stable and unstable fixed points.

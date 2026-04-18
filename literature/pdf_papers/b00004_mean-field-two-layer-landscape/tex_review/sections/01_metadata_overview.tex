@@ -1,0 +1,46 @@
+\section{Paper Metadata and Overview}
+
+\paragraph{Reference.}
+Song Mei, Andrea Montanari, and Phan-Minh Nguyen,
+\emph{A mean field view of the landscape of two-layer neural networks},
+PNAS 115(33):E7665--E7671, 2018 \cite{mei2018meanfield}.
+
+\paragraph{Main problem.}
+The paper studies two-layer networks trained by stochastic gradient descent (SGD) in the population setting. The main claim is that, in a suitable large-width / small-step-size regime, the empirical parameter distribution evolves according to a nonlinear PDE. This PDE is a Wasserstein gradient flow, and that description simplifies the loss-landscape analysis.
+
+\paragraph{Core mathematical objects.}
+The network prediction is
+\begin{equation}
+\hat y(x;\theta)=\frac{1}{N}\sum_{i=1}^N \sigma_*(x;\theta_i),
+\end{equation}
+with population risk
+\begin{equation}
+R_N(\theta)=\E\bigl[(y-\hat y(x;\theta))^2\bigr].
+\end{equation}
+After rewriting the risk in terms of the empirical measure
+\(
+\hat \rho^{(N)} = N^{-1}\sum_{i=1}^N \delta_{\theta_i},
+\)
+the paper introduces the mean-field functional
+\begin{equation}
+R(\rho)=R_\# + 2\int V(\theta)\,\rho(\dd \theta)
++ \int U(\theta_1,\theta_2)\,\rho(\dd\theta_1)\rho(\dd\theta_2).
+\end{equation}
+The corresponding distributional dynamics (DD) is
+\begin{equation}
+\partial_t \rho_t = 2\xi(t)\,\nabla_\theta \cdot \Bigl(\rho_t \nabla_\theta \Psi(\theta;\rho_t)\Bigr),
+\qquad
+\Psi(\theta;\rho)=V(\theta)+\int U(\theta,\theta')\,\rho(\dd\theta').
+\end{equation}
+
+\paragraph{High-level message.}
+The proof spine has three layers:
+\begin{enumerate}[label=\arabic*.]
+\item rewrite the finite-width problem as an empirical-measure problem;
+\item show SGD converges to a PDE by a propagation-of-chaos argument;
+\item analyze the PDE rather than the original nonconvex optimization problem.
+\end{enumerate}
+The PDE can be studied using gradient-flow tools and, in some examples, yields near-global convergence guarantees.
+
+\paragraph{Role of the Supplementary Information.}
+The Supplementary Information is not optional here. It contains most of the formal proof architecture: Corollary~2.1, Lemmas in Sections~3--6, the proof of Theorem~3, and the detailed PDE / free-energy arguments that support Theorems~4--7.
