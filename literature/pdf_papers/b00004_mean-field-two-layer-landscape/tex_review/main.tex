@@ -6,9 +6,6 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb,amsthm,mathtools}
 \usepackage{booktabs}
-\usepackage{array}
-\usepackage{longtable}
-\usepackage{enumitem}
 \usepackage{float}
 \usepackage{hyperref}
 \usepackage[nameinlink,noabbrev]{cleveref}
@@ -23,29 +20,55 @@
 }
 
 \newcommand{\R}{\mathbb{R}}
-\newcommand{\Pcal}{\mathcal{P}}
-\newcommand{\Wtwo}{W_2}
-\newcommand{\dd}{\mathrm{d}}
-\newcommand{\supp}{\operatorname{supp}}
 \newcommand{\E}{\mathbb{E}}
 
-\title{LaTeX Reading Review:\\A Mean Field View of the Landscape of Two-Layer Neural Networks}
-\author{OpenAI Codex}
-\date{\today}
+\newtheorem{theorem}{Theorem}
+
+\title{A Mean Field View of the Landscape of Two-Layer Neural Networks\\[4pt]\large Mei, Montanari, Nguyen (PNAS 2018)}
+\author{}
+\date{}
 
 \begin{document}
 \maketitle
-\tableofcontents
 
-\input{sections/01_metadata_overview.tex}
+\section*{Distributional Dynamics (DD)}
+
+The fundamental PDE governing the infinite-width limit of two-layer neural networks:
+
+\begin{equation}
+\partial_t \rho_t = 2\xi(t)\nabla_\theta \cdot \bigl(\rho_t \nabla_\theta \Psi(\theta; \rho_t)\bigr),
+\end{equation}
+
+where the potential $\Psi$ is defined as
+
+\begin{equation}
+\Psi(\theta; \rho) = V(\theta) + \int U(\theta, \theta')\, \rho(d\theta'),
+\end{equation}
+
+with $V(\theta) = -\E[y\, \sigma_*(x; \theta)]$ and $U(\theta_1, \theta_2) = \E[\sigma_*(x; \theta_1)\sigma_*(x; \theta_2)]$.
+
+\section*{Main Convergence Result}
+
+\begin{theorem}[\textbf{Theorem 3} in paper: SGD $\to$ PDE]
+\label{thm:main}
+Assume conditions A1--A3 (bounded Lipschitz step size, bounded activation with sub-Gaussian gradient, bounded Lipschitz gradients of $V$ and $U$). For $\rho_0 \in \mathcal{P}(\mathbb{R}^D)$, consider SGD with initialization $(\theta_i^0)_{i \leq N} \overset{\text{iid}}{\sim} \rho_0$ and step size $s_k = \varepsilon \xi(k\varepsilon)$. For $t \geq 0$, let $\rho_t$ be the solution of the DD PDE. Then for any fixed $t$, the empirical measure $\hat{\rho}^{(N)}_t \Rightarrow \rho_t$ almost surely along any sequence $(N, \varepsilon = \varepsilon_N)$ such that $N / \log(1/\varepsilon_N) \to \infty$ and $\varepsilon_N \to 0$.
+
+Moreover, there exists a constant $C$ (depending only on the parameters in A1--A3) such that for any $f: \mathbb{R}^D \to \mathbb{R}$ with $\|f\|_\infty, \|f\|_{\text{Lip}} \leq 1$ and $\varepsilon \leq 1$,
+\begin{equation}
+\sup_{k \in [0, T/\varepsilon] \cap \mathbb{N}} \left| \frac{1}{N} \sum_{i=1}^N f(\theta_i^k) - \int f(\theta) \rho_{k\varepsilon}(d\theta) \right| \leq C e^{CT} \cdot \text{err}_{N,D}(z),
+\end{equation}
+\begin{equation}
+\sup_{k \in [0, T/\varepsilon] \cap \mathbb{N}} \left| R_N(\theta^k) - R(\rho_{k\varepsilon}) \right| \leq C e^{CT} \cdot \text{err}_{N,D}(z),
+\end{equation}
+with probability at least $1 - e^{-z^2}$, where the error term is
+\begin{equation}
+\text{err}_{N,D}(z) = \sqrt{\frac{1}{N} \vee \varepsilon \cdot \Bigl(\sqrt{D} + \log(N/\varepsilon) + z\Bigr)}.
+\end{equation}
+\end{theorem}
+
+\paragraph{Significance.} This theorem establishes that SGD dynamics does not become more complex as the network width $N$ increases. The approximation is valid when $N \gg D$ and $\varepsilon \ll 1/D$. The error grows exponentially with the time horizon $T$, but is benign in $N$ and $D$.
+
 \input{sections/02_dependency_graph.tex}
-\input{sections/03_assumptions.tex}
-\input{sections/04_key_results.tex}
-\input{sections/05_proof_architecture.tex}
-\input{sections/06_dependency_tracking.tex}
-\input{sections/07_prerequisites.tex}
-\input{sections/08_section_notes.tex}
-\input{sections/09_reuse_notes.tex}
 
 \bibliographystyle{plain}
 \bibliography{references}

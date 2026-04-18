@@ -18,16 +18,16 @@
   ex/.style={box, fill=purple!7}
 ]
 \node[imp]  (tools)  at (0, 0)   {Imported tools\\Wasserstein gradient flows\\Propagation of chaos\\Analytic zero-set facts};
-\node[core] (setup)  at (0,-2.5) {Setup\\two-layer model, empirical measure $\hat\rho^{(N)}$, mean-field risk $R(\rho)$, DD / noisy DD};
-\node[core] (assump) at (-5.2,-5.0) {Assumptions\\A1--A3 for PDE limit\\A4 for strong noisy-DD analysis};
-\node[res]  (prop1)  at (-1.8,-5.0) {Proposition 1\\finite-width optimum is within $O(1/N)$ of $\inf_\rho R(\rho)$};
-\node[res]  (thm3)   at (1.8,-5.0) {Theorem 3\\SGD / noisy SGD $\to$ PDE / diffusion PDE on finite time windows};
-\node[res]  (prop23) at (5.2,-5.0) {Propositions 2--3\\characterize fixed points\\and Boltzmann fixed point of noisy DD};
-\node[res]  (thm4)   at (1.8,-8.0) {Theorem 4\\unique minimizer of free energy\\and convergence of diffusion PDE};
-\node[res]  (thm67)  at (5.2,-8.0) {Theorems 6--7\\local stability of atomic fixed points\\and exclusion of unstable mixed fixed points};
-\node[res]  (thm5)   at (1.8,-10.8) {Theorem 5\\regularized noisy SGD reaches near-optimal risk};
-\node[ex]   (lemma1) at (-3.8,-13.5) {Lemma 1\\criterion for spherical-uniform minimizer in isotropic model};
-\node[ex]   (thm12)  at (1.8,-13.5) {Theorems 1--2\\application to isotropic / anisotropic Gaussian examples};
+\node[core] (setup)  at (0,-3.2) {Setup\\two-layer model, empirical measure $\hat\rho^{(N)}$, mean-field risk $R(\rho)$, DD / noisy DD};
+\node[core] (assump) at (-6.0,-6.4) {Assumptions\\A1--A3 for PDE limit\\A4 for strong noisy-DD analysis};
+\node[res]  (prop1)  at (-2.0,-6.4) {Proposition 1\\finite-width optimum is within $O(1/N)$ of $\inf_\rho R(\rho)$};
+\node[res]  (thm3)   at (2.0,-6.4) {Theorem 3\\SGD / noisy SGD $\to$ PDE / diffusion PDE on finite time windows};
+\node[res]  (prop23) at (6.0,-6.4) {Propositions 2--3\\characterize fixed points\\and Boltzmann fixed point of noisy DD};
+\node[res]  (thm4)   at (2.0,-9.8) {Theorem 4\\unique minimizer of free energy\\and convergence of diffusion PDE};
+\node[res]  (thm67)  at (6.0,-9.8) {Theorems 6--7\\local stability of atomic fixed points\\and exclusion of unstable mixed fixed points};
+\node[res]  (thm5)   at (2.0,-13.2) {Theorem 5\\regularized noisy SGD reaches near-optimal risk};
+\node[ex]   (lemma1) at (-4.0,-16.6) {Lemma 1\\criterion for spherical-uniform minimizer in isotropic model};
+\node[ex]   (thm12)  at (2.0,-16.6) {Theorems 1--2\\application to isotropic / anisotropic Gaussian examples};
 
 \draw[->] (tools) -- (setup);
 \draw[->] (setup) -- (prop1);
