@@ -23,50 +23,103 @@
 \newcommand{\E}{\mathbb{E}}
 
 \newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
 
-\title{A Mean Field View of the Landscape of Two-Layer Neural Networks\\[4pt]\large Mei, Montanari, Nguyen (PNAS 2018)}
-\author{}
+\title{Reading Review:\\A Mean Field View of the Landscape of Two-Layer Neural Networks}
+\author{Mei, Montanari, Nguyen (PNAS 2018)}
 \date{}
 
 \begin{document}
 \maketitle
 
-\section*{Distributional Dynamics (DD)}
+\section*{1. Motivation: Why Mean Field?}
 
-The fundamental PDE governing the infinite-width limit of two-layer neural networks:
+Two-layer neural networks are trained by minimizing a nonconvex high-dimensional risk function via stochastic gradient descent (SGD). The fundamental question is:
+\begin{quote}
+\emph{Does SGD converge to a global optimum or only to a local optimum? If the latter, why do local minima have good generalization properties?}
+\end{quote}
 
+For a two-layer network with $N$ hidden units:
 \begin{equation}
-\partial_t \rho_t = 2\xi(t)\nabla_\theta \cdot \bigl(\rho_t \nabla_\theta \Psi(\theta; \rho_t)\bigr),
+\hat{y}(x; \theta) = \frac{1}{N} \sum_{i=1}^N \sigma_*(x; \theta_i),
 \end{equation}
-
-where the potential $\Psi$ is defined as
-
+the population risk (with squared loss) admits a remarkable \textbf{mean-field decomposition}:
 \begin{equation}
-\Psi(\theta; \rho) = V(\theta) + \int U(\theta, \theta')\, \rho(d\theta'),
+R_N(\theta) = R_\# + \frac{2}{N} \sum_{i=1}^N V(\theta_i) + \frac{1}{N^2} \sum_{i,j=1}^N U(\theta_i, \theta_j),
 \end{equation}
+where $V(\theta) = -\E[y \sigma_*(x; \theta)]$ and $U(\theta_1, \theta_2) = \E[\sigma_*(x; \theta_1)\sigma_*(x; \theta_2)]$.
 
-with $V(\theta) = -\E[y\, \sigma_*(x; \theta)]$ and $U(\theta_1, \theta_2) = \E[\sigma_*(x; \theta_1)\sigma_*(x; \theta_2)]$.
+\paragraph{Key insight.} The risk depends on parameters $\theta_1, \ldots, \theta_N$ only through their \textbf{empirical distribution} $\hat{\rho}^{(N)} = \frac{1}{N}\sum_{i=1}^N \delta_{\theta_i}$. This suggests studying the infinite-width limit $N \to \infty$, where the risk becomes a functional over probability measures:
+\begin{equation}
+R(\rho) = R_\# + 2 \int V(\theta) \rho(d\theta) + \iint U(\theta_1, \theta_2) \rho(d\theta_1)\rho(d\theta_2).
+\end{equation}
+Since $U$ is positive semidefinite, $R(\rho)$ is \textbf{convex} in $\rho$—a dramatic simplification!
 
-\section*{Main Convergence Result}
+\section*{2. Main Result: Distributional Dynamics}
 
-\begin{theorem}[\textbf{Theorem 3} in paper: SGD $\to$ PDE]
+The central theorem of the paper establishes that SGD dynamics is captured by a nonlinear PDE in the infinite-width limit.
+
+\begin{theorem}[\textbf{Theorem 3} in paper: SGD $\to$ PDE Convergence]
 \label{thm:main}
-Assume conditions A1--A3 (bounded Lipschitz step size, bounded activation with sub-Gaussian gradient, bounded Lipschitz gradients of $V$ and $U$). For $\rho_0 \in \mathcal{P}(\mathbb{R}^D)$, consider SGD with initialization $(\theta_i^0)_{i \leq N} \overset{\text{iid}}{\sim} \rho_0$ and step size $s_k = \varepsilon \xi(k\varepsilon)$. For $t \geq 0$, let $\rho_t$ be the solution of the DD PDE. Then for any fixed $t$, the empirical measure $\hat{\rho}^{(N)}_t \Rightarrow \rho_t$ almost surely along any sequence $(N, \varepsilon = \varepsilon_N)$ such that $N / \log(1/\varepsilon_N) \to \infty$ and $\varepsilon_N \to 0$.
+Assume conditions \textbf{A1--A3} (bounded Lipschitz step size, bounded activation with sub-Gaussian gradient, bounded Lipschitz gradients of $V$ and $U$). Let $\rho_0 \in \mathcal{P}(\R^D)$ and consider SGD with initialization $(\theta_i^0)_{i \leq N} \overset{\text{iid}}{\sim} \rho_0$ and step size $s_k = \varepsilon \xi(k\varepsilon)$.
 
-Moreover, there exists a constant $C$ (depending only on the parameters in A1--A3) such that for any $f: \mathbb{R}^D \to \mathbb{R}$ with $\|f\|_\infty, \|f\|_{\text{Lip}} \leq 1$ and $\varepsilon \leq 1$,
+Let $\rho_t$ solve the \textbf{Distributional Dynamics (DD)} PDE:
 \begin{equation}
-\sup_{k \in [0, T/\varepsilon] \cap \mathbb{N}} \left| \frac{1}{N} \sum_{i=1}^N f(\theta_i^k) - \int f(\theta) \rho_{k\varepsilon}(d\theta) \right| \leq C e^{CT} \cdot \text{err}_{N,D}(z),
+\partial_t \rho_t = 2\xi(t) \nabla_\theta \cdot \bigl( \rho_t \nabla_\theta \Psi(\theta; \rho_t) \bigr),
+\end{equation}
+where $\Psi(\theta; \rho) = V(\theta) + \int U(\theta, \theta') \rho(d\theta')$.
+
+Then for any fixed $t$, the empirical measure $\hat{\rho}^{(N)}_t \Rightarrow \rho_t$ almost surely as $N \to \infty$, $\varepsilon \to 0$ with $N / \log(1/\varepsilon_N) \to \infty$. Moreover, for any $f: \R^D \to \R$ with $\|f\|_\infty, \|f\|_{\text{Lip}} \leq 1$:
+\begin{equation}
+\sup_{k \in [0, T/\varepsilon]} \left| \frac{1}{N} \sum_{i=1}^N f(\theta_i^k) - \int f(\theta) \rho_{k\varepsilon}(d\theta) \right| \leq C e^{CT} \cdot \text{err}_{N,D},
 \end{equation}
 \begin{equation}
-\sup_{k \in [0, T/\varepsilon] \cap \mathbb{N}} \left| R_N(\theta^k) - R(\rho_{k\varepsilon}) \right| \leq C e^{CT} \cdot \text{err}_{N,D}(z),
+\sup_{k \in [0, T/\varepsilon]} \bigl| R_N(\theta^k) - R(\rho_{k\varepsilon}) \bigr| \leq C e^{CT} \cdot \text{err}_{N,D},
 \end{equation}
-with probability at least $1 - e^{-z^2}$, where the error term is
-\begin{equation}
-\text{err}_{N,D}(z) = \sqrt{\frac{1}{N} \vee \varepsilon \cdot \Bigl(\sqrt{D} + \log(N/\varepsilon) + z\Bigr)}.
-\end{equation}
+with probability at least $1 - e^{-z^2}$, where $\text{err}_{N,D} = \sqrt{\frac{1}{N} \vee \varepsilon \bigl(\sqrt{D} + \log(N/\varepsilon) + z\bigr)}$.
 \end{theorem}
 
-\paragraph{Significance.} This theorem establishes that SGD dynamics does not become more complex as the network width $N$ increases. The approximation is valid when $N \gg D$ and $\varepsilon \ll 1/D$. The error grows exponentially with the time horizon $T$, but is benign in $N$ and $D$.
+\paragraph{Significance.}
+\begin{itemize}
+\item \textbf{Width independence:} The landscape does not become more complex as $N$ increases. The approximation is valid when $N \gg D$ and $\varepsilon \ll 1/D$.
+\item \textbf{Dimensional reduction:} The $N \times D$-dimensional SGD dynamics reduces to a $D$-dimensional PDE.
+\item \textbf{Symmetry exploitation:} The PDE formulation allows exploiting symmetries in the data distribution (e.g., rotational invariance), which is impossible for finite-$N$ dynamics.
+\item \textbf{Connection to physics:} The DD PDE is a gradient flow in the Wasserstein space $(\mathcal{P}(\R^D), W_2)$, connecting neural network training to interacting particle systems.
+\end{itemize}
+
+\section*{3. Consequences: Noisy SGD Converges Globally}
+
+Building on Theorem 3, the paper analyzes \textbf{noisy SGD}:
+\begin{equation}
+\theta_i^{k+1} = (1 - 2\lambda s_k) \theta_i^k + 2s_k (y_k - \hat{y}_k) \nabla_{\theta_i} \sigma_*(x_k; \theta_i^k) + \sqrt{2s_k / \beta} \, g_i^k,
+\end{equation}
+where $g_i^k \sim \mathcal{N}(0, I_D)$. The scaling limit is a \textbf{diffusion PDE}:
+\begin{equation}
+\partial_t \rho_t = 2\xi(t) \nabla_\theta \cdot (\rho_t \nabla_\theta \Psi_\lambda(\theta; \rho_t)) + 2\xi(t) \beta^{-1} \Delta_\theta \rho_t,
+\end{equation}
+which is a gradient flow for the free energy $F_{\beta,\lambda}(\rho) = \frac{1}{2}R(\rho) + \frac{\lambda}{2}\int \|\theta\|^2 \rho(d\theta) - \beta^{-1} \text{Ent}(\rho)$.
+
+\begin{theorem}[\textbf{Theorem 4} in paper: Convergence of Noisy PDE]
+Under assumptions \textbf{A1--A4} and $\lambda > 0$, the free energy $F_{\beta,\lambda}(\rho)$ has a unique minimizer $\rho_*^{\beta,\lambda}$, and the diffusion PDE converges to it: $\rho_t \Rightarrow \rho_*^{\beta,\lambda}$ as $t \to \infty$.
+\end{theorem}
+
+\begin{theorem}[\textbf{Theorem 5} in paper: Noisy SGD Reaches Near-Optimum]
+Under the same assumptions, for any $\eta > 0$, there exists $\beta \geq KD$ and $T < \infty$ (independent of $N$) such that for $k \in [T/\varepsilon, 10T/\varepsilon]$:
+\begin{equation}
+R_N(\theta^k) \leq \inf_{\rho \in \mathcal{P}(\R^D)} R(\rho) + \eta
+\end{equation}
+with probability at least $1 - \delta$, provided $N, 1/\varepsilon \geq C_0 e^{C_0 T} D$.
+\end{theorem}
+
+\paragraph{Main conclusion.} Noisy SGD converges to a near-global minimum in a number of steps \textbf{independent of the network width $N$}.
+
+\section*{4. Limitations and Open Questions}
+
+\begin{itemize}
+\item \textbf{Exponential time dependence:} The error bound grows as $e^{CT}$, limiting applicability to cases where DD converges rapidly. The proof does not provide satisfactory estimates for the dependence of convergence time $T$ on dimension $D$ and tolerance $\eta$.
+\item \textbf{Special data distributions:} The explicit convergence results (Theorems 1--2) are for isotropic/anisotropic Gaussians—highly idealized cases.
+\item \textbf{Two layers only:} The analysis does not extend to deep networks with more than two layers.
+\end{itemize}
 
 \input{sections/02_dependency_graph.tex}
 
