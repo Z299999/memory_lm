@@ -51,7 +51,7 @@
 \begin{document}
 
 \begin{abstract}
-We introduce a simplex-based feedforward neural architecture built on a discrete lattice inside a regular $n$-simplex. The hidden nodes are the lattice points of the simplex, the input and output interfaces are realized by two opposite facets, and information propagates along a directed nearest-neighbor graph induced by a linear potential. The resulting architecture is a directed acyclic graph with a distinguished narrow backbone and a broad shared interface between the input and output facets. In the minimal cases of the triangle and the tetrahedron, the architecture reduces to MLP-like motifs with geometrically induced parallel channels and skip paths. We formulate forward and backward propagation laws on the resulting hidden graph and propose a geometric interpretation in which the backbone models long-term memory while the shared intermediate face models a broad short-term memory buffer. We conclude by outlining several mathematical directions, including memory-aware backpropagation laws, architectural scaling in $(n,m)$, and continuous-time or PDE limits on simplicial domains.
+We introduce a simplex-based feedforward neural architecture built on a discrete lattice inside a regular $n$-simplex. The hidden nodes are the lattice points of the simplex, the input and output interfaces are realized by two opposite facets, and information propagates along a directed nearest-neighbor graph induced by a linear potential. The resulting architecture is a directed acyclic graph with a distinguished narrow backbone and a broad shared interface between the input and output facets. In the minimal cases of the triangle and the tetrahedron, the architecture reduces to MLP-like motifs with geometrically induced parallel channels and skip paths. We propose a geometric interpretation in which the backbone models long-term memory while the shared intermediate face models a broad short-term memory buffer. We conclude by outlining several mathematical directions, including architectural scaling in $(n,m)$ and continuous-time or PDE limits on simplicial domains.
 \end{abstract}
 
 \maketitle
@@ -62,7 +62,6 @@ We introduce a simplex-based feedforward neural architecture built on a discrete
 \input{sections/02_preliminaries.tex}
 \input{sections/03_directed_graph.tex}
 \input{sections/04_motifs.tex}
-\input{sections/05_propagation.tex}
 \input{sections/06_interpretation.tex}
 \input{sections/07_open_directions.tex}
 \input{sections/08_conclusion.tex}
