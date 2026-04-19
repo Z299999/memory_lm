@@ -14,22 +14,40 @@ import numpy as np
 
 def smn_architecture_text(n: int, m: int, graph) -> str:
     """Get architecture description string for SMN."""
-    return f"SMN(n={n}, m={m}), nodes={graph.core_node_count}, edges={graph.edge_count}"
+    # SMN parameters: edge weights + core node biases + output biases
+    n_edges = graph.edge_count
+    n_core = graph.core_node_count
+    n_out = len(graph.output_nodes)
+    n_params = n_edges + n_core + n_out
+    return f"SMN(n={n}, m={m}), nodes={n_core}, edges={n_edges}, params={n_params}"
 
 
-def mlp_architecture_text(layers: list[int]) -> str:
+def mlp_architecture_text(layers: list[int], n_in: int = 1, n_out: int = 1) -> str:
     """Get architecture description string for MLP."""
     # Calculate parameters
     if len(layers) == 0:
-        param_count = 1  # Just input->output
+        param_count = n_in * n_out + n_out  # Just input->output
     else:
         param_count = 0
-        prev_size = 1  # Input is scalar
+        prev_size = n_in
         for h_size in layers:
             param_count += prev_size * h_size + h_size
             prev_size = h_size
-        param_count += prev_size * 1 + 1
-    return f"MLP layers={layers}, params={param_count}"
+        param_count += prev_size * n_out + n_out
+
+    # Calculate nodes and edges
+    # Nodes: input + hidden + output
+    n_nodes = n_in + sum(layers) + n_out
+
+    # Edges: connections between consecutive layers
+    n_edges = 0
+    prev_size = n_in
+    for h_size in layers:
+        n_edges += prev_size * h_size
+        prev_size = h_size
+    n_edges += prev_size * n_out
+
+    return f"MLP layers={layers}, nodes={n_nodes}, edges={n_edges}, params={param_count}"
 
 
 def save_four_panel_plot(

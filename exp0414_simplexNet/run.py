@@ -67,7 +67,7 @@ def main() -> None:
     from graph import SimplexMemoryGraph
     smn_graph = SimplexMemoryGraph(n=smn_config.n, m=smn_config.m, n_in=smn_config.n_in, n_out=smn_config.n_out)
     smn_arch = smn_architecture_text(smn_config.n, smn_config.m, smn_graph)
-    mlp_arch = mlp_architecture_text(mlp_config.mlp_layers)
+    mlp_arch = mlp_architecture_text(mlp_config.mlp_layers, mlp_config.n_in, mlp_config.n_out)
 
     print(f"\n{'='*50}")
     print(f"SMN: {smn_arch}")

@@ -7,7 +7,7 @@ model_type: smn
 run_name: exp0414_smn
 
 # SMN architecture parameters
-n: 5            # Simplex dimension (2 = triangle, 3 = tetrahedron)
+n: 7            # Simplex dimension (2 = triangle, 3 = tetrahedron)
 m: 3            # Resolution (each edge has m lattice points)
 n_in: 1         # Input dimension
 n_out: 1        # Output dimension
@@ -16,7 +16,7 @@ n_out: 1        # Output dimension
 mlp_layers: [8, 8, 8]
 
 # Activation function: "relu", "leaky_relu", "gelu", "tanh"
-node_activation: gelu
+node_activation: relu
 
 # Task: "sin", "sin_mix", "poly_wave", "piecewise" (1D)
 #       "sin_sum", "sin_product", "quadratic" (2D)
