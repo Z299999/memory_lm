@@ -1,0 +1,54 @@
+{
+  "box_counting_dimension": 1.0,
+  "box_data": [
+    {
+      "box_size": 2,
+      "num_boxes": 4,
+      "log_size": 0.6931471805599453,
+      "log_boxes": 1.3862943611198906
+    },
+    {
+      "box_size": 4,
+      "num_boxes": 1,
+      "log_size": 1.3862943611198906,
+      "log_boxes": 0.0
+    },
+    {
+      "box_size": 8,
+      "num_boxes": 1,
+      "log_size": 2.0794415416798357,
+      "log_boxes": 0.0
+    }
+  ],
+  "correlation_dimension": NaN,
+  "correlation_data": [
+    {
+      "r": 1,
+      "C_r": 0.099,
+      "log_r": 0.0,
+      "log_C": -2.312635428847547
+    },
+    {
+      "r": 2,
+      "C_r": 0.641,
+      "log_r": 0.6931471805599453,
+      "log_C": -0.444725822061467
+    },
+    {
+      "r": 3,
+      "C_r": 0.996,
+      "log_r": 1.0986122886681098,
+      "log_C": -0.004008021397538822
+    },
+    {
+      "r": 4,
+      "C_r": 1.0,
+      "log_r": 1.3862943611198906,
+      "log_C": 0.0
+    }
+  ],
+  "power_law_test": {
+    "valid": false,
+    "reason": "Insufficient data points"
+  }
+}

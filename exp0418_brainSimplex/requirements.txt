@@ -1,0 +1,40 @@
+# exp0418_brainSimplex - Dependencies
+
+## Required
+
+```
+numpy>=1.20.0
+```
+
+## Recommended
+
+```
+# Graph analysis
+networkx>=2.8.0
+igraph>=0.10.0
+
+# Data handling
+pandas>=1.4.0
+scipy>=1.9.0
+
+# Visualization
+matplotlib>=3.5.0
+plotly>=5.10.0
+
+# Algebraic topology
+giotto-tda>=0.2.0
+ripser>=0.6.0
+```
+
+## FlyWire Data Access
+
+```
+flywire>=0.1.0  # Official FlyWire Python API
+```
+
+Install the FlyWire package separately:
+```bash
+pip install flywire
+```
+
+See `src/data_acquisition.py` for data download instructions.

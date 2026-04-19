@@ -1,0 +1,17 @@
+{
+  "euler_characteristic": -292,
+  "simplex_counts": {
+    "0": 100,
+    "1": 483,
+    "2": 91,
+    "3": 0
+  },
+  "betti_numbers": {
+    "0": 1,
+    "1": 372,
+    "2": 0,
+    "3": 0
+  },
+  "total_simplices": 674,
+  "max_simplex_dim": 3
+}
