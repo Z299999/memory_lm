@@ -296,7 +296,11 @@ def main():
         print("=" * 60)
         print()
 
-        edge_list_path = PROJECT_ROOT / "data" / "raw" / "sample_edge_list.csv"
+        # Use the same graph that was just analyzed
+        edge_list_path = PROJECT_ROOT / "data" / "processed" / "edge_list.csv"
+        if not edge_list_path.exists():
+            edge_list_path = PROJECT_ROOT / "data" / "raw" / "sample_edge_list.csv"
+
         edge_df = pd.read_csv(edge_list_path)
         G = nx.DiGraph()
         for _, row in edge_df.iterrows():

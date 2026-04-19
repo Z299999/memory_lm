@@ -1,142 +1,98 @@
 # exp0418_brainSimplex
 
-**Topological Analysis of Drosophila Brain Connectome**
+**果蝇大脑连接组的单纯形结构分析**
 
-This project analyzes the simplicial structure, cavities, and fractal properties of the Drosophila (fruit fly) brain connectome, following the methodology of Reimann et al. (2017).
+本项目分析果蝇（Drosophila）大脑连接组的有向单纯形结构，遵循 Reimann et al. (2017) 的方法论。
 
-## Quick Start
+## 快速开始
 
-### 1. Install Dependencies
+### 1. 安装依赖
 
 ```bash
 cd exp0418_brainSimplex
-pip install -r requirements.txt
+pip install networkx pandas numpy scipy matplotlib
 ```
 
-### 2. Download Data (Optional)
-
-For full FlyWire connectome analysis:
+### 2. 准备数据
 
 ```bash
-# See data/DATA_DOWNLOAD.md for detailed instructions
-python src/data_acquisition.py --full
+# 生成 5 万节点子集（推荐）
+python src/download_subset.py --n-nodes 50000
+
+# 或使用 100 节点样本数据（即时测试）
+python src/data_acquisition.py
 ```
 
-For testing with sample data (no download required):
+### 3. 运行分析
 
 ```bash
-python src/data_acquisition.py  # Creates 100-node sample graph
-```
-
-### 3. Run Analysis Pipeline
-
-```bash
-# Step 1: Preprocess data
+# 步骤 1: 预处理
 python src/preprocessing.py
 
-# Step 2: Detect simplices and compare with null models
-python src/simplex_detection.py 6 --compare 10
-
-# Step 3: Analyze cavities
-python src/cavity_analysis.py 3
-
-# Step 4: Fractal analysis
-python src/fractal_analysis.py
-
-# Step 5: Generate report
-python src/report_generation.py
+# 步骤 2: 单纯形检测 + 零模型对比
+python src/simplex_detection.py 4 --compare 5
 ```
 
-## Project Overview
+## 项目概述
 
-### Background
+### 研究背景
 
-The paper "Cliques of Neurons Bound into Cavities" (Reimann et al., 2017) discovered that:
-- Neural circuits contain high-dimensional **directed simplices** (cliques)
-- These simplices organize into **cavities** (topological holes)
-- This structure is non-random and functionally significant
+Reimann et al. (2017) 发现大脑神经回路中存在高维**有向单纯形**（directed simplices），这些结构不是随机的，而是生物 organized 的。
 
-### Goals
+### 当前目标
 
-1. **Detect** directed simplices in the FlyWire connectome
-2. **Compare** with null models (Erdős-Rényi, degree-preserving)
-3. **Compute** topological invariants (Euler characteristic, Betti numbers)
-4. **Analyze** fractal properties and self-similarity
-5. **Interpret** functional implications for information processing
+1. **检测** 有向单纯形（k = 1, 2, 3, ...）
+2. **对比** Erdős-Rényi 零模型
+3. **量化** 单纯形过剩程度
 
-### Data
-
-| Dataset | Neurons | Synapses | Status |
-|---------|---------|----------|--------|
-| FlyWire (full) | ~130,000 | ~50M | Requires download |
-| Sample (test) | 100 | ~500 | Included |
-
-## Project Structure
+## 项目结构
 
 ```
 exp0418_brainSimplex/
-├── PLAN.md                  # Research plan with checklist
-├── README.md                # This file
-├── report.md                # Auto-generated analysis report
-├── idea.md                  # Original research notes
-├── requirements.txt         # Dependencies
+├── PLAN.md                  # 研究计划
+├── README.md                # 本文件
+├── idea.md                  # 原始笔记
+├── requirements.txt         # Python 依赖
 ├── data/
-│   ├── raw/                 # Raw data
-│   └── processed/           # Preprocessed graphs
+│   ├── raw/                 # 原始数据
+│   │   ├── synapses.csv     # 突触连接
+│   │   └── neurons.csv      # 神经元元数据
+│   └── processed/           # 处理后的数据
 ├── src/
-│   ├── data_acquisition.py  # Data download
-│   ├── preprocessing.py     # Graph preprocessing
-│   ├── simplex_detection.py # Simplex enumeration
-│   ├── cavity_analysis.py   # Topological analysis
-│   ├── fractal_analysis.py  # Fractal dimension
-│   └── report_generation.py # Report generation
-├── results/                 # Analysis results (CSV/JSON)
-└── plots/                   # Visualizations
+│   ├── download_subset.py   # 生成子集数据
+│   ├── data_acquisition.py  # 数据下载
+│   ├── preprocessing.py     # 图预处理
+│   └── simplex_detection.py # 单纯形检测
+└── results/                 # 分析结果
+    ├── simplex_counts.csv
+    └── null_model_comparison.csv
 ```
 
-## Analysis Pipeline
+## 核心概念
 
-### Phase 1: Data Acquisition
-- Download FlyWire connectome from CODEx API
-- Preprocess into edge list and adjacency matrix formats
+| 术语 | 定义 |
+|------|------|
+| **有向 k-单纯形** | k+1 个节点的全连接有向无环图（DAG） |
+| **有向团** | 同有向单纯形 |
+| **零模型** | 用于对比的随机图（Erdős-Rényi） |
 
-### Phase 2: Simplex Detection
-- Enumerate directed k-simplices (k = 1, 2, 3, ...)
-- Compare with Erdős-Rényi null models
-- Compute z-scores for simplex excess
+## 运行示例
 
-### Phase 3: Cavity Analysis
-- Construct directed flag complex
-- Compute Euler characteristic: χ = Σ(-1)^k · (# k-simplices)
-- Estimate Betti numbers (topological holes)
+```bash
+# 生成 5 万节点子集
+python src/download_subset.py --n-nodes 50000
 
-### Phase 4: Fractal Analysis
-- Box-counting dimension
-- Correlation dimension
-- Power-law scaling tests
+# 预处理
+python src/preprocessing.py
 
-### Phase 5: Functional Interpretation
-- Map information flow pathways
-- Compare with exp0414_simplexNet architecture
-- Generate summary report
+# 检测单纯形（最高 4 维），与 5 个零模型对比
+python src/simplex_detection.py 4 --compare 5
 
-## Key Concepts
+# 查看结果
+cat results/simplex_counts.csv
+cat results/null_model_comparison.csv
+```
 
-| Term | Definition |
-|------|------------|
-| **Directed k-simplex** | All-to-all connected DAG with k+1 nodes |
-| **Directed clique** | Same as directed simplex |
-| **Flag complex** | Simplicial complex formed by all simplices |
-| **Cavity** | Topological hole in the flag complex |
-| **Euler characteristic** | χ = V - E + F - ... (alternating sum) |
-| **Betti number β_k** | Number of k-dimensional holes |
+## 参考文献
 
-## References
-
-1. Reimann, M. W., et al. (2017). Cliques of Neurons Bound into Cavities Provide a Missing Link between Structure and Function. *Frontiers in Computational Neuroscience*, 11, 48.
-
-2. Schlegel, P., et al. (2024). Whole-brain annotation and multiconnectome cell typing of Drosophila. *Nature*.
-
-## License
-
-This project is for research purposes.
+Reimann, M. W., et al. (2017). Cliques of Neurons Bound into Cavities Provide a Missing Link between Structure and Function. *Frontiers in Computational Neuroscience*, 11, 48.

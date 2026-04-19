@@ -1,0 +1,25 @@
+{
+  "num_nodes": 50000,
+  "num_edges": 498775,
+  "density": 0.0001995139902798056,
+  "is_connected": true,
+  "in_degree": {
+    "mean": 9.9755,
+    "std": 3.424467805367719,
+    "max": 27,
+    "min": 0
+  },
+  "out_degree": {
+    "mean": 9.9755,
+    "std": 3.131916306353029,
+    "max": 24,
+    "min": 0
+  },
+  "edge_weight": {
+    "mean": 5.699594005313017,
+    "std": 5.807191217505413,
+    "max": 189,
+    "min": 1,
+    "median": 4.0
+  }
+}
