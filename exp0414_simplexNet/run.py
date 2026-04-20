@@ -4,8 +4,10 @@
 Usage:
     python3 run.py
 
-Trains both SMN and MLP on the task defined in params.yaml and saves a
-4-panel comparison plot to runs/<date>/<name>/comparison.png.
+Trains SMN (and optionally MLP) on the task defined in params.yaml.
+Output:
+    - compare_mlp=true:  4-panel SMN vs MLP comparison plot
+    - compare_mlp=false: 2-panel SMN-only plot (scatter + loss curve)
 """
 
 from __future__ import annotations
@@ -38,7 +40,7 @@ def main() -> None:
     exp_dir   = THIS_DIR / "runs" / day / f"{exp_name}_{day}_{timestamp}"
     exp_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build dataset (shared between SMN and MLP for a fair comparison)
+    # Build dataset
     dataset = build_dataset(cfg)
     x_train, y_train = dataset.x_train, dataset.y_train
     x_val,   y_val   = dataset.x_val,   dataset.y_val
@@ -47,7 +49,7 @@ def main() -> None:
     bounds = cfg.resolved_x_bounds
 
     # ------------------------------------------------------------------
-    # SMN
+    # Train SMN
     # ------------------------------------------------------------------
     smn = SMNFitter(
         n=cfg.n, m=cfg.m,
@@ -68,48 +70,52 @@ def main() -> None:
     )
 
     # ------------------------------------------------------------------
-    # MLP
+    # Train MLP (optional)
     # ------------------------------------------------------------------
-    mlp = MLPFitter(
-        layers=list(cfg.mlp_layers),
-        n_in=cfg.n_in, n_out=cfg.n_out,
-        activation=cfg.node_activation,
-        x_bounds=bounds,
-    )
-    print(f"\n{'='*55}")
-    print(f"MLP: {mlp.arch_str}")
-    print(f"{'='*55}")
-    print("Training MLP...")
-    mlp.fit(
-        x_train, y_train, x_val, y_val,
-        lr=cfg.lr,
-        epochs=cfg.epochs,
-        batch_size=cfg.batch_size,
-        weight_decay=cfg.weight_decay,
-    )
+    mlp = None
+    if cfg.compare_mlp:
+        mlp = MLPFitter(
+            layers=list(cfg.mlp_layers),
+            n_in=cfg.n_in, n_out=cfg.n_out,
+            activation=cfg.node_activation,
+            x_bounds=bounds,
+        )
+        print(f"\n{'='*55}")
+        print(f"MLP: {mlp.arch_str}")
+        print(f"{'='*55}")
+        print("Training MLP...")
+        mlp.fit(
+            x_train, y_train, x_val, y_val,
+            lr=cfg.lr,
+            epochs=cfg.epochs,
+            batch_size=cfg.batch_size,
+            weight_decay=cfg.weight_decay,
+        )
 
     # ------------------------------------------------------------------
-    # 4-panel comparison plot
+    # Generate plot
     # ------------------------------------------------------------------
-    comparison_path = exp_dir / "comparison.png"
+    plot_path = exp_dir / ("comparison.png" if cfg.compare_mlp else "smn_result.png")
     figure_title = (
-        f"Task={cfg.task_name} | SMN vs MLP\n"
-        f"act={cfg.node_activation} | epochs={cfg.epochs} | "
+        f"Task={cfg.task_name} | SMN"
+        + (" vs MLP" if cfg.compare_mlp else "")
+        + f"\nact={cfg.node_activation} | epochs={cfg.epochs} | "
         f"batch={cfg.batch_size} | num_train={cfg.num_train} | lr={cfg.lr}"
     )
 
-    print("\nSaving 4-panel comparison plot...")
+    print("\nSaving plot...")
     smn.plot(
-        output_path=comparison_path,
-        baseline=mlp,
+        output_path=plot_path,
+        baseline=mlp,  # None → 2-panel; MLPFitter → 4-panel
         title=figure_title,
     )
 
     print("\n" + "=" * 55)
     print("Done.")
     print(f"SMN val loss : {smn.final_val_loss:.6f}")
-    print(f"MLP val loss : {mlp.final_val_loss:.6f}")
-    print(f"Plot         : {comparison_path}")
+    if mlp is not None:
+        print(f"MLP val loss : {mlp.final_val_loss:.6f}")
+    print(f"Plot         : {plot_path}")
 
 
 if __name__ == "__main__":

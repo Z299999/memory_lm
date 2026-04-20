@@ -415,7 +415,75 @@ def train_step(states, actions, rewards, next_states, dones):
 
 用于 `python3 run.py` 的配置文件：
 
-（此处省略，与之前相同）
+```yaml
+# Simplex Memory Network Configuration
+
+# Model type: "smn" or "mlp"
+model_type: smn
+
+# Experiment name (used in run folder name)
+run_name: exp0414_smn
+
+# SMN architecture parameters
+n: 4            # Simplex dimension (2 = triangle, 3 = tetrahedron)
+m: 4            # Resolution (each edge has m lattice points)
+n_in: 2         # Input dimension
+n_out: 2        # Output dimension
+
+# MLP baseline architecture (used when model_type: mlp)
+mlp_layers: [8, 8, 8]
+
+# Activation function: "relu", "leaky_relu", "gelu", "tanh"
+node_activation: relu
+
+# Task registry (task → n_in, n_out):
+#   1i1o: sin, sin_mix, poly_wave, piecewise
+#   1i2o: sin_cos
+#   2i1o: sin_sum, sin_product, quadratic
+#   2i2o: trig_2d
+task_name: trig_2d
+custom_function: ""  # For custom tasks (eval-based, use with care)
+
+# Training parameters
+lr: 0.001
+batch_size: 64
+epochs: 5000
+
+# Moving window training (set window_width > 0 to enable)
+window_width: 0.0    # 0.0 = disabled (full domain training)
+window_hold: 20      # epochs per window position
+
+# Training set size
+num_train: 500
+
+# Data range (for 1D tasks)
+x_min: -6.283185307179586  # -2π
+x_max: 6.283185307179586   #  2π
+
+# Whether to train an MLP baseline and show 4-panel comparison plot
+compare_mlp: true
+```
+
+### 关键参数说明
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `model_type` | str | "smn" | 模型类型："smn" 或 "mlp" |
+| `n` | int | 2 | 单纯形维度（2=三角形，3=四面体） |
+| `m` | int | 3 | 分辨率（每条边上的格点数） |
+| `n_in` | int | 1 | 输入维度 |
+| `n_out` | int | 1 | 输出维度 |
+| `node_activation` | str | "relu" | 激活函数："relu", "leaky_relu", "gelu", "tanh" |
+| `task_name` | str | "piecewise" | 目标任务函数名 |
+| `lr` | float | 1e-3 | 学习率 |
+| `batch_size` | int | 64 | 批次大小 |
+| `epochs` | int | 300 | 训练轮数 |
+| `num_train` | int | 10000 | 训练集大小 |
+| `x_min` / `x_max` | float | ±2π | 1D 任务的数据范围 |
+| `x_bounds` | list | None | MIMO 任务的每通道范围，如 `[[-1,1], [-2,2]]` |
+| `compare_mlp` | bool | true | **是否训练 MLP 基线并显示 4-panel 对比图**。如果 false，只训练 SMN 并显示 2-panel 图（scatter + loss 曲线） |
+| `window_width` | float | 0.0 | 移动窗口宽度（0.0=禁用，0.5=50% 域宽） |
+| `window_hold` | int | 1 | 每个窗口位置的训练轮数 |
 
 ---
 

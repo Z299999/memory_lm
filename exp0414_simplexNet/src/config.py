@@ -91,6 +91,9 @@ class Config:
     # If None, all channels use [x_min, x_max].
     x_bounds: list | None = None
 
+    # Whether to train MLP baseline and show comparison plot
+    compare_mlp: bool = True
+
     @property
     def seed(self) -> int:
         return DEFAULT_SEED

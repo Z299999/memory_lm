@@ -7,7 +7,7 @@ model_type: smn
 run_name: exp0414_smn
 
 # SMN architecture parameters
-n: 5            # Simplex dimension (2 = triangle, 3 = tetrahedron)
+n: 4            # Simplex dimension (2 = triangle, 3 = tetrahedron)
 m: 4            # Resolution (each edge has m lattice points)
 n_in: 2         # Input dimension
 n_out: 2        # Output dimension
@@ -29,7 +29,7 @@ custom_function: ""  # For custom tasks (eval-based, use with care)
 # Training parameters
 lr: 0.001
 batch_size: 64
-epochs: 3000
+epochs: 5000
 
 # Moving window training (set window_width > 0 to enable)
 # Window slides from left to right without cycling
@@ -48,3 +48,7 @@ num_train: 500
 # Data range (for 1D tasks)
 x_min: -6.283185307179586  # -2π
 x_max: 6.283185307179586   #  2π
+
+# Whether to train an MLP baseline and show 4-panel comparison plot
+# If False, only train SMN and show 2-panel plot (scatter + loss curve)
+compare_mlp: true
