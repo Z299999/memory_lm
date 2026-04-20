@@ -50,10 +50,48 @@ def mlp_architecture_text(layers: list[int], n_in: int = 1, n_out: int = 1) -> s
     return f"MLP layers={layers}, nodes={n_nodes}, edges={n_edges}, params={param_count}"
 
 
+def _draw_scatter(
+    ax,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    model_name: str,
+    architecture: str,
+    final_val_loss: float,
+) -> None:
+    """Draw ||y_true|| vs ||y_pred|| scatter plot on ax.
+
+    Uses L2 norm of the output vector so the plot scales to any n_out
+    (including 100i100o) without needing multiple colors.
+    For n_out=1 the norm equals |y|, identical to a plain scatter.
+    A dashed y=x diagonal marks perfect prediction.
+    """
+    if y_true.ndim == 1:
+        y_true = y_true[:, None]
+    if y_pred.ndim == 1:
+        y_pred = y_pred[:, None]
+    n_out = y_true.shape[1]
+
+    norm_true = np.linalg.norm(y_true, axis=1)
+    norm_pred = np.linalg.norm(y_pred, axis=1)
+
+    ax.scatter(norm_true, norm_pred, s=3, alpha=0.4, color='steelblue')
+
+    lo = float(min(norm_true.min(), norm_pred.min()))
+    hi = float(max(norm_true.max(), norm_pred.max()))
+    ax.plot([lo, hi], [lo, hi], 'k--', linewidth=1, label='y=x')
+
+    xlabel = '||y_true||' if n_out > 1 else 'True'
+    ylabel = '||y_pred||' if n_out > 1 else 'Predicted'
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(f'{model_name} Prediction\n{architecture}')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+
 def save_four_panel_plot(
     smn_train_losses: list[float],
     smn_val_losses: list[float],
-    smn_x: np.ndarray,
     smn_y_true: np.ndarray,
     smn_y_pred: np.ndarray,
     smn_architecture: str,
@@ -61,7 +99,6 @@ def save_four_panel_plot(
     smn_final_val_loss: float,
     mlp_train_losses: list[float],
     mlp_val_losses: list[float],
-    mlp_x: np.ndarray,
     mlp_y_true: np.ndarray,
     mlp_y_pred: np.ndarray,
     mlp_architecture: str,
@@ -74,32 +111,20 @@ def save_four_panel_plot(
     """Create 4-panel comparison plot.
 
     Layout:
-    [Top-left]   SMN: True vs Pred
-    [Top-right]  MLP: True vs Pred
+    [Top-left]   SMN: True vs Predicted scatter
+    [Top-right]  MLP: True vs Predicted scatter
     [Bottom-left]  SMN: Train/Val Loss
     [Bottom-right] MLP: Train/Val Loss
+
+    Works for any n_in / n_out combination.
     """
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
-    # Top-left: SMN prediction
-    ax = axes[0, 0]
-    ax.plot(smn_x, smn_y_true, 'b-', label='True', linewidth=2)
-    ax.plot(smn_x, smn_y_pred, 'r--', label='SMN Pred', linewidth=1.5)
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_title(f'SMN Prediction\n{smn_architecture}')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    # Top-left: SMN scatter
+    _draw_scatter(axes[0, 0], smn_y_true, smn_y_pred, 'SMN', smn_architecture, smn_final_val_loss)
 
-    # Top-right: MLP prediction
-    ax = axes[0, 1]
-    ax.plot(mlp_x, mlp_y_true, 'b-', label='True', linewidth=2)
-    ax.plot(mlp_x, mlp_y_pred, 'g--', label='MLP Pred', linewidth=1.5)
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.set_title(f'MLP Prediction\n{mlp_architecture}')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    # Top-right: MLP scatter
+    _draw_scatter(axes[0, 1], mlp_y_true, mlp_y_pred, 'MLP', mlp_architecture, mlp_final_val_loss)
 
     # Bottom-left: SMN losses
     ax = axes[1, 0]
@@ -236,12 +261,6 @@ def save_2d_comparison(
     ax8.legend()
     ax8.grid(True, alpha=0.3)
     ax8.set_yscale('log')
-
-    # Hide unused subplots
-    fig.delaxes(fig.add_subplot(2, 4, 9))
-    fig.delaxes(fig.add_subplot(2, 4, 10))
-    fig.delaxes(fig.add_subplot(2, 4, 11))
-    fig.delaxes(fig.add_subplot(2, 4, 12))
 
     fig.suptitle('2D Task: SMN vs MLP Comparison', fontsize=12, fontweight='bold')
     fig.tight_layout()

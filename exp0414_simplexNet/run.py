@@ -94,56 +94,33 @@ def main() -> None:
     else:
         mlp_result = train_with_config(mlp_config)
 
-    # Create comparison plot
+    # Create comparison plot (always 4-panel, works for any n_in / n_out)
     comparison_path = experiment_dir / "comparison.png"
 
-    if base.n_in == 2:
-        print("\nBuilding 2D comparison image...")
-        save_2d_comparison(
-            smn_x1_grid=smn_result["x1_grid"],
-            smn_x2_grid=smn_result["x2_grid"],
-            smn_y_true=smn_result["y_plot"],
-            smn_y_pred=smn_result["y_pred"],
-            mlp_y_true=mlp_result["y_plot"],
-            mlp_y_pred=mlp_result["y_pred"],
-            smn_architecture=smn_arch,
-            mlp_architecture=mlp_arch,
-            smn_final_val_loss=smn_result["metrics"]["final_val_loss"],
-            mlp_final_val_loss=mlp_result["metrics"]["final_val_loss"],
-            smn_train_losses=smn_result["train_losses"],
-            smn_val_losses=smn_result["val_losses"],
-            mlp_train_losses=mlp_result["train_losses"],
-            mlp_val_losses=mlp_result["val_losses"],
-            output_path=comparison_path,
-            batch_size=base.batch_size,
-        )
-    else:
-        print("\nBuilding 4-panel comparison image...")
-        save_four_panel_plot(
-            smn_train_losses=smn_result["train_losses"],
-            smn_val_losses=smn_result["val_losses"],
-            smn_x=smn_result["x_plot"],
-            smn_y_true=smn_result["y_plot"],
-            smn_y_pred=smn_result["y_pred"],
-            smn_architecture=smn_arch,
-            smn_final_train_loss=smn_result["metrics"]["final_train_loss"],
-            smn_final_val_loss=smn_result["metrics"]["final_val_loss"],
-            mlp_train_losses=mlp_result["train_losses"],
-            mlp_val_losses=mlp_result["val_losses"],
-            mlp_x=mlp_result["x_plot"],
-            mlp_y_true=mlp_result["y_plot"],
-            mlp_y_pred=mlp_result["y_pred"],
-            mlp_architecture=mlp_arch,
-            mlp_final_train_loss=mlp_result["metrics"]["final_train_loss"],
-            mlp_final_val_loss=mlp_result["metrics"]["final_val_loss"],
-            figure_title=(
-                f"Task={base.task_name} | SMN vs MLP\n"
-                f"act={base.node_activation} | epochs={base.epochs} | "
-                f"batch={base.batch_size} | num_train={base.num_train} | lr={base.lr}"
-            ),
-            output_path=comparison_path,
-            batch_size=base.batch_size,
-        )
+    print("\nBuilding 4-panel comparison image...")
+    save_four_panel_plot(
+        smn_train_losses=smn_result["train_losses"],
+        smn_val_losses=smn_result["val_losses"],
+        smn_y_true=smn_result["y_plot"],
+        smn_y_pred=smn_result["y_pred"],
+        smn_architecture=smn_arch,
+        smn_final_train_loss=smn_result["metrics"]["final_train_loss"],
+        smn_final_val_loss=smn_result["metrics"]["final_val_loss"],
+        mlp_train_losses=mlp_result["train_losses"],
+        mlp_val_losses=mlp_result["val_losses"],
+        mlp_y_true=mlp_result["y_plot"],
+        mlp_y_pred=mlp_result["y_pred"],
+        mlp_architecture=mlp_arch,
+        mlp_final_train_loss=mlp_result["metrics"]["final_train_loss"],
+        mlp_final_val_loss=mlp_result["metrics"]["final_val_loss"],
+        figure_title=(
+            f"Task={base.task_name} | SMN vs MLP\n"
+            f"act={base.node_activation} | epochs={base.epochs} | "
+            f"batch={base.batch_size} | num_train={base.num_train} | lr={base.lr}"
+        ),
+        output_path=comparison_path,
+        batch_size=base.batch_size,
+    )
 
     print("\n" + "="*50)
     print("Done.")

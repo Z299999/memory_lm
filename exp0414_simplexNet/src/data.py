@@ -1,11 +1,10 @@
 """Target functions for 1D and 2D regression tasks.
 
-Supported tasks:
-- sin: y = sin(x)
-- sin_mix: y = 0.5*sin(x) + 0.3*sin(2x) + 0.2*sin(3x)
-- poly_wave: polynomial + sinusoidal combination
-- piecewise: piecewise linear function
-- custom: user-defined function via custom_function config
+Task registry (task_name → n_in, n_out):
+  1i1o: sin, sin_mix, poly_wave, piecewise
+  1i2o: sin_cos
+  2i1o: sin_sum, sin_product, quadratic
+  2i2o: trig_2d
 """
 
 from __future__ import annotations
@@ -47,6 +46,9 @@ def target_function_1d(x: torch.Tensor, task_name: str, custom_fn: str = "") -> 
         y[mask3] = -0.2 * x[mask3] + 0.5
         y[mask4] = 0.4 * x[mask4] - 1.2
         return y
+    elif task_name == "sin_cos":
+        # 1i2o: [sin(x), cos(x)]
+        return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
     elif task_name == "custom" and custom_fn:
         # Simple eval-based custom function (for research use)
         # Warning: eval is dangerous in production
@@ -84,6 +86,9 @@ def target_function_2d(
         return torch.sin(x1) * torch.cos(x2)
     elif task_name == "quadratic":
         return 0.1 * (x1**2 + x2**2) - 0.5 * torch.sin(x1 * x2)
+    elif task_name == "trig_2d":
+        # 2i2o: [sin(x1+x2), cos(x1-x2)]
+        return torch.cat([torch.sin(x1 + x2), torch.cos(x1 - x2)], dim=-1)
     elif task_name == "custom" and custom_fn:
         try:
             return eval(custom_fn)

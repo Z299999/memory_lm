@@ -47,17 +47,49 @@ Output: `runs/<date>/<experiment_name>/comparison.png`
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `model_type` | smn | "smn" or "mlp" |
+| `model_type` | smn | `"smn"` or `"mlp"` |
 | `n` | 2 | Simplex dimension (2=triangle, 3=tetrahedron) |
-| `m` | 3 | Resolution (m lattice points per edge) |
-| `n_in` | 1 | Input dimension |
-| `n_out` | 1 | Output dimension |
+| `m` | 3 | Resolution (lattice points per edge) |
+| `n_in` | 1 | Number of input dimensions |
+| `n_out` | 1 | Number of output dimensions |
 | `mlp_layers` | [8, 8, 8] | MLP hidden layer sizes |
-| `node_activation` | relu | relu, leaky_relu, gelu, tanh |
-| `task_name` | sin_mix | Target function |
+| `node_activation` | relu | `relu`, `leaky_relu`, `gelu`, `tanh` |
+| `task_name` | sin_mix | Target function (see Tasks below) |
 | `epochs` | 300 | Training epochs |
 | `lr` | 0.001 | Learning rate |
 | `batch_size` | 64 | Batch size |
+| `num_train` | 10000 | Training set size (points sampled from target function) |
+| `x_min` / `x_max` | ±2π | Input domain for 1D tasks |
+| `x_bounds` | — | Per-channel bounds for MIMO, e.g. `[[-π,π],[-1,1]]`; overrides `x_min`/`x_max` |
+| `window_width` | 0.0 | Moving window width as fraction of domain (0 = disabled) |
+| `window_hold` | 1 | Epochs per window position |
+
+### Tasks
+
+| `task_name` | n_in | Formula |
+|-------------|------|---------|
+| `sin` | 1 | $\sin(x)$ |
+| `sin_mix` | 1 | $0.5\sin(x) + 0.3\sin(2x) + 0.2\sin(3x)$ |
+| `poly_wave` | 1 | $0.1x^2\sin(x) + 0.5\cos(2x)$ |
+| `piecewise` | 1 | Piecewise linear |
+| `sin_cos` | 1 | $[\sin(x),\ \cos(x)]$ — **1i2o** |
+| `sin_sum` | 2 | $\sin(x_1 + x_2)$ |
+| `sin_product` | 2 | $\sin(x_1)\cos(x_2)$ |
+| `quadratic` | 2 | $0.1(x_1^2+x_2^2) - 0.5\sin(x_1 x_2)$ |
+| `trig_2d` | 2 | $[\sin(x_1+x_2),\ \cos(x_1-x_2)]$ — **2i2o** |
+
+### Output plot
+
+Each run saves `runs/<date>/<name>/comparison.png` — a 4-panel figure:
+
+| Panel | Content |
+|-------|---------|
+| Top-left | SMN: $\|y_{\text{true}}\|_2$ vs $\|y_{\text{pred}}\|_2$ scatter — points on the diagonal `y=x` = perfect prediction |
+| Top-right | MLP: same scatter for comparison |
+| Bottom-left | SMN train / val loss curves (log scale) |
+| Bottom-right | MLP train / val loss curves (log scale) |
+
+The scatter uses the **L2 norm** of the output vector, so it scales to any `n_out` (including high-dimensional outputs) without needing multiple colors. For `n_out=1` the norm equals `|y|` and the axes are labelled `True` / `Predicted`.
 
 ## Mathematical Background
 
