@@ -103,38 +103,50 @@ def build_dataset(config: Config):
     Returns:
         Dataset object with x_train, y_train, x_val, y_val, x_plot, y_plot
     """
-    if config.n_in == 1:
-        # 1D task
-        x_train = torch.linspace(config.x_min, config.x_max, config.num_train).unsqueeze(-1)
-        x_val = torch.linspace(config.x_min, config.x_max, config.num_val).unsqueeze(-1)
-        x_plot = torch.linspace(config.x_min, config.x_max, config.num_plot).unsqueeze(-1)
+    bounds = config.resolved_x_bounds  # list of (min, max), one per input channel
 
-        # Shuffle training data
+    if config.n_in == 1:
+        lo, hi = bounds[0]
+        x_train = torch.linspace(lo, hi, config.num_train).unsqueeze(-1)
+        x_val   = torch.linspace(lo, hi, config.num_val).unsqueeze(-1)
+        x_plot  = torch.linspace(lo, hi, config.num_plot).unsqueeze(-1)
+
         perm = torch.randperm(config.num_train)
         x_train = x_train[perm]
 
         y_train = target_function_1d(x_train, config.task_name, config.custom_function)
-        y_val = target_function_1d(x_val, config.task_name, config.custom_function)
-        y_plot = target_function_1d(x_plot, config.task_name, config.custom_function)
+        y_val   = target_function_1d(x_val,   config.task_name, config.custom_function)
+        y_plot  = target_function_1d(x_plot,  config.task_name, config.custom_function)
 
     elif config.n_in == 2:
-        # 2D task
-        # Generate grid for plotting
+        (lo0, hi0), (lo1, hi1) = bounds[0], bounds[1]
+
+        # Grid for plotting
         n_side = int(config.num_plot ** 0.5)
-        x1_range = torch.linspace(config.x_min, config.x_max, n_side)
-        x2_range = torch.linspace(config.x_min, config.x_max, n_side)
+        x1_range = torch.linspace(lo0, hi0, n_side)
+        x2_range = torch.linspace(lo1, hi1, n_side)
         x1_grid, x2_grid = torch.meshgrid(x1_range, x2_range, indexing='ij')
 
-        # Flatten for model input
         x_plot = torch.stack([x1_grid.flatten(), x2_grid.flatten()], dim=-1)
-        y_plot = target_function_2d(x1_grid.flatten(), x2_grid.flatten(), config.task_name, config.custom_function)
+        y_plot = target_function_2d(
+            x1_grid.flatten(), x2_grid.flatten(),
+            config.task_name, config.custom_function,
+        )
 
-        # Random samples for training
-        x_train = torch.rand(config.num_train, 2) * (config.x_max - config.x_min) + config.x_min
-        x_val = torch.rand(config.num_val, 2) * (config.x_max - config.x_min) + config.x_min
+        # Random samples for training / validation (per-channel range)
+        lo_t = torch.tensor([lo0, lo1])
+        hi_t = torch.tensor([hi0, hi1])
+        x_train = torch.rand(config.num_train, 2) * (hi_t - lo_t) + lo_t
+        x_val   = torch.rand(config.num_val,   2) * (hi_t - lo_t) + lo_t
 
-        y_train = target_function_2d(x_train[:, 0], x_train[:, 1], config.task_name, config.custom_function)
-        y_val = target_function_2d(x_val[:, 0], x_val[:, 1], config.task_name, config.custom_function)
+        y_train = target_function_2d(
+            x_train[:, 0], x_train[:, 1],
+            config.task_name, config.custom_function,
+        )
+        y_val = target_function_2d(
+            x_val[:, 0], x_val[:, 1],
+            config.task_name, config.custom_function,
+        )
 
     else:
         raise ValueError(f"Unsupported n_in: {config.n_in}")

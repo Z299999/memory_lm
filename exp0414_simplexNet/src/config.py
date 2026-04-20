@@ -81,9 +81,15 @@ class Config:
     num_val: int = 1000
     num_plot: int = 10000
 
-    # Data range (1D tasks)
+    # Data range (1D / SISO tasks)
     x_min: float = -6.283185307179586
     x_max: float = 6.283185307179586
+
+    # Per-channel bounds for MIMO tasks.
+    # If set, overrides x_min/x_max for all channels.
+    # Format: [[min0, max0], [min1, max1], ...]
+    # If None, all channels use [x_min, x_max].
+    x_bounds: list | None = None
 
     @property
     def seed(self) -> int:
@@ -100,8 +106,23 @@ class Config:
 
     @property
     def domain_width(self) -> float:
-        """Return the width of the input domain."""
+        """Return the width of the input domain (SISO / first channel)."""
         return self.x_max - self.x_min
+
+    @property
+    def resolved_x_bounds(self) -> list[tuple[float, float]]:
+        """Return per-channel (min, max) bounds for all n_in input channels.
+
+        If x_bounds is set in config, use it (must have n_in entries).
+        Otherwise fall back to (x_min, x_max) for every channel.
+        """
+        if self.x_bounds is not None:
+            if len(self.x_bounds) != self.n_in:
+                raise ValueError(
+                    f"x_bounds has {len(self.x_bounds)} entries but n_in={self.n_in}"
+                )
+            return [tuple(b) for b in self.x_bounds]
+        return [(self.x_min, self.x_max)] * self.n_in
 
     def to_dict(self) -> dict:
         """Convert to dictionary including derived properties."""

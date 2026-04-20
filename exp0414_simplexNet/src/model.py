@@ -29,6 +29,13 @@ class SMNNetwork(nn.Module):
             raise ValueError("SMNNetwork requires n_in >= 1 and n_out >= 1.")
 
         self.config = config
+
+        # Pre-compute per-channel normalization tensors (stored as plain lists;
+        # converted to tensors on first forward call to match device/dtype).
+        bounds = config.resolved_x_bounds
+        self._x_bounds_min = [b[0] for b in bounds]  # length n_in
+        self._x_bounds_max = [b[1] for b in bounds]  # length n_in
+
         self.graph = SimplexMemoryGraph(
             n=config.n,
             m=config.m,
@@ -143,11 +150,10 @@ class SMNNetwork(nn.Module):
         """
         batch = x.shape[0]
 
-        # Normalize input to [-1, 1] range for stable activation
-        if self.config.n_in == 1:
-            x_min = self.config.x_min
-            x_max = self.config.x_max
-            x = 2 * (x - x_min) / (x_max - x_min) - 1
+        # Per-channel normalization to [-1, 1]
+        x_min_t = torch.tensor(self._x_bounds_min, dtype=x.dtype, device=x.device)
+        x_max_t = torch.tensor(self._x_bounds_max, dtype=x.dtype, device=x.device)
+        x = 2 * (x - x_min_t) / (x_max_t - x_min_t) - 1
 
         # Pre-allocate hist: [input nodes + all core nodes]
         total_hist_size = self.config.n_in + len(self.graph.core_nodes)
