@@ -183,6 +183,8 @@ cat results/null_model_comparison.csv
 
 如果只看线性坐标，`5` 维以上的柱子几乎会被压扁；因此分析高维尾部时应主要参考对数坐标图。
 
+当前仓库里保存的 `results/null_model_comparison.csv` 是基于 `5` 个 Erdős-Rényi realization 生成的示例输出；由于零模型本身带随机性，重跑时数值会有小幅波动。
+
 ## 参考文献
 
 Reimann, M. W., et al. (2017). Cliques of Neurons Bound into Cavities Provide a Missing Link between Structure and Function. *Frontiers in Computational Neuroscience*, 11, 48.
