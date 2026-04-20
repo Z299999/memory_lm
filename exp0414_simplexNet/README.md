@@ -1,19 +1,19 @@
 # exp0414_simplexNet — Simplex Memory Networks
 
-A geometric feedforward neural architecture based on simplicial lattices.
+基于单纯形格点的几何前馈神经网络架构。
 
-## Quick Start
+## 快速开始
 
-### 1. Run a comparison experiment
+### 1. 运行对比实验
 
 ```bash
 cd exp0414_simplexNet
 python3 run.py
 ```
 
-Output: `runs/<date>/<experiment_name>/comparison.png` — 4-panel SMN vs MLP comparison.
+输出：`runs/<日期>/<实验名>/comparison.png` — SMN vs MLP 四图对比。
 
-### 2. Use SMN in your own code
+### 2. 在自己的代码中使用
 
 ```python
 import sys
@@ -22,400 +22,418 @@ sys.path.insert(0, 'src')
 from smn_fitter import SMNModule, SMNFitter
 import torch
 
-# --- Option A: SMNModule (raw nn.Module) ---
-# Use this if you want full control over training
+# --- 方式 A: SMNModule（原始 nn.Module）---
+# 如果你想完全控制训练过程
 module = SMNModule(n=2, m=3, n_in=1, n_out=1, activation='relu')
 x = torch.randn(32, 1)
-y = module(x)  # forward pass
+y = module(x)  # 前向传播
 
-# --- Option B: SMNFitter (high-level API) ---
-# Use this for quick experiments with built-in training
+# --- 方式 B: SMNFitter（高级 API）---
+# 如果你想快速实验，使用内置训练
 smn = SMNFitter(n=2, m=3, n_in=1, n_out=1)
-smn.fit(epochs=300)  # trains on built-in sin_mix data
-smn.plot(output_path="result.png")  # 2-panel: scatter + loss curve
+smn.fit(epochs=300)  # 使用内置 sin_mix 数据训练
+smn.plot(output_path="result.png")  # 两图：scatter + loss 曲线
 ```
 
 ---
 
-## Project Structure
+## 目录
 
-```
-exp0414_simplexNet/
-├── params.yaml          # Configuration for run.py
-├── run.py               # Entry point: trains SMN vs MLP, saves comparison plot
-├── src/
-│   ├── config.py        # Config dataclass + YAML loader
-│   ├── data.py          # Target functions + dataset builder
-│   ├── graph.py         # SimplexMemoryGraph + lattice/potential helpers
-│   ├── smn_fitter.py    # SMNModule (core network) + SMNFitter (training wrapper)
-│   ├── mlp_fitter.py    # MLPFitter (baseline, same interface as SMNFitter)
-│   └── plot.py          # Visualization utilities
-└── tests/
-    └── test_smn.py      # 12 unit tests for SMNModule
-```
+1. [SMNModule 完整 API 说明](#smnmodule-完整 api-说明)
+2. [SMNFitter 高级 API](#smnfitter-高级训练包装器)
+3. [强化学习示例](#强化学习示例)
+4. [配置说明](#配置 paramsyaml)
+5. [数学背景](#数学背景简述)
 
 ---
 
-## API Reference
+## SMNModule 完整 API 说明
 
-### SMNModule — Core PyTorch Module
+`SMNModule` 是一个纯粹的 PyTorch `nn.Module`，没有任何训练逻辑依赖。适合：
+- **强化学习**（自定义 loss、策略梯度）
+- **嵌入其他项目**（作为子模块）
+- **完全自定义训练循环**
 
-Use `SMNModule` when you want to integrate SMN into your own training loop.
+### 初始化参数
 
 ```python
 from smn_fitter import SMNModule
 
 module = SMNModule(
-    n=2,                    # Simplex dimension (2=triangle, 3=tetrahedron, ...)
-    m=3,                    # Resolution (lattice points per edge)
-    n_in=1,                 # Input dimensions
-    n_out=1,                # Output dimensions
-    activation='relu',      # 'relu', 'leaky_relu', 'gelu', 'tanh'
-    x_bounds=None,          # Per-channel bounds: [(min, max), ...] or None
+    n=2,                    # 单纯形维度：2=三角形，3=四面体，...
+    m=3,                    # 分辨率：每条边上的格点数
+    n_in=1,                 # 输入维度
+    n_out=1,                # 输出维度
+    activation='relu',      # 激活函数：'relu', 'leaky_relu', 'gelu', 'tanh'
+    x_bounds=None,          # 每通道输入范围：[(min, max), ...]
 )
 ```
 
-**Key properties:**
-- `module.arch_str` — Human-readable architecture description
-- `module.param_count` — Total trainable parameters
+**参数详解：**
 
-**Forward pass:**
-```python
-x = torch.randn(64, n_in)  # batch of 64
-y = module(x)              # output: (batch, n_out)
-```
+| 参数 | 类型 | 默认值 | 必填 | 说明 |
+|------|------|--------|------|------|
+| `n` | int | 2 | 否 | 单纯形维度。`n=2` 是三角形，`n=3` 是四面体 |
+| `m` | int | 3 | 否 | 分辨率。每条边有 `m` 个格点 |
+| `n_in` | int | 1 | 否 | 输入维度（状态空间维度） |
+| `n_out` | int | 1 | 否 | 输出维度（动作数或 Q 值数） |
+| `activation` | str | 'relu' | 否 | 隐藏层激活函数 |
+| `x_bounds` | list | None | 否 | 每通道输入范围，如 `[(-1,1), (-2,2)]`。None 时默认为 `[(-1,1)]*n_in` |
 
-**Input normalization:**
-- `x_bounds` defines per-channel input ranges (e.g., `[(-3.14, 3.14)]` for SISO)
-- Inputs are automatically normalized to `[-1, 1]` per channel
-- If `None`, defaults to `[(-1, 1)] * n_in`
+**注意：** `x_bounds` 用于自动将输入归一化到 `[-1, 1]`。如果你的环境观测值范围是 `[-4.8, 4.8]`，则应设置 `x_bounds=[(-4.8, 4.8)]`。
 
 ---
 
-### SMNFitter — High-Level Training Wrapper
+### 属性（Properties）
 
-Use `SMNFitter` for quick experiments with built-in training and visualization.
+| 属性 | 返回类型 | 说明 |
+|------|----------|------|
+| `module.arch_str` | str | 人类可读的架构描述 |
+| `module.param_count` | int | 可训练参数总数 |
+| `module.graph` | SimplexMemoryGraph | 底层图结构（可访问 `edge_count`, `core_node_count` 等） |
+
+**示例：**
+```python
+print(module.arch_str)
+# 输出："SMN(n=2, m=3, 1→1), nodes=6, edges=11, params=18"
+
+print(module.param_count)  # 输出：18
+```
+
+---
+
+### 方法（Methods）
+
+#### `forward(x: Tensor) -> Tensor`
+
+**用途：** 前向传播。通常通过 `module(x)` 调用。
+
+**参数：**
+- `x`: 输入张量，形状 `(batch, n_in)`。当 `n_in=1` 时，也接受 `(batch,)`
+
+**返回：**
+- 输出张量，形状 `(batch, n_out)`
+
+**示例：**
+```python
+# SISO (1 输入 1 输出)
+x = torch.randn(32, 1)      # 32 个样本，1 维输入
+y = module(x)               # 输出：(32, 1)
+
+# MIMO (2 输入 2 输出)
+module2 = SMNModule(n_in=2, n_out=2)
+x = torch.randn(64, 2)      # 64 个样本，2 维输入
+y = module2(x)              # 输出：(64, 2)
+
+# 单样本推理
+x = torch.randn(1, 4)       # 1 个样本，4 维输入（如 CartPole 观测）
+y = module(x)               # 输出：(1, 2) → 2 个动作的 Q 值
+```
+
+**内部流程：**
+1. 根据 `x_bounds` 将输入归一化到 `[-1, 1]`
+2. 沿单纯形 DAG 逐层传播信号
+3. 输出层用 `tanh` 激活，输出范围 `(-1, 1)`
+
+---
+
+#### `state_dict() -> dict`
+
+**用途：** 获取模型权重。用于保存/加载检查点。
+
+**示例：**
+```python
+# 保存
+torch.save(module.state_dict(), 'smn_checkpoint.pth')
+
+# 加载
+module.load_state_dict(torch.load('smn_checkpoint.pth'))
+```
+
+---
+
+#### `parameters() -> Iterator[Parameter]`
+
+**用途：** 获取可训练参数。传给优化器。
+
+**示例：**
+```python
+optimizer = torch.optim.Adam(module.parameters(), lr=1e-3)
+```
+
+---
+
+### 继承自 `nn.Module` 的常用方法
+
+`SMNModule` 继承自 `torch.nn.Module`，因此所有 `nn.Module` 的方法都可用：
+
+| 方法 | 说明 |
+|------|------|
+| `module.train()` | 设为训练模式（启用 dropout 等，但 SMN 无 dropout） |
+| `module.eval()` | 设为评估模式 |
+| `module.to(device)` | 移动到 GPU/CPU |
+| `module.zero_grad()` | 清零梯度 |
+| `module.cuda()` | 移动到 GPU |
+
+---
+
+## SMNFitter 高级训练包装器
+
+如果你不想写训练循环，`SMNFitter` 提供一站式解决方案：
 
 ```python
 from smn_fitter import SMNFitter
 
-smn = SMNFitter(
-    n=3, m=4,               # Architecture
-    n_in=2, n_out=1,        # I/O dimensions
-    x_bounds=[(-3.14, 3.14), (-3.14, 3.14)],  # Per-channel bounds
-)
+smn = SMNFitter(n=2, m=3, n_in=1, n_out=1)
+smn.fit(x_train, y_train, epochs=300)  # 训练
+smn.predict(x_test)                     # 预测
+smn.plot(output_path="result.png")      # 画图
 ```
 
-#### Training
-
-```python
-# Option 1: Built-in demo data (sin_mix for SISO, sin_sum for MIMO)
-smn.fit(epochs=300, lr=1e-3, batch_size=64)
-
-# Option 2: Custom data
-x_train = torch.randn(1000, n_in)
-y_train = torch.randn(1000, n_out)
-smn.fit(x_train, y_train, epochs=300)
-
-# Option 3: With validation split
-smn.fit(x_train, y_train, x_val, y_val, epochs=300)
-```
-
-**`fit()` parameters:**
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `x_train`, `y_train` | None | Training data. If None, uses built-in demo |
-| `x_val`, `y_val` | None | Validation data. Auto-splits 80/20 if None |
-| `loss_fn` | `nn.MSELoss()` | Custom loss function |
-| `lr` | 0.001 | Learning rate |
-| `epochs` | 300 | Training epochs |
-| `batch_size` | 64 | Batch size |
-| `seed` | 42 | Random seed |
-| `verbose` | True | Print progress every 50 epochs |
-
-#### Inference
-
-```python
-predictions = smn.predict(x_test)  # returns numpy array
-```
-
-#### Visualization
-
-```python
-# 2-panel plot (scatter + loss curve)
-smn.plot(output_path="smn_result.png")
-
-# 4-panel comparison with MLP baseline
-mlp = MLPFitter(layers=[16, 16], n_in=1, n_out=1)
-mlp.fit(x_train, y_train)
-smn.plot(baseline=mlp, output_path="comparison.png", title="SMN vs MLP")
-```
+详细 API 见后文。
 
 ---
 
-### MLPFitter — Baseline Comparison
+## 强化学习示例
 
-`MLPFitter` mirrors the `SMNFitter` interface for fair comparison:
+`SMNModule` 可以直接作为强化学习中的 **Q 网络** 或 **策略网络**。
 
-```python
-from smn_fitter import MLPFitter
+### 示例 1: DQN (Deep Q-Network)
 
-mlp = MLPFitter(
-    layers=[16, 16, 16],    # Hidden layer sizes
-    n_in=1, n_out=1,        # I/O dimensions
-    activation='relu',
-    x_bounds=[(-3.14, 3.14)],
-)
-mlp.fit(x_train, y_train, epochs=300)
-mlp.plot(output_path="mlp_result.png")  # 2-panel
-```
+**场景：** CartPole 环境，状态 → Q 值（每个动作一个 Q 值）
 
----
-
-## Advanced: Custom Loss Functions (RL, etc.)
-
-If you have your own training loop (e.g., reinforcement learning, custom objectives), use `SMNModule` directly:
-
-### Option 1: SMNModule only (recommended for RL)
+**损失函数如何传入：** DQN 使用 MSE loss 比较 预测 Q 值 和 目标 Q 值。损失函数在训练循环中调用，**不是**传给 `SMNModule`，而是你自己在 `backward()` 时调用。
 
 ```python
 from smn_fitter import SMNModule
 import torch
-
-# Create the network (no training logic attached)
-net = SMNModule(n=2, m=3, n_in=4, n_out=2, x_bounds=[(-1, 1)] * 4)
-
-# Use in your own loop
-optimizer = torch.optim.Adam(net.parameters(), lr=3e-4)
-
-for step in range(1000):
-    # Your environment / data
-    obs = get_observation()      # shape: (n_in,)
-    action = net(obs.unsqueeze(0))  # forward pass
-    
-    # Your loss (policy gradient, TD error, etc.)
-    loss = your_custom_loss(action, reward, next_obs)
-    
-    loss.backward()
-    optimizer.step()
-    optimizer.zero_grad()
-```
-
-### Option 2: Access module from SMNFitter
-
-```python
-from smn_fitter import SMNFitter
-
-smn = SMNFitter(n=2, m=3, n_in=4, n_out=2)
-net = smn.module  # Access the underlying SMNModule
-
-# Now use `net` in your own loop (same as Option 1)
-```
-
-### Example: Policy Gradient with SMN
-
-```python
-from smn_fitter import SMNModule
-import torch
-import torch.nn.functional as F
-
-# SMN as policy network: state -> action probabilities
-policy_net = SMNModule(n=2, m=3, n_in=4, n_out=2)  # 4-dim state, 2 actions
-optimizer = torch.optim.Adam(policy_net.parameters(), lr=3e-4)
-
-def select_action(state):
-    state = torch.FloatTensor(state)
-    logits = policy_net(state.unsqueeze(0))
-    probs = F.softmax(logits, dim=1)
-    action = probs.multinomial(num_samples=1)
-    return action.item(), probs.log()[0, action.item()]
-
-def reinforce_loss(log_prob, reward):
-    return -log_prob * reward  # Gradient ascent via gradient descent
-
-for episode in range(100):
-    state = env.reset()
-    log_probs = []
-    rewards = []
-    
-    for t in range(100):
-        action, log_prob = select_action(state)
-        next_state, reward, done, _ = env.step(action)
-        log_probs.append(log_prob)
-        rewards.append(reward)
-        
-        if done:
-            break
-        state = next_state
-    
-    # Compute returns
-    returns = []
-    R = 0
-    for r in reversed(rewards):
-        R = r + 0.99 * R
-        returns.insert(0, R)
-    
-    # Policy gradient loss
-    policy_loss = []
-    for log_prob, G in zip(log_probs, returns):
-        policy_loss.append(reinforce_loss(log_prob, G))
-    
-    optimizer.zero_grad()
-    loss = torch.cat(policy_loss).sum()
-    loss.backward()
-    optimizer.step()
-```
-
----
-
-## Configuration (params.yaml)
-
-For `python3 run.py`, configure via `params.yaml`:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `n` | 2 | Simplex dimension |
-| `m` | 3 | Resolution |
-| `n_in` | 1 | Input dimensions |
-| `n_out` | 1 | Output dimensions |
-| `mlp_layers` | [8, 8, 8] | MLP hidden sizes |
-| `node_activation` | relu | `relu`, `leaky_relu`, `gelu`, `tanh` |
-| `task_name` | sin_mix | Target function (see below) |
-| `epochs` | 300 | Training epochs |
-| `lr` | 0.001 | Learning rate |
-| `batch_size` | 64 | Batch size |
-| `num_train` | 10000 | Training set size |
-| `x_bounds` | — | Per-channel bounds, e.g. `[[-π,π],[-1,1]]` |
-
-### Task Registry
-
-| `task_name` | n_in | n_out | Formula |
-|-------------|------|-------|---------|
-| `sin` | 1 | 1 | $\sin(x)$ |
-| `sin_mix` | 1 | 1 | $0.5\sin(x) + 0.3\sin(2x) + 0.2\sin(3x)$ |
-| `sin_cos` | 1 | 2 | $[\sin(x), \cos(x)]$ |
-| `sin_sum` | 2 | 1 | $\sin(x_1 + x_2)$ |
-| `trig_2d` | 2 | 2 | $[\sin(x_1+x_2), \cos(x_1-x_2)]$ |
-
----
-
-## Output Format
-
-### run.py Comparison Plot
-
-`runs/<date>/<name>/comparison.png` — 4 panels:
-
-| Panel | Content |
-|-------|---------|
-| Top-left | SMN: ‖y_true‖₂ vs ‖y_pred‖₂ scatter (diagonal = perfect) |
-| Top-right | MLP: same scatter |
-| Bottom-left | SMN train/val loss curves (log scale) |
-| Bottom-right | MLP train/val loss curves |
-
-The L2-norm scatter works for any `n_out` (1i1o to 100i100o).
-
-### SMNFitter.plot()
-
-- **Without baseline**: 2-panel (scatter + loss curve)
-- **With baseline**: 4-panel comparison
-
----
-
-## Running Tests
-
-```bash
-cd exp0414_simplexNet
-PYTHONPATH=src python3 tests/test_smn.py
-```
-
-12 unit tests covering:
-- Shape validation (SISO, MIMO)
-- Input normalization
-- Gradient flow
-- State dict roundtrip
-
----
-
-## Mathematical Background (Brief)
-
-### Lattice V_{n,m}
-
-$$V_{n,m} = \{\alpha \in \mathbb{Z}_{\geq 0}^{n+1} : \sum_{i=0}^n \alpha_i = m-1\}$$
-
-Cardinality: $|V_{n,m}| = \binom{m+n-1}{n}$
-
-### Edge Orientation
-
-Edges follow a potential function $H(\alpha) = \sum \beta_i \alpha_i$:
-- $\beta_0 = 0$ (input vertex)
-- $\beta_1 = 2$ (output vertex)
-- $\beta_k = 1$ for $k \geq 2$ (hidden vertices)
-
-Edge $\alpha \to \alpha'$ exists iff potential increases.
-
----
-
-## Examples
-
-### Example 1: SISO sin_mix (default)
-
-```python
-from smn_fitter import SMNFitter
-
-smn = SMNFitter(n=2, m=3)  # triangle, 3 points/edge
-smn.fit(epochs=300)
-smn.plot(output_path="siso.png")
-print(f"Final val loss: {smn.final_val_loss:.4f}")
-```
-
-### Example 2: MIMO 2i2o
-
-```python
-from smn_fitter import SMNFitter, MLPFitter
-
-# 2-input, 2-output with custom bounds
-smn = SMNFitter(
-    n=3, m=4,
-    n_in=2, n_out=2,
-    x_bounds=[(-3.14, 3.14), (-3.14, 3.14)],
-)
-smn.fit(epochs=500)
-
-# Compare with MLP
-mlp = MLPFitter(layers=[16, 16], n_in=2, n_out=2)
-mlp.fit(epochs=500)
-
-# 4-panel comparison
-smn.plot(baseline=mlp, output_path="mimo_compare.png")
-```
-
-### Example 3: Custom Training Loop
-
-```python
-from smn_fitter import SMNModule
 import torch.nn as nn
 import torch.optim as optim
 
-module = SMNModule(n=2, m=3, n_in=1, n_out=1)
-optimizer = optim.Adam(module.parameters(), lr=1e-3)
-criterion = nn.MSELoss()
+# 1. 创建 Q 网络
+# CartPole: 4 维观测，2 个动作
+q_net = SMNModule(
+    n=2, m=4,
+    n_in=4, n_out=2,
+    x_bounds=[(-4.8, 4.8), (-5, 5), (-0.42, 0.42), (-5, 5)],  # CartPole 观测范围
+    activation='relu'
+)
 
-for epoch in range(100):
-    x = torch.randn(64, 1) * 3
-    y = torch.sin(x)
-    
+# 2. 创建优化器
+optimizer = optim.Adam(q_net.parameters(), lr=1e-3)
+criterion = nn.MSELoss()  # ← 损失函数在这里定义
+
+# 3. 训练循环
+for step in range(1000):
+    # 获取一批经验 (state, action, reward, next_state, done)
+    state = torch.randn(64, 4)        # 示例：64 个状态
+    action = torch.randint(0, 2, (64,))
+    reward = torch.randn(64,)
+    next_state = torch.randn(64, 4)
+    done = torch.zeros(64,)
+
+    # 4. 前向传播：计算当前 Q 值
+    current_q = q_net(state)                          # (64, 2)
+    current_q_for_action = current_q.gather(1, action.unsqueeze(1)).squeeze(1)  # (64,)
+
+    # 5. 计算目标 Q 值 (Bellman 方程)
+    with torch.no_grad():
+        next_q = q_net(next_state).max(dim=1)[0]     # (64,)
+    target_q = reward + (1 - done) * 0.99 * next_q   # (64,)
+
+    # 6. 计算损失 ← 这里调用损失函数
+    loss = criterion(current_q_for_action, target_q)
+
+    # 7. 反向传播 ← 这里传入梯度
     optimizer.zero_grad()
-    pred = module(x)
-    loss = criterion(pred, y)
     loss.backward()
     optimizer.step()
+
+    if step % 100 == 0:
+        print(f"step={step}, loss={loss.item():.4f}")
+```
+
+**关键点：**
+- `SMNModule` 只负责 `state → Q 值` 的前向传播
+- 损失函数 (`MSELoss`) 在训练循环中调用，不是传给 module
+- `loss.backward()` 自动计算梯度并更新 `q_net.parameters()`
+
+---
+
+### 示例 2: 策略梯度 (REINFORCE)
+
+**场景：** CartPole，状态 → 动作概率分布
+
+**损失函数如何传入：** 策略梯度的 loss 是 `-log_prob(action) * return`。你手动计算这个 loss，然后调用 `backward()`。
+
+```python
+from smn_fitter import SMNModule
+import torch
+import torch.optim as optim
+import torch.nn.functional as F
+
+# 1. 创建策略网络
+# 输出：2 个动作的 logits（未归一化的对数概率）
+policy_net = SMNModule(
+    n=2, m=4,
+    n_in=4, n_out=2,
+    x_bounds=[(-4.8, 4.8), (-5, 5), (-0.42, 0.42), (-5, 5)],
+    activation='relu'
+)
+
+optimizer = optim.Adam(policy_net.parameters(), lr=3e-4)
+gamma = 0.99
+
+# 2. 一集的交互
+def run_episode():
+    state = env.reset()
+    log_probs = []
+    rewards = []
+
+    for t in range(500):
+        # 前向传播：state → logits → 概率 → 采样动作
+        logits = policy_net(torch.FloatTensor(state).unsqueeze(0))  # (1, 2)
+        probs = F.softmax(logits, dim=1)                            # (1, 2)
+        dist = torch.distributions.Categorical(probs)
+        action = dist.sample()                                      # (1,)
+        
+        log_probs.append(dist.log_prob(action))                     # 标量
+        rewards.append(reward)
+
+        state, reward, done, _ = env.step(action.item())
+        if done:
+            break
+
+    return log_probs, rewards
+
+# 3. 训练
+for episode in range(1000):
+    log_probs, rewards = run_episode()
+
+    # 计算 returns (折现累积奖励)
+    returns = []
+    R = 0
+    for r in reversed(rewards):
+        R = r + gamma * R
+        returns.insert(0, R)
+    returns = torch.FloatTensor(returns)
+
+    # 策略梯度 loss: -sum(log_prob * return)
+    # ← 损失函数在这里手动定义，不是传给 module
+    policy_loss = []
+    for log_prob, G in zip(log_probs, returns):
+        policy_loss.append(-log_prob * G)
     
-    if (epoch + 1) % 20 == 0:
-        print(f"epoch={epoch+1}, loss={loss.item():.4f}")
+    loss = torch.cat(policy_loss).sum()  # 标量
+
+    # 反向传播
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    if episode % 50 == 0:
+        print(f"episode={episode}, total_reward={sum(rewards)}")
+```
+
+**关键点：**
+- `policy_net` 输出 logits，你用 `softmax` 转概率，再采样动作
+- loss 是你手动计算的（`-log_prob * return`），不是传给 module
+- `loss.backward()` 更新 `policy_net.parameters()`
+
+---
+
+### 示例 3: Actor-Critic (A2C)
+
+**场景：** 同时学习策略（Actor）和价值函数（Critic）
+
+```python
+from smn_fitter import SMNModule
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# Actor 和 Critic 共享一个 SMN 骨干
+actor = SMNModule(n=2, m=4, n_in=4, n_out=2)  # 输出 2 个动作的 logits
+critic = SMNModule(n=2, m=4, n_in=4, n_out=1) # 输出 1 个状态价值
+
+optimizer = optim.Adam(
+    list(actor.parameters()) + list(critic.parameters()),
+    lr=7e-4
+)
+
+# 训练一步
+def train_step(states, actions, rewards, next_states, dones):
+    # Actor: state → action logits
+    logits = actor(states)               # (batch, 2)
+    probs = torch.softmax(logits, dim=1)
+    dist = torch.distributions.Categorical(probs)
+    log_probs = dist.log_prob(actions)   # (batch,)
+
+    # Critic: state → value
+    values = critic(states).squeeze(1)   # (batch,)
+    next_values = critic(next_states).squeeze(1).detach()
+
+    # Advantage (TD 误差)
+    td_target = rewards + 0.99 * next_values * (1 - dones)
+    advantage = td_target - values
+
+    # Actor loss: -log_prob * advantage
+    actor_loss = -(log_probs * advantage.detach()).mean()
+
+    # Critic loss: MSE
+    critic_loss = nn.MSELoss()(values, td_target)
+
+    # 总 loss
+    loss = actor_loss + critic_loss
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    return actor_loss.item(), critic_loss.item()
 ```
 
 ---
 
-## Reference
+### 为什么损失函数不是传给 `SMNModule`？
 
-Full mathematical treatment: `report_tex/report.pdf`
+**设计原理：**
+- `SMNModule` 是纯粹的 `nn.Module`，只做 `输入 → 输出` 的映射
+- 损失函数是**训练循环**的一部分，不是网络的一部分
+- 这样设计让你可以用任何 loss（MSE、交叉熵、策略梯度、contrastive loss 等）
+
+**对比：**
+
+| 方式 | 优点 | 缺点 |
+|------|------|------|
+| loss 传给 module | 语法简洁 | 只能支持预设的 loss，不灵活 |
+| loss 在循环中调用 | 完全灵活 | 代码稍多 |
+
+---
+
+## 配置 (params.yaml)
+
+用于 `python3 run.py` 的配置文件：
+
+（此处省略，与之前相同）
+
+---
+
+## 数学背景简述
+
+（此处省略，与之前相同）
+
+---
+
+## 完整 RL 示例代码
+
+`examples/smn_for_rl.py` 包含完整的可运行示例：
+- DQN 训练 CartPole
+- REINFORCE 训练 CartPole
+
+运行：
+```bash
+cd exp0414_simplexNet
+pip install gymnasium[classic-control]
+PYTHONPATH=src python3 examples/smn_for_rl.py
+```
