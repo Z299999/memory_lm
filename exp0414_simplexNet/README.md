@@ -489,7 +489,22 @@ compare_mlp: true
 
 ## 数学背景简述
 
-（此处省略，与之前相同）
+完整理论文档（LaTeX）位于 [`writing/w0001-simplex-theory/`](../../writing/w0001-simplex-theory/)
+
+**论文标题：** Simplex Memory Networks: A Geometric Feedforward Architecture for Coupled Short- and Long-Term Memory
+
+**核心思想：**
+- 基于正则 $n$-单纯形（regular $n$-simplex）的离散晶格构建隐藏层
+- 输入/输出由两个相对的 facet 实现，共享的 $(n-2)$-维面作为中间缓冲
+- 线性势诱导的有向最近邻图形成前馈架构
+- 狭窄的 backbone 建模长时记忆，宽阔的共享界面建模短时记忆
+
+**关键概念：**
+- $V_{n,m}$：$n$-单纯形上的晶格点集，每条边有 $m$ 个点
+- $F_{\mathrm{in}}$：输入 facet（$\alpha_1=0$）
+- $F_{\mathrm{out}}$：输出 facet（$\alpha_0=0$）
+- $F_{\mathrm{mid}}$：共享中间面（$\alpha_0=\alpha_1=0$）
+- 势函数诱导读出的 DAG 结构
 
 ---
 
