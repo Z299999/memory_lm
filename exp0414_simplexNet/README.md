@@ -2,92 +2,245 @@
 
 A geometric feedforward neural architecture based on simplicial lattices.
 
-## Overview
-
-The Simplex Memory Network (SMN) is a neural architecture where:
-- **Hidden nodes** are lattice points in a regular n-simplex
-- **Input/output interfaces** are opposite facets of the simplex
-- **Information flow** follows a potential-induced directed acyclic graph
-
-The architecture naturally decomposes into:
-- A **narrow deep backbone** (long-term memory)
-- A **broad shallow buffer** (short-term memory)
-
-## Project Structure
-
-```
-exp0414_simplexNet/
-├── params.yaml          # Configuration file
-├── run.py               # Entry point: python3 run.py
-├── src/
-│   ├── config.py        # Config dataclass + YAML loader
-│   ├── data.py          # Target functions (1D/2D) + dataset builder
-│   ├── graph.py         # SimplexMemoryGraph + lattice/potential helpers
-│   ├── smn_fitter.py    # SMNModule + SMNFitter (core network + training)
-│   ├── mlp_fitter.py    # MLPFitter (baseline, mirrors SMNFitter interface)
-│   └── plot.py          # Visualization utilities
-└── tests/
-    └── test_smn.py      # SMNModule unit tests
-```
-
 ## Quick Start
+
+### 1. Run a comparison experiment
 
 ```bash
 cd exp0414_simplexNet
 python3 run.py
 ```
 
-Output: `runs/<date>/<experiment_name>/comparison.png`
+Output: `runs/<date>/<experiment_name>/comparison.png` — 4-panel SMN vs MLP comparison.
+
+### 2. Use SMN in your own code
+
+```python
+import sys
+sys.path.insert(0, 'src')
+
+from smn_fitter import SMNModule, SMNFitter
+import torch
+
+# --- Option A: SMNModule (raw nn.Module) ---
+# Use this if you want full control over training
+module = SMNModule(n=2, m=3, n_in=1, n_out=1, activation='relu')
+x = torch.randn(32, 1)
+y = module(x)  # forward pass
+
+# --- Option B: SMNFitter (high-level API) ---
+# Use this for quick experiments with built-in training
+smn = SMNFitter(n=2, m=3, n_in=1, n_out=1)
+smn.fit(epochs=300)  # trains on built-in sin_mix data
+smn.plot(output_path="result.png")  # 2-panel: scatter + loss curve
+```
+
+---
+
+## Project Structure
+
+```
+exp0414_simplexNet/
+├── params.yaml          # Configuration for run.py
+├── run.py               # Entry point: trains SMN vs MLP, saves comparison plot
+├── src/
+│   ├── config.py        # Config dataclass + YAML loader
+│   ├── data.py          # Target functions + dataset builder
+│   ├── graph.py         # SimplexMemoryGraph + lattice/potential helpers
+│   ├── smn_fitter.py    # SMNModule (core network) + SMNFitter (training wrapper)
+│   ├── mlp_fitter.py    # MLPFitter (baseline, same interface as SMNFitter)
+│   └── plot.py          # Visualization utilities
+└── tests/
+    └── test_smn.py      # 12 unit tests for SMNModule
+```
+
+---
+
+## API Reference
+
+### SMNModule — Core PyTorch Module
+
+Use `SMNModule` when you want to integrate SMN into your own training loop.
+
+```python
+from smn_fitter import SMNModule
+
+module = SMNModule(
+    n=2,                    # Simplex dimension (2=triangle, 3=tetrahedron, ...)
+    m=3,                    # Resolution (lattice points per edge)
+    n_in=1,                 # Input dimensions
+    n_out=1,                # Output dimensions
+    activation='relu',      # 'relu', 'leaky_relu', 'gelu', 'tanh'
+    x_bounds=None,          # Per-channel bounds: [(min, max), ...] or None
+)
+```
+
+**Key properties:**
+- `module.arch_str` — Human-readable architecture description
+- `module.param_count` — Total trainable parameters
+
+**Forward pass:**
+```python
+x = torch.randn(64, n_in)  # batch of 64
+y = module(x)              # output: (batch, n_out)
+```
+
+**Input normalization:**
+- `x_bounds` defines per-channel input ranges (e.g., `[(-3.14, 3.14)]` for SISO)
+- Inputs are automatically normalized to `[-1, 1]` per channel
+- If `None`, defaults to `[(-1, 1)] * n_in`
+
+---
+
+### SMNFitter — High-Level Training Wrapper
+
+Use `SMNFitter` for quick experiments with built-in training and visualization.
+
+```python
+from smn_fitter import SMNFitter
+
+smn = SMNFitter(
+    n=3, m=4,               # Architecture
+    n_in=2, n_out=1,        # I/O dimensions
+    x_bounds=[(-3.14, 3.14), (-3.14, 3.14)],  # Per-channel bounds
+)
+```
+
+#### Training
+
+```python
+# Option 1: Built-in demo data (sin_mix for SISO, sin_sum for MIMO)
+smn.fit(epochs=300, lr=1e-3, batch_size=64)
+
+# Option 2: Custom data
+x_train = torch.randn(1000, n_in)
+y_train = torch.randn(1000, n_out)
+smn.fit(x_train, y_train, epochs=300)
+
+# Option 3: With validation split
+smn.fit(x_train, y_train, x_val, y_val, epochs=300)
+```
+
+**`fit()` parameters:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `x_train`, `y_train` | None | Training data. If None, uses built-in demo |
+| `x_val`, `y_val` | None | Validation data. Auto-splits 80/20 if None |
+| `loss_fn` | `nn.MSELoss()` | Custom loss function |
+| `lr` | 0.001 | Learning rate |
+| `epochs` | 300 | Training epochs |
+| `batch_size` | 64 | Batch size |
+| `seed` | 42 | Random seed |
+| `verbose` | True | Print progress every 50 epochs |
+
+#### Inference
+
+```python
+predictions = smn.predict(x_test)  # returns numpy array
+```
+
+#### Visualization
+
+```python
+# 2-panel plot (scatter + loss curve)
+smn.plot(output_path="smn_result.png")
+
+# 4-panel comparison with MLP baseline
+mlp = MLPFitter(layers=[16, 16], n_in=1, n_out=1)
+mlp.fit(x_train, y_train)
+smn.plot(baseline=mlp, output_path="comparison.png", title="SMN vs MLP")
+```
+
+---
+
+### MLPFitter — Baseline Comparison
+
+`MLPFitter` mirrors the `SMNFitter` interface for fair comparison:
+
+```python
+from smn_fitter import MLPFitter
+
+mlp = MLPFitter(
+    layers=[16, 16, 16],    # Hidden layer sizes
+    n_in=1, n_out=1,        # I/O dimensions
+    activation='relu',
+    x_bounds=[(-3.14, 3.14)],
+)
+mlp.fit(x_train, y_train, epochs=300)
+mlp.plot(output_path="mlp_result.png")  # 2-panel
+```
+
+---
 
 ## Configuration (params.yaml)
 
+For `python3 run.py`, configure via `params.yaml`:
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `model_type` | smn | `"smn"` or `"mlp"` |
-| `n` | 2 | Simplex dimension (2=triangle, 3=tetrahedron) |
-| `m` | 3 | Resolution (lattice points per edge) |
-| `n_in` | 1 | Number of input dimensions |
-| `n_out` | 1 | Number of output dimensions |
-| `mlp_layers` | [8, 8, 8] | MLP hidden layer sizes |
+| `n` | 2 | Simplex dimension |
+| `m` | 3 | Resolution |
+| `n_in` | 1 | Input dimensions |
+| `n_out` | 1 | Output dimensions |
+| `mlp_layers` | [8, 8, 8] | MLP hidden sizes |
 | `node_activation` | relu | `relu`, `leaky_relu`, `gelu`, `tanh` |
-| `task_name` | sin_mix | Target function (see Tasks below) |
+| `task_name` | sin_mix | Target function (see below) |
 | `epochs` | 300 | Training epochs |
 | `lr` | 0.001 | Learning rate |
 | `batch_size` | 64 | Batch size |
-| `num_train` | 10000 | Training set size (points sampled from target function) |
-| `x_min` / `x_max` | ±2π | Input domain for 1D tasks |
-| `x_bounds` | — | Per-channel bounds for MIMO, e.g. `[[-π,π],[-1,1]]`; overrides `x_min`/`x_max` |
-| `window_width` | 0.0 | Moving window width as fraction of domain (0 = disabled) |
-| `window_hold` | 1 | Epochs per window position |
+| `num_train` | 10000 | Training set size |
+| `x_bounds` | — | Per-channel bounds, e.g. `[[-π,π],[-1,1]]` |
 
-### Tasks
+### Task Registry
 
-| `task_name` | n_in | Formula |
-|-------------|------|---------|
-| `sin` | 1 | $\sin(x)$ |
-| `sin_mix` | 1 | $0.5\sin(x) + 0.3\sin(2x) + 0.2\sin(3x)$ |
-| `poly_wave` | 1 | $0.1x^2\sin(x) + 0.5\cos(2x)$ |
-| `piecewise` | 1 | Piecewise linear |
-| `sin_cos` | 1 | $[\sin(x),\ \cos(x)]$ — **1i2o** |
-| `sin_sum` | 2 | $\sin(x_1 + x_2)$ |
-| `sin_product` | 2 | $\sin(x_1)\cos(x_2)$ |
-| `quadratic` | 2 | $0.1(x_1^2+x_2^2) - 0.5\sin(x_1 x_2)$ |
-| `trig_2d` | 2 | $[\sin(x_1+x_2),\ \cos(x_1-x_2)]$ — **2i2o** |
+| `task_name` | n_in | n_out | Formula |
+|-------------|------|-------|---------|
+| `sin` | 1 | 1 | $\sin(x)$ |
+| `sin_mix` | 1 | 1 | $0.5\sin(x) + 0.3\sin(2x) + 0.2\sin(3x)$ |
+| `sin_cos` | 1 | 2 | $[\sin(x), \cos(x)]$ |
+| `sin_sum` | 2 | 1 | $\sin(x_1 + x_2)$ |
+| `trig_2d` | 2 | 2 | $[\sin(x_1+x_2), \cos(x_1-x_2)]$ |
 
-### Output plot
+---
 
-Each run saves `runs/<date>/<name>/comparison.png` — a 4-panel figure:
+## Output Format
+
+### run.py Comparison Plot
+
+`runs/<date>/<name>/comparison.png` — 4 panels:
 
 | Panel | Content |
 |-------|---------|
-| Top-left | SMN: $\|y_{\text{true}}\|_2$ vs $\|y_{\text{pred}}\|_2$ scatter — points on the diagonal `y=x` = perfect prediction |
-| Top-right | MLP: same scatter for comparison |
-| Bottom-left | SMN train / val loss curves (log scale) |
-| Bottom-right | MLP train / val loss curves (log scale) |
+| Top-left | SMN: ‖y_true‖₂ vs ‖y_pred‖₂ scatter (diagonal = perfect) |
+| Top-right | MLP: same scatter |
+| Bottom-left | SMN train/val loss curves (log scale) |
+| Bottom-right | MLP train/val loss curves |
 
-The scatter uses the **L2 norm** of the output vector, so it scales to any `n_out` (including high-dimensional outputs) without needing multiple colors. For `n_out=1` the norm equals `|y|` and the axes are labelled `True` / `Predicted`.
+The L2-norm scatter works for any `n_out` (1i1o to 100i100o).
 
-## Mathematical Background
+### SMNFitter.plot()
+
+- **Without baseline**: 2-panel (scatter + loss curve)
+- **With baseline**: 4-panel comparison
+
+---
+
+## Running Tests
+
+```bash
+cd exp0414_simplexNet
+PYTHONPATH=src python3 tests/test_smn.py
+```
+
+12 unit tests covering:
+- Shape validation (SISO, MIMO)
+- Input normalization
+- Gradient flow
+- State dict roundtrip
+
+---
+
+## Mathematical Background (Brief)
 
 ### Lattice V_{n,m}
 
@@ -95,59 +248,78 @@ $$V_{n,m} = \{\alpha \in \mathbb{Z}_{\geq 0}^{n+1} : \sum_{i=0}^n \alpha_i = m-1
 
 Cardinality: $|V_{n,m}| = \binom{m+n-1}{n}$
 
-### Vertex Potentials
-
-- $\beta_0 = 0$ (vertex $a$)
-- $\beta_1 = 2$ (vertex $b$)
-- $\beta_k = 1$ for $k \geq 2$ (vertices $c_1, \ldots, c_{n-1}$)
-
-### Potential Function
-
-$$H(\alpha) = \sum_{i=0}^n \beta_i \alpha_i = 2\alpha_1 + \alpha_2 + \cdots + \alpha_n$$
-
 ### Edge Orientation
 
-Edge $\alpha \to \alpha'$ exists iff:
-- $\alpha' = \alpha + e_i - e_j$ for some $i \neq j$
-- $\alpha_j \geq 1$ (can move mass from $j$)
-- $\beta_i > \beta_j$ (potential increases)
+Edges follow a potential function $H(\alpha) = \sum \beta_i \alpha_i$:
+- $\beta_0 = 0$ (input vertex)
+- $\beta_1 = 2$ (output vertex)
+- $\beta_k = 1$ for $k \geq 2$ (hidden vertices)
 
-Admissible edge types: $a \to c_k$, $c_k \to b$, $a \to b$
+Edge $\alpha \to \alpha'$ exists iff potential increases.
 
-### Facets
-
-- Input: $F_{\text{in}} = \{\alpha : \alpha_1 = 0\}$
-- Output: $F_{\text{out}} = \{\alpha : \alpha_0 = 0\}$
-- Shared: $F_{\text{mid}} = F_{\text{in}} \cap F_{\text{out}} = \{\alpha : \alpha_0 = \alpha_1 = 0\}$
-
-All nodes in $F_{\text{mid}}$ have $H(\alpha) = m-1$ (isopotential).
-
-### Backbone
-
-$$\mathcal{B}_{n,m} = \{\alpha : \alpha_2 = \cdots = \alpha_n = 0\}$$
-
-A chain of exactly $m$ nodes with potentials $0, 2, 4, \ldots, 2(m-1)$.
-
-## Running Tests
-
-```bash
-cd exp0414_simplexNet
-python3 tests/test_lattice.py
-python3 tests/test_potential.py
-```
+---
 
 ## Examples
 
-### Triangle motif SMN(2, 2)
-- 3 hidden nodes: $a, c, b$
-- Edges: $a \to c$, $c \to b$, $a \to b$
-- $F_{\text{mid}} = \{c\}$ (single node)
+### Example 1: SISO sin_mix (default)
 
-### Tetrahedron motif SMN(3, 2)
-- 4 hidden nodes: $a, c, d, b$
-- Edges: $a \to c$, $a \to d$, $c \to b$, $d \to b$, $a \to b$
-- $F_{\text{mid}} = \{c, d\}$ (edge)
+```python
+from smn_fitter import SMNFitter
+
+smn = SMNFitter(n=2, m=3)  # triangle, 3 points/edge
+smn.fit(epochs=300)
+smn.plot(output_path="siso.png")
+print(f"Final val loss: {smn.final_val_loss:.4f}")
+```
+
+### Example 2: MIMO 2i2o
+
+```python
+from smn_fitter import SMNFitter, MLPFitter
+
+# 2-input, 2-output with custom bounds
+smn = SMNFitter(
+    n=3, m=4,
+    n_in=2, n_out=2,
+    x_bounds=[(-3.14, 3.14), (-3.14, 3.14)],
+)
+smn.fit(epochs=500)
+
+# Compare with MLP
+mlp = MLPFitter(layers=[16, 16], n_in=2, n_out=2)
+mlp.fit(epochs=500)
+
+# 4-panel comparison
+smn.plot(baseline=mlp, output_path="mimo_compare.png")
+```
+
+### Example 3: Custom Training Loop
+
+```python
+from smn_fitter import SMNModule
+import torch.nn as nn
+import torch.optim as optim
+
+module = SMNModule(n=2, m=3, n_in=1, n_out=1)
+optimizer = optim.Adam(module.parameters(), lr=1e-3)
+criterion = nn.MSELoss()
+
+for epoch in range(100):
+    x = torch.randn(64, 1) * 3
+    y = torch.sin(x)
+    
+    optimizer.zero_grad()
+    pred = module(x)
+    loss = criterion(pred, y)
+    loss.backward()
+    optimizer.step()
+    
+    if (epoch + 1) % 20 == 0:
+        print(f"epoch={epoch+1}, loss={loss.item():.4f}")
+```
+
+---
 
 ## Reference
 
-See `../exp0414_simplexNet/report_tex/report.pdf` for the full mathematical treatment.
+Full mathematical treatment: `report_tex/report.pdf`
