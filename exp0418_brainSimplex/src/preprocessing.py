@@ -28,16 +28,31 @@ def ensure_dirs():
 
 
 def load_raw_data() -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
-    """Load raw FlyWire data from CSV files.
+    """Load raw FlyWire or Oxford data from CSV files.
 
     Returns:
         Tuple of (synapses_df, neurons_df)
         neurons_df is None if not available
 
     Raises:
-        FileNotFoundError: If synapses.csv not found
+        FileNotFoundError: If edge list not found
     """
-    # Try standard FlyWire export format
+    # Try Oxford dataset first
+    oxford_edges = DATA_RAW / "oxford_edge_list.csv"
+    oxford_nodes = DATA_RAW / "oxford_nodes.csv"
+
+    if oxford_edges.exists():
+        print(f"Loading Oxford edges from: {oxford_edges}")
+        edges_df = pd.read_csv(oxford_edges)
+
+        nodes_df = None
+        if oxford_nodes.exists():
+            print(f"Loading Oxford nodes from: {oxford_nodes}")
+            nodes_df = pd.read_csv(oxford_nodes)
+
+        return edges_df, nodes_df
+
+    # Fallback to FlyWire format
     synapses_path = DATA_RAW / "synapses.csv"
     neurons_path = DATA_RAW / "neurons.csv"
 

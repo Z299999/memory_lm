@@ -134,8 +134,6 @@ class DirectedSimplexDetector:
             simplices = self.find_k_simplex_iterative(k)
             counts[k] = len(simplices)
             print(f"  Dimension {k}: {len(simplices):,} simplices")
-            if len(simplices) == 0 and k > 0:
-                break
         return counts
 
     def get_simplex_distribution(self, max_dim: int = 10) -> pd.DataFrame:
@@ -249,8 +247,6 @@ def detect_simplices_from_file(
         count = len(simplices)
         results.append({'dimension': k, 'count': count})
         print(f"  Dimension {k}: {count:,} simplices")
-        if count == 0 and k > 0:
-            break
 
     df = pd.DataFrame(results)
 
