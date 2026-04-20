@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def smn_architecture_text(n: int, m: int, graph) -> str:
+def smn_architecture_text(n: int, m: int, graph, n_out: int = 1) -> str:
     """Get architecture description string for SMN."""
     # SMN parameters: edge weights + core node biases + output biases
     n_edges = graph.edge_count

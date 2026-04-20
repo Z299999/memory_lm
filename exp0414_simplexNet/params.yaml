@@ -7,13 +7,13 @@ model_type: smn
 run_name: exp0414_smn
 
 # SMN architecture parameters
-n: 7            # Simplex dimension (2 = triangle, 3 = tetrahedron)
+n: 4            # Simplex dimension (2 = triangle, 3 = tetrahedron)
 m: 3            # Resolution (each edge has m lattice points)
 n_in: 1         # Input dimension
 n_out: 1        # Output dimension
 
 # MLP baseline architecture (used when model_type: mlp)
-mlp_layers: [8, 8, 8]
+mlp_layers: [8, 8]
 
 # Activation function: "relu", "leaky_relu", "gelu", "tanh"
 node_activation: relu
@@ -35,6 +35,12 @@ epochs: 1000
 # sequentially and may experience catastrophic forgetting
 window_width: 0.0    # 0.0 = disabled (full domain training)
 window_hold: 20      # epochs per window position
+
+# Training set size: number of data points sampled from the target function per run.
+# Larger = better coverage but slower training (more batches per epoch).
+# For smooth 1D tasks (sin_mix etc.), 1000-2000 is usually sufficient.
+# Default: 10000
+num_train: 500
 
 # Data range (for 1D tasks)
 x_min: -6.283185307179586  # -2π

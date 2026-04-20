@@ -42,8 +42,12 @@ def clone_config(base: Config, model_type: str, run_name: str) -> Config:
         epochs=base.epochs,
         x_min=base.x_min,
         x_max=base.x_max,
+        x_bounds=base.x_bounds,
         window_width=base.window_width,
         window_hold=base.window_hold,
+        num_train=base.num_train,
+        num_val=base.num_val,
+        num_plot=base.num_plot,
     )
 
 
@@ -132,7 +136,11 @@ def main() -> None:
             mlp_architecture=mlp_arch,
             mlp_final_train_loss=mlp_result["metrics"]["final_train_loss"],
             mlp_final_val_loss=mlp_result["metrics"]["final_val_loss"],
-            figure_title=f"Task={base.task_name} | SMN vs MLP",
+            figure_title=(
+                f"Task={base.task_name} | SMN vs MLP\n"
+                f"act={base.node_activation} | epochs={base.epochs} | "
+                f"batch={base.batch_size} | num_train={base.num_train} | lr={base.lr}"
+            ),
             output_path=comparison_path,
             batch_size=base.batch_size,
         )
