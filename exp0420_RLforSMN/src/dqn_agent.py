@@ -11,7 +11,10 @@ import numpy as np
 from collections import deque
 import random
 
-from ..smn_module import SMNModule
+try:
+    from .smn_module import SMNModule
+except ImportError:
+    from smn_module import SMNModule
 
 
 class DQNAgent:
