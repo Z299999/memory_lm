@@ -1,27 +1,23 @@
 #!/usr/bin/env python3
 """Directed simplex detection for neural connectomes.
 
-This module implements algorithms to detect directed simplices (cliques) in
-neural network graphs, following the methodology of Reimann et al. (2017).
+This module counts directed simplices (transitive tournaments) in a directed
+graph. A directed k-simplex is a set of k+1 neurons where every pair is
+connected by exactly one directed edge and the induced subgraph is acyclic.
 
-A directed k-simplex is a set of k+1 neurons where:
-- Every pair is connected (all-to-all)
-- The subgraph is a directed acyclic graph (DAG)
-- There is a total ordering consistent with edge directions
-
-References:
-    Reimann, M. W., et al. (2017). Cliques of Neurons Bound into Cavities
-    Provide a Missing Link between Structure and Function.
-    Frontiers in Computational Neuroscience, 11, 48.
+The previous implementation relied on repeated NetworkX subgraph creation and
+cached every simplex explicitly. That approach becomes prohibitively slow on the
+Oxford central brain graph. This version remaps node IDs to a dense index space
+and counts simplices by recursively intersecting successor sets, which is much
+cheaper in Python.
 """
 
-from itertools import combinations
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-import numpy as np
 import networkx as nx
+import numpy as np
 import pandas as pd
 
 # Default paths
@@ -29,190 +25,13 @@ PROJECT_ROOT = Path(__file__).parent.parent
 RESULTS_DIR = PROJECT_ROOT / "results"
 
 
-def ensure_dirs():
-    """Ensure results directory exists."""
+def ensure_dirs() -> None:
+    """Ensure the results directory exists."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-class DirectedSimplexDetector:
-    """Detector for directed simplices in graphs."""
-
-    def __init__(self, G: nx.DiGraph):
-        """Initialize detector.
-
-        Args:
-            G: Directed graph (should be acyclic for valid simplex detection)
-        """
-        self.G = G
-        self._simplex_cache: Dict[int, List[Tuple[int, ...]]] = {0: [(n,) for n in G.nodes()]}
-
-    def is_directed_clique(self, nodes: Set[int]) -> bool:
-        """Check if a set of nodes forms a directed clique."""
-        if len(nodes) <= 1:
-            return True
-
-        subgraph = self.G.subgraph(nodes)
-        n = len(nodes)
-        expected_edges = n * (n - 1) // 2
-
-        if subgraph.number_of_edges() != expected_edges:
-            return False
-
-        if not nx.is_directed_acyclic_graph(subgraph):
-            return False
-
-        return True
-
-    def find_1_simplices(self) -> List[Tuple[int, int]]:
-        """Find all 1-simplices (directed edges)."""
-        if 1 in self._simplex_cache:
-            return self._simplex_cache[1]
-
-        simplices = list(self.G.edges())
-        self._simplex_cache[1] = simplices
-        return simplices
-
-    def find_2_simplices(self) -> List[Tuple[int, int, int]]:
-        """Find all 2-simplices (directed triangles)."""
-        if 2 in self._simplex_cache:
-            return self._simplex_cache[2]
-
-        simplices = []
-        for a, b in self.G.edges():
-            successors_b = set(self.G.successors(b))
-            for c in self.G.successors(a):
-                if c in successors_b and self.is_directed_clique({a, b, c}):
-                    simplices.append((a, b, c))
-
-        self._simplex_cache[2] = simplices
-        return simplices
-
-    def find_k_simplex_iterative(self, k: int) -> List[Tuple[int, ...]]:
-        """Find all k-simplices using iterative approach (no recursion)."""
-        if k in self._simplex_cache:
-            return self._simplex_cache[k]
-
-        # Start from 1-simplices and build up iteratively
-        for dim in range(1, k + 1):
-            if dim in self._simplex_cache:
-                continue
-
-            if dim == 1:
-                self._simplex_cache[1] = list(self.G.edges())
-                continue
-
-            if dim == 2:
-                self._simplex_cache[2] = self.find_2_simplices()
-                continue
-
-            # For dim >= 3, extend (dim-1)-simplices
-            lower = self._simplex_cache.get(dim - 1, [])
-            if not lower:
-                self._simplex_cache[dim] = []
-                continue
-
-            simplices = set()
-            for simplex in lower:
-                simplex_nodes = set(simplex)
-                common_successors = set.intersection(*[set(self.G.successors(n)) for n in simplex])
-                common_preds = set.intersection(*[set(self.G.predecessors(n)) for n in simplex])
-
-                for candidate in common_successors | common_preds:
-                    if candidate not in simplex_nodes:
-                        candidate_set = simplex_nodes | {candidate}
-                        if self.is_directed_clique(candidate_set):
-                            simplices.add(tuple(sorted(candidate_set)))
-
-            self._simplex_cache[dim] = list(simplices)
-
-        return self._simplex_cache[k]
-
-    def count_by_dimension(self, max_dim: int = 10) -> Dict[int, int]:
-        """Count simplices by dimension."""
-        counts = {}
-        for k in range(max_dim + 1):
-            simplices = self.find_k_simplex_iterative(k)
-            counts[k] = len(simplices)
-            print(f"  Dimension {k}: {len(simplices):,} simplices")
-        return counts
-
-    def get_simplex_distribution(self, max_dim: int = 10) -> pd.DataFrame:
-        """Get simplex distribution as DataFrame."""
-        counts = self.count_by_dimension(max_dim)
-        return pd.DataFrame([
-            {'dimension': k, 'count': c}
-            for k, c in counts.items()
-        ])
-
-
-def compare_with_null_models(
-    G: nx.DiGraph,
-    num_null_models: int = 10,
-    max_dim: int = 6
-) -> pd.DataFrame:
-    """Compare simplex counts with null models."""
-    print("Analyzing original graph...")
-    detector = DirectedSimplexDetector(G)
-    original_counts = {}
-
-    for k in range(max_dim + 1):
-        simplices = detector.find_k_simplex_iterative(k)
-        original_counts[k] = len(simplices)
-        print(f"  Dimension {k}: {len(simplices):,}")
-
-    n_nodes = G.number_of_nodes()
-    n_edges = G.number_of_edges()
-    density = n_edges / (n_nodes * (n_nodes - 1)) if n_nodes > 1 else 0
-
-    print(f"\nGenerating {num_null_models} Erdős-Rényi null models...")
-    print(f"  Parameters: n={n_nodes}, p={density:.6f}")
-
-    null_counts: Dict[int, List[int]] = defaultdict(list)
-
-    for i in range(num_null_models):
-        null_G = nx.erdos_renyi_graph(n_nodes, density, directed=True)
-        null_detector = DirectedSimplexDetector(null_G)
-
-        for k in range(max_dim + 1):
-            count = len(null_detector.find_k_simplex_iterative(k))
-            null_counts[k].append(count)
-
-        print(f"  Null model {i + 1}/{num_null_models} done")
-
-    results = []
-    for k in range(max_dim + 1):
-        original = original_counts[k]
-        null_mean = np.mean(null_counts[k])
-        null_std = np.std(null_counts[k])
-        null_max = max(null_counts[k])
-
-        z_score = (original - null_mean) / null_std if null_std > 0 else 0
-
-        results.append({
-            'dimension': k,
-            'original': original,
-            'null_mean': null_mean,
-            'null_std': null_std,
-            'null_max': null_max,
-            'z_score': z_score,
-            'excess': original - null_mean,
-            'excess_ratio': original / null_mean if null_mean > 0 else float('inf'),
-        })
-
-    return pd.DataFrame(results)
-
-
-def detect_simplices_from_file(
-    edge_list_path: Optional[Path] = None,
-    max_dim: int = 6,
-    output_path: Optional[Path] = None
-) -> pd.DataFrame:
-    """Main entry point for simplex detection."""
-    ensure_dirs()
-
-    if edge_list_path is None:
-        edge_list_path = PROJECT_ROOT / "data" / "processed" / "edge_list.csv"
-
+def load_edge_list(edge_list_path: Path) -> pd.DataFrame:
+    """Load an edge list CSV with columns [pre, post, weight]."""
     print(f"Loading graph from: {edge_list_path}")
 
     if not edge_list_path.exists():
@@ -224,41 +43,179 @@ def detect_simplices_from_file(
             raise FileNotFoundError(f"Edge list not found: {edge_list_path}")
 
     edge_df = pd.read_csv(edge_list_path)
-    G = nx.DiGraph()
-    for _, row in edge_df.iterrows():
-        G.add_edge(int(row['pre']), int(row['post']), weight=int(row['weight']))
+    required_columns = {"pre", "post"}
+    if not required_columns.issubset(edge_df.columns):
+        raise ValueError(f"Edge list must contain columns {sorted(required_columns)}")
 
-    print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+    return edge_df
 
-    # Check if DAG
-    is_dag = nx.is_directed_acyclic_graph(G)
-    print(f"Is DAG: {is_dag}")
-    if not is_dag:
-        print("Warning: Graph contains cycles. Directed simplices require acyclic subgraphs.")
-        print("For biological graphs, consider using the transitive reduction or DAG approximation.")
 
-    print()
-    print("Detecting directed simplices...")
-    detector = DirectedSimplexDetector(G)
+def build_dense_successor_sets(edge_df: pd.DataFrame) -> Tuple[List[Set[int]], int, int]:
+    """Remap node IDs to 0..n-1 and build non-reciprocal successor sets."""
+    node_ids = np.union1d(edge_df["pre"].unique(), edge_df["post"].unique())
+    node_ids = np.sort(node_ids)
+    node_to_idx = {int(node): idx for idx, node in enumerate(node_ids)}
+
+    raw_successors: List[Set[int]] = [set() for _ in range(len(node_ids))]
+    for pre, post in edge_df[["pre", "post"]].itertuples(index=False, name=None):
+        raw_successors[node_to_idx[int(pre)]].add(node_to_idx[int(post)])
+
+    successors: List[Set[int]] = [set() for _ in range(len(node_ids))]
+    for pre_idx, posts in enumerate(raw_successors):
+        exclusive_posts = {post_idx for post_idx in posts if pre_idx not in raw_successors[post_idx]}
+        successors[pre_idx] = exclusive_posts
+
+    return successors, len(node_ids), len(edge_df)
+
+
+class DirectedSimplexCounter:
+    """Count directed simplices without materializing them all."""
+
+    def __init__(self, successors: Sequence[Set[int]]):
+        self.successors = list(successors)
+        self.num_nodes = len(self.successors)
+
+    def _extend_counts(
+        self,
+        candidates: Set[int],
+        next_dim: int,
+        counts: List[int],
+        max_dim: int,
+    ) -> None:
+        """Recursively count extensions of the current ordered simplex.
+
+        `candidates` contains nodes that are successors of every node already in
+        the simplex prefix. Every candidate therefore produces one simplex of
+        dimension `next_dim`.
+        """
+        if not candidates or next_dim > max_dim:
+            return
+
+        counts[next_dim] += len(candidates)
+        if next_dim == max_dim:
+            return
+
+        for node in candidates:
+            child_candidates = candidates & self.successors[node]
+            if child_candidates:
+                self._extend_counts(child_candidates, next_dim + 1, counts, max_dim)
+
+    def count_by_dimension(self, max_dim: int = 10) -> Dict[int, int]:
+        """Count simplices by dimension from 0 through `max_dim`."""
+        counts = [0] * (max_dim + 1)
+        counts[0] = self.num_nodes
+
+        for source, candidates in enumerate(self.successors):
+            if self.num_nodes >= 5000 and source % 5000 == 0:
+                print(f"  Processed sources: {source:,}/{self.num_nodes:,}")
+            self._extend_counts(candidates, 1, counts, max_dim)
+
+        return {dim: count for dim, count in enumerate(counts)}
+
+    def get_simplex_distribution(self, max_dim: int = 10) -> pd.DataFrame:
+        """Return simplex counts as a DataFrame."""
+        counts = self.count_by_dimension(max_dim)
+        return pd.DataFrame(
+            [{"dimension": dim, "count": count} for dim, count in counts.items()]
+        )
+
+
+def compare_with_null_models(
+    edge_df: pd.DataFrame,
+    num_null_models: int = 10,
+    max_dim: int = 6,
+) -> pd.DataFrame:
+    """Compare simplex counts with Erdős-Rényi null models."""
+    print("Analyzing original graph...")
+    successors, n_nodes, n_edges = build_dense_successor_sets(edge_df)
+    detector = DirectedSimplexCounter(successors)
+    original_counts = detector.count_by_dimension(max_dim)
+
+    for dim, count in original_counts.items():
+        print(f"  Dimension {dim}: {count:,}")
+
+    density = n_edges / (n_nodes * (n_nodes - 1)) if n_nodes > 1 else 0.0
+
+    print(f"\nGenerating {num_null_models} Erdős-Rényi null models...")
+    print(f"  Parameters: n={n_nodes}, p={density:.6f}")
+
+    null_counts: Dict[int, List[int]] = defaultdict(list)
+
+    for i in range(num_null_models):
+        null_G = nx.erdos_renyi_graph(n_nodes, density, directed=True)
+        null_successors: List[Set[int]] = [set() for _ in range(n_nodes)]
+        for pre, post in null_G.edges():
+            null_successors[int(pre)].add(int(post))
+
+        null_detector = DirectedSimplexCounter(null_successors)
+        model_counts = null_detector.count_by_dimension(max_dim)
+
+        for dim, count in model_counts.items():
+            null_counts[dim].append(count)
+
+        print(f"  Null model {i + 1}/{num_null_models} done")
 
     results = []
-    for k in range(max_dim + 1):
-        simplices = detector.find_k_simplex_iterative(k)
-        count = len(simplices)
-        results.append({'dimension': k, 'count': count})
-        print(f"  Dimension {k}: {count:,} simplices")
+    for dim in range(max_dim + 1):
+        original = original_counts[dim]
+        null_mean = float(np.mean(null_counts[dim]))
+        null_std = float(np.std(null_counts[dim]))
+        null_max = int(max(null_counts[dim]))
+        z_score = (original - null_mean) / null_std if null_std > 0 else 0.0
 
-    df = pd.DataFrame(results)
+        results.append(
+            {
+                "dimension": dim,
+                "original": original,
+                "null_mean": null_mean,
+                "null_std": null_std,
+                "null_max": null_max,
+                "z_score": z_score,
+                "excess": original - null_mean,
+                "excess_ratio": original / null_mean if null_mean > 0 else float("inf"),
+            }
+        )
 
-    # Auto-save results
-    output_path = RESULTS_DIR / "simplex_counts.csv"
+    return pd.DataFrame(results)
+
+
+def detect_simplices_from_file(
+    edge_list_path: Optional[Path] = None,
+    max_dim: int = 6,
+    output_path: Optional[Path] = None,
+) -> pd.DataFrame:
+    """Load a graph from disk, count simplices, and save the results."""
+    ensure_dirs()
+
+    if edge_list_path is None:
+        edge_list_path = PROJECT_ROOT / "data" / "processed" / "edge_list.csv"
+
+    edge_df = load_edge_list(edge_list_path)
+    successors, num_nodes, num_edges = build_dense_successor_sets(edge_df)
+
+    print(f"Graph: {num_nodes} nodes, {num_edges} edges")
+    print()
+    print("Detecting directed simplices...")
+
+    detector = DirectedSimplexCounter(successors)
+    counts = detector.count_by_dimension(max_dim)
+
+    for dim, count in counts.items():
+        print(f"  Dimension {dim}: {count:,} simplices")
+
+    df = pd.DataFrame(
+        [{"dimension": dim, "count": count} for dim, count in counts.items()]
+    )
+
+    if output_path is None:
+        output_path = RESULTS_DIR / "simplex_counts.csv"
     df.to_csv(output_path, index=False)
     print(f"\nSaved results: {output_path}")
 
     return df
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     import sys
 
@@ -283,7 +240,11 @@ def main():
     print("=" * 60)
     print()
 
-    df = detect_simplices_from_file(max_dim=max_dim)
+    edge_list_path = PROJECT_ROOT / "data" / "processed" / "edge_list.csv"
+    if not edge_list_path.exists():
+        edge_list_path = PROJECT_ROOT / "data" / "raw" / "sample_edge_list.csv"
+
+    detect_simplices_from_file(edge_list_path=edge_list_path, max_dim=max_dim)
 
     if compare_null:
         print()
@@ -292,17 +253,12 @@ def main():
         print("=" * 60)
         print()
 
-        # Use the same graph that was just analyzed
-        edge_list_path = PROJECT_ROOT / "data" / "processed" / "edge_list.csv"
-        if not edge_list_path.exists():
-            edge_list_path = PROJECT_ROOT / "data" / "raw" / "sample_edge_list.csv"
-
-        edge_df = pd.read_csv(edge_list_path)
-        G = nx.DiGraph()
-        for _, row in edge_df.iterrows():
-            G.add_edge(int(row['pre']), int(row['post']), weight=int(row['weight']))
-
-        comparison_df = compare_with_null_models(G, num_null_models=num_null, max_dim=max_dim)
+        edge_df = load_edge_list(edge_list_path)
+        comparison_df = compare_with_null_models(
+            edge_df,
+            num_null_models=num_null,
+            max_dim=max_dim,
+        )
         print("\nComparison results:")
         print(comparison_df.to_string(index=False))
 
