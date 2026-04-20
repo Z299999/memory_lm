@@ -35,12 +35,7 @@ def load_edge_list(edge_list_path: Path) -> pd.DataFrame:
     print(f"Loading graph from: {edge_list_path}")
 
     if not edge_list_path.exists():
-        sample_path = PROJECT_ROOT / "data" / "raw" / "sample_edge_list.csv"
-        if sample_path.exists():
-            edge_list_path = sample_path
-            print(f"Using sample data: {edge_list_path}")
-        else:
-            raise FileNotFoundError(f"Edge list not found: {edge_list_path}")
+        raise FileNotFoundError(f"Edge list not found: {edge_list_path}")
 
     edge_df = pd.read_csv(edge_list_path)
     required_columns = {"pre", "post"}
@@ -241,9 +236,6 @@ def main() -> None:
     print()
 
     edge_list_path = PROJECT_ROOT / "data" / "processed" / "edge_list.csv"
-    if not edge_list_path.exists():
-        edge_list_path = PROJECT_ROOT / "data" / "raw" / "sample_edge_list.csv"
-
     detect_simplices_from_file(edge_list_path=edge_list_path, max_dim=max_dim)
 
     if compare_null:

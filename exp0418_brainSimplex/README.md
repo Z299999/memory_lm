@@ -107,12 +107,8 @@ exp0418_brainSimplex/
 │   │   ├── pete_fly_central_nodes_metadata.csv # Oxford 提供的原始节点文件
 │   │   ├── oxford_edge_list.csv                # 仓库标准化后的边列表
 │   │   ├── oxford_nodes.csv                    # 仓库标准化后的节点元数据
-│   │   ├── synapses.csv                        # 旧版 FlyWire 接口保留文件
-│   │   └── neurons.csv                         # 旧版 FlyWire 接口保留文件
 │   └── processed/           # 处理后的数据
 ├── src/
-│   ├── download_subset.py   # 生成子集数据
-│   ├── data_acquisition.py  # 数据下载
 │   ├── import_oxford_data.py# 导入 Oxford central 数据
 │   ├── preprocessing.py     # 图预处理
 │   ├── simplex_detection.py # 快速单纯形计数
@@ -126,7 +122,7 @@ exp0418_brainSimplex/
 
 ## 当前推荐流程
 
-如果你的目标是复现实验当前结果，请使用下面这条路径，不要再走旧的 sample/subset 流程：
+如果你的目标是复现实验当前结果，请使用下面这条路径：
 
 ```bash
 cd exp0418_brainSimplex
@@ -137,9 +133,8 @@ python src/simplex_detection.py 15
 
 说明：
 
-- `download_subset.py` 和 `data_acquisition.py` 是项目早期原型留下来的辅助脚本。
 - 当前默认分析对象是 Oxford 整理的 central brain 数据，不是 5 万节点子集。
-- `preprocessing.py` 现在会优先读取 `data/raw/oxford_edge_list.csv` 和 `data/raw/oxford_nodes.csv`。
+- `preprocessing.py` 现在只读取 `data/raw/oxford_edge_list.csv` 和 `data/raw/oxford_nodes.csv`。
 - `simplex_detection.py` 现在使用致密重编号 + 后继集合交集的计数实现，不再依赖大量 NetworkX 子图构造。
 - 当前 `1-simplex` 计数是 `716,923`，不是 `849,981`。原因是互反边 `u -> v` 与 `v -> u` 不满足 simplex 对“每对节点恰好一个方向”的要求，因此不计入 `1-simplex`。
 

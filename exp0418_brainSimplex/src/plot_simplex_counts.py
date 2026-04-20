@@ -46,7 +46,11 @@ def plot_simplex_counts() -> Path:
     ]
 
     axes[0].bar(df["dimension"], df["count"], color=colors, width=0.82, edgecolor="#0f172a")
-    axes[0].set_title("Directed Simplex Counts in Oxford Central Brain Connectome", fontsize=15, pad=12)
+    axes[0].set_title(
+        "Directed Simplex Counts in the Drosophila Central Brain Connectome",
+        fontsize=15,
+        pad=12,
+    )
     axes[0].set_ylabel("Count")
     axes[0].grid(axis="y", alpha=0.25, linestyle="--")
 

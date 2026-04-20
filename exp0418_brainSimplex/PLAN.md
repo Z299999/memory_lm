@@ -1,6 +1,6 @@
 # exp0418_brainSimplex — Research Plan
 
-**Goal**: Analyze the simplicial structure of the Drosophila (fruit fly) brain connectome.
+**Goal**: Analyze the simplicial structure of the Drosophila central brain connectome.
 
 **Background**: Reimann et al. (2017) discovered rich high-dimensional directed simplices in neocortical microcircuits. This project investigates whether similar simplicial organization exists in the fly brain.
 
@@ -8,9 +8,9 @@
 
 ## Phase 1: Data Acquisition
 
-- [x] **1.1 Obtain FlyWire connectome dataset**
-  - [x] Create data download utilities
-  - [x] Generate sample data for testing
+- [x] **1.1 Import Oxford central brain dataset**
+  - [x] Keep Oxford-provided raw central brain files
+  - [x] Standardize them into repository-local CSV format
 
 - [x] **1.2 Data preprocessing**
   - [x] Create weighted edge list
@@ -47,14 +47,16 @@ exp0418_brainSimplex/
 ├── idea.md                  # Original research idea notes
 ├── data/
 │   ├── raw/                 # Raw data
-│   │   ├── synapses.csv
-│   │   └── neurons.csv
+│   │   ├── pete_fly_central_edges.csv
+│   │   ├── pete_fly_central_nodes_metadata.csv
+│   │   ├── oxford_edge_list.csv
+│   │   └── oxford_nodes.csv
 │   └── processed/           # Preprocessed graphs
 ├── src/
-│   ├── download_subset.py   # Generate subset data
-│   ├── data_acquisition.py  # Data download utilities
+│   ├── import_oxford_data.py# Oxford import utility
 │   ├── preprocessing.py     # Graph preprocessing
-│   └── simplex_detection.py # Simplex enumeration
+│   ├── simplex_detection.py # Simplex enumeration
+│   └── plot_simplex_counts.py # Visualization
 ├── results/
 │   ├── simplex_counts.csv
 │   └── null_model_comparison.csv

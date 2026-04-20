@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Data preprocessing module for FlyWire connectome.
-
-This module provides utilities to preprocess the FlyWire connectome data:
-- Extract subgraphs (excitatory/inhibitory, brain regions)
-- Filter by synapse weight thresholds
-- Convert to various graph formats
-"""
+"""Data preprocessing module for the Oxford central brain connectome."""
 
 import json
 from pathlib import Path
@@ -28,55 +22,33 @@ def ensure_dirs():
 
 
 def load_raw_data() -> Tuple[pd.DataFrame, Optional[pd.DataFrame]]:
-    """Load raw FlyWire or Oxford data from CSV files.
+    """Load standardized Oxford central brain CSV files.
 
     Returns:
-        Tuple of (synapses_df, neurons_df)
-        neurons_df is None if not available
+        Tuple of (edge_df, nodes_df)
+        nodes_df is None if not available
 
     Raises:
         FileNotFoundError: If edge list not found
     """
-    # Try Oxford dataset first
     oxford_edges = DATA_RAW / "oxford_edge_list.csv"
     oxford_nodes = DATA_RAW / "oxford_nodes.csv"
 
-    if oxford_edges.exists():
-        print(f"Loading Oxford edges from: {oxford_edges}")
-        edges_df = pd.read_csv(oxford_edges)
-
-        nodes_df = None
-        if oxford_nodes.exists():
-            print(f"Loading Oxford nodes from: {oxford_nodes}")
-            nodes_df = pd.read_csv(oxford_nodes)
-
-        return edges_df, nodes_df
-
-    # Fallback to FlyWire format
-    synapses_path = DATA_RAW / "synapses.csv"
-    neurons_path = DATA_RAW / "neurons.csv"
-
-    if not synapses_path.exists():
-        # Check for sample data
-        sample_path = DATA_RAW / "sample_edge_list.csv"
-        if sample_path.exists():
-            print("Using sample data for testing...")
-            sample_df = pd.read_csv(sample_path)
-            return sample_df, None
+    if not oxford_edges.exists():
         raise FileNotFoundError(
-            f"Synapse data not found: {synapses_path}\n"
-            "Run: python src/data_acquisition.py --full"
+            f"Oxford edge list not found: {oxford_edges}\n"
+            "Run: python src/import_oxford_data.py"
         )
 
-    print(f"Loading synapses from: {synapses_path}")
-    synapses_df = pd.read_csv(synapses_path)
+    print(f"Loading Oxford edges from: {oxford_edges}")
+    edges_df = pd.read_csv(oxford_edges)
 
-    neurons_df = None
-    if neurons_path.exists():
-        print(f"Loading neuron metadata from: {neurons_path}")
-        neurons_df = pd.read_csv(neurons_path)
+    nodes_df = None
+    if oxford_nodes.exists():
+        print(f"Loading Oxford nodes from: {oxford_nodes}")
+        nodes_df = pd.read_csv(oxford_nodes)
 
-    return synapses_df, neurons_df
+    return edges_df, nodes_df
 
 
 def create_weighted_edge_list(
@@ -355,7 +327,7 @@ def preprocess_full(output_dir: Optional[Path] = None) -> Dict:
     ensure_dirs()
 
     print("=" * 60)
-    print("FlyWire Connectome Preprocessing Pipeline")
+    print("Oxford Central Brain Preprocessing Pipeline")
     print("=" * 60)
     print()
 
@@ -419,19 +391,6 @@ def preprocess_full(output_dir: Optional[Path] = None) -> Dict:
 
 def main():
     """Main entry point."""
-    import sys
-
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--sample":
-            print("Processing sample data...")
-            sample_edge = pd.read_csv(DATA_RAW / "sample_edge_list.csv")
-            G = create_networkx_graph(sample_edge)
-            stats = compute_graph_statistics(G)
-            print(f"\nSample graph statistics:")
-            for k, v in stats.items():
-                print(f"  {k}: {v}")
-            return
-
     preprocess_full()
 
 

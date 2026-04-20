@@ -1,4 +1,4 @@
-# FlyWire Connectome Data (via Oxford Networks Project)
+# Drosophila Central Brain Data (via Oxford Networks Project)
 
 ## Source
 Oxford Mathematics Part C, C5.4 Networks Mini-Project
@@ -9,9 +9,10 @@ Oxford Mathematics Part C, C5.4 Networks Mini-Project
 - **Average degree**: 26.34
 
 ## Files
-- `neurons.csv` - Node metadata (id, x, y, z, module)
-- `edge_list.csv` - Edge list (pre, post, weight) - in processed/
-- `node_features.csv` - Precomputed features (degree, pagerank, hodge, clusters)
+- `pete_fly_central_edges.csv` - Oxford-provided raw edge list (`from`, `to`)
+- `pete_fly_central_nodes_metadata.csv` - Oxford-provided raw node metadata
+- `oxford_edge_list.csv` - Standardized edge list (`pre`, `post`, `weight`)
+- `oxford_nodes.csv` - Standardized node metadata (`id`, `x`, `y`, `z`, `module`, `root_id`)
 
 ## Original Source
 FlyWire Project (2024), Nature
