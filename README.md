@@ -31,8 +31,15 @@ The codebase is bilingual. Most implementation is in Python, while much of the s
   - Benchmarked against an MLP baseline on 1D and 2D function-fitting tasks.
 
 - `exp0414_simplexNet/`
-  - Research report for **Simplex Memory Networks**: a geometric feedforward architecture that couples short- and long-term memory through a simplex structure.
-  - Contains a full LaTeX report (`report_tex/report.pdf`); code to follow.
+  - **Simplex Memory Networks (SMN)**: a geometric feedforward architecture where hidden nodes are lattice points of a regular n-simplex and information flows along a potential-induced DAG.
+  - Full implementation in PyTorch with SISO, MISO, SIMO, and MIMO support. Benchmarked against an MLP baseline across 1D and 2D tasks.
+  - Configurable via `params.yaml`; output saved as 4-panel comparison plots (scatter + loss curves).
+  - See `report_tex/report.pdf` for the full mathematical treatment.
+
+- `exp0418_brainSimplex/`
+  - Directed simplex structure analysis of the **Drosophila central brain connectome**, following the methodology of Reimann et al. (2017).
+  - Uses the Oxford C5.4 FlyWire dataset (32 272 nodes, 849 981 directed edges).
+  - Counts simplices of dimension 0–15 and compares against null models.
 
 - `exp0415_memoryforMLP/`
   - Smoke test for whether an MLP can encode sequence memory purely through weight dynamics under online learning.
@@ -56,8 +63,9 @@ memory_lm/
 ├── exp0408_memory_backprop/    # age-structured memory backpropagation
 ├── exp0409_atten2017_implement/ # Transformer (2017) reimplementation
 ├── exp0410_triangleNet/        # Triangular Memory Network + MLP baseline
-├── exp0414_simplexNet/         # Simplex Memory Networks (report)
+├── exp0414_simplexNet/         # Simplex Memory Networks — full MIMO implementation
 ├── exp0415_memoryforMLP/       # MLP online learning smoke test
+├── exp0418_brainSimplex/       # Drosophila connectome simplex analysis
 ├── literature/                 # papers, books, TeX drafts, bibliography index
 └── prompt/                     # reusable repo prompts / command templates
 ```
@@ -116,6 +124,15 @@ python3 run.py
 
 Configure via `params.yaml`. Output images saved to `runs/`.
 
+### `exp0414_simplexNet`
+
+```bash
+cd exp0414_simplexNet
+python3 run.py
+```
+
+Configure `n`, `m`, `n_in`, `n_out`, `task_name`, `epochs`, `num_train` etc. via `params.yaml`. Output images saved to `runs/`.
+
 ### `exp0415_memoryforMLP`
 
 ```bash
@@ -125,6 +142,15 @@ python3 run.py
 ```
 
 Configure via `params.yaml`. Output images saved to `runs/`.
+
+### `exp0418_brainSimplex`
+
+```bash
+cd exp0418_brainSimplex
+python src/import_oxford_data.py    # standardise raw data
+python src/preprocessing.py         # build adjacency matrix + graph statistics
+python src/simplex_detection.py 15  # count simplices up to dimension 15
+```
 
 ---
 
@@ -166,7 +192,9 @@ Registry: `prompt/command_list.jsonl`.
 3. `exp0408_memory_backprop/model.md` — memory dynamics motivation.
 4. `exp0410_triangleNet/readme.md` — triangle network architecture and results.
 5. `exp0414_simplexNet/report_tex/report.pdf` — Simplex Memory Networks paper.
-6. `exp0415_memoryforMLP/readme.md` — MLP baseline and why it fails.
+6. `exp0414_simplexNet/README.md` — code, config, and task registry.
+7. `exp0415_memoryforMLP/readme.md` — MLP baseline and why it fails.
+8. `exp0418_brainSimplex/README.md` — connectome simplex analysis.
 
 ---
 
@@ -179,5 +207,6 @@ Registry: `prompt/command_list.jsonl`.
 | `exp0408_memory_backprop` | In-progress, runnable + some forward-looking docs |
 | `exp0409_atten2017_implement` | Runnable reimplementation |
 | `exp0410_triangleNet` | Runnable, benchmarked against MLP |
-| `exp0414_simplexNet` | Report complete; code to follow |
+| `exp0414_simplexNet` | Complete — full MIMO implementation, benchmarked against MLP |
 | `exp0415_memoryforMLP` | Smoke test complete — MLP baseline established |
+| `exp0418_brainSimplex` | Active — Drosophila connectome simplex analysis in progress |
