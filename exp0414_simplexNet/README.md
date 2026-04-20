@@ -20,18 +20,14 @@ exp0414_simplexNet/
 ├── params.yaml          # Configuration file
 ├── run.py               # Entry point: python3 run.py
 ├── src/
-│   ├── lattice.py       # V_{n,m} lattice generation
-│   ├── potential.py     # Potential function H(α) and edge orientation
-│   ├── graph.py         # SimplexMemoryGraph class
 │   ├── config.py        # Config dataclass + YAML loader
-│   ├── model.py         # SMNNetwork PyTorch module
-│   ├── mlp.py           # MLPBaseline for comparison
-│   ├── train.py         # Training loop
-│   ├── data.py          # Target functions (1D/2D)
+│   ├── data.py          # Target functions (1D/2D) + dataset builder
+│   ├── graph.py         # SimplexMemoryGraph + lattice/potential helpers
+│   ├── smn_fitter.py    # SMNModule + SMNFitter (core network + training)
+│   ├── mlp_fitter.py    # MLPFitter (baseline, mirrors SMNFitter interface)
 │   └── plot.py          # Visualization utilities
 └── tests/
-    ├── test_lattice.py  # Lattice generation tests
-    └── test_potential.py # Potential and graph tests
+    └── test_smn.py      # SMNModule unit tests
 ```
 
 ## Quick Start

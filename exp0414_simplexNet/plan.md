@@ -1,35 +1,57 @@
 # exp0414_simplexNet — Extension Plan
 
-## Extension 1: MIMO Support
+## Extension 1: MIMO Support ✅
 
-- [x] **config.py** — add `x_bounds: list | None` field + `resolved_x_bounds` property; falls back to `(x_min, x_max)` for all channels when unset; SISO yaml unchanged
-- [x] **model.py** — replace `if n_in == 1` normalization special-case with vectorized per-channel normalization using `resolved_x_bounds`
-- [x] **data.py** — `build_dataset` uses `resolved_x_bounds` for per-channel sampling (SISO and 2D MIMO)
-- [x] **plot.py** — universal L2-norm scatter replaces line plots; scales to arbitrary n_out
+- [x] **config.py** — add `x_bounds: list | None` field + `resolved_x_bounds` property
+- [x] **model.py** — vectorized per-channel normalization
+- [x] **data.py** — `build_dataset` uses `resolved_x_bounds`
+- [x] **plot.py** — universal L2-norm scatter
 
 ## Extension 2: Class Encapsulation ✅
 
-Two-layer design: a pure PyTorch module (importable by other experiments) and a
-convenience wrapper (training + visualization for exp0414 experiments).
+- [x] **smn_module.py** → merged into **smn_fitter.py**
+- [x] **smn_fitter.py** — SMNModule + SMNFitter (fit/predict/plot)
+- [x] **mlp_fitter.py** — MLPFitter (mirrors SMNFitter)
+- [x] **model.py** — deleted (replaced by smn_fitter.py)
+- [x] **tests/test_smn_module.py** → **tests/test_smn.py**
 
-### Layer 1 — `src/smn_module.py` (pure nn.Module)
+## Code Cleanup (2026-04-19) ✅
 
-- [x] Extract `SMNModule(n, m, n_in=1, n_out=1, activation='relu', x_bounds=None)` from `model.py`
-  - No `Config` dependency — only plain Python / torch arguments
-  - `forward(x: Tensor) -> Tensor` is the full public API
-  - `x_bounds` stored as `register_buffer` (fixes torch.tensor() per-forward regression)
-  - `arch_str` and `param_count` properties for introspection
+Reduced from 18 Python files to **6 core files**:
 
-### Layer 2 — `src/smn_fitter.py` + `src/mlp_fitter.py`
+### Retained Files
 
-- [x] `SMNFitter(n, m, n_in, n_out, activation, x_bounds)` wraps `SMNModule`:
-  - `fit(x_train, y_train, x_val, y_val, loss_fn, lr, epochs, ...)` — trains; auto-generates sin_mix demo data if none provided
-  - `predict(x) -> np.ndarray`
-  - `plot(x_ref, y_ref, output_path, baseline=None)` — 2-panel (no baseline) or 4-panel comparison
-- [x] `MLPFitter(layers, n_in, n_out, ...)` — mirrors SMNFitter interface for drop-in baseline use
+| File | Purpose |
+|------|---------|
+| `config.py` | Config dataclass + YAML loader |
+| `data.py` | Target functions + dataset builder |
+| `graph.py` | SimplexMemoryGraph + lattice/potential helpers (merged) |
+| `smn_fitter.py` | SMNModule + SMNFitter (merged) |
+| `mlp_fitter.py` | MLPFitter baseline |
+| `plot.py` | Visualization utilities |
+| `run.py` | Entry point |
+| `tests/test_smn.py` | SMNModule unit tests (12 tests) |
 
-### Refactored files
+### Deleted Files
 
-- [x] **model.py** — thin wrapper: `SMNNetwork(config)` instantiates `SMNModule` from `Config` fields, delegates `forward`
-- [x] **run.py** — replaced direct `SMNNetwork` + `save_four_panel_plot` calls with `SMNFitter` / `MLPFitter`; comparison via `smn.plot(baseline=mlp)`
-- [x] **tests/test_smn_module.py** — 12 standalone unit tests for `SMNModule` (no Config, no data.py dependency); all pass
+| File | Reason |
+|------|--------|
+| `lattice.py` | Merged into `graph.py` |
+| `potential.py` | Merged into `graph.py` |
+| `smn_module.py` | Merged into `smn_fitter.py` |
+| `model.py` | Thin wrapper, no longer needed |
+| `train.py` | Functionality moved to `smn_fitter._train_loop` |
+| `mlp.py` | Functionality moved to `mlp_fitter.py` |
+| `__init__.py` | Exported old API, no functional purpose |
+| `tests/test_lattice.py` | Lattice is now internal to `graph.py` |
+| `tests/test_potential.py` | Potential is now internal to `graph.py` |
+
+### Result
+
+- **Before**: 18 Python files, unclear dependency chain
+- **After**: 6 core files + 1 test file, clean layered architecture:
+  ```
+  config.py, data.py  →  graph.py  →  smn_fitter.py  →  run.py
+                                         ↑
+                                   mlp_fitter.py
+  ```

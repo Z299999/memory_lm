@@ -1,9 +1,9 @@
 """Unit tests for SMNModule.
 
 Run from the project root:
-    PYTHONPATH=src python3 tests/test_smn_module.py
+    PYTHONPATH=src python3 tests/test_smn.py
 
-Tests are standalone — no Config, no data.py, no train.py dependency.
+Tests are standalone — no Config, no data.py dependency.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import torch
-from smn_module import SMNModule
+from smn_fitter import SMNModule
 
 
 # ---------------------------------------------------------------------------

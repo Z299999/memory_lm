@@ -2,28 +2,135 @@
 
 The SimplexMemoryGraph class builds the directed acyclic graph
 from the lattice V_{n,m} with potential-based edge orientation.
+
+This module is self-contained — lattice generation and potential functions
+are included as internal helpers (no external dependencies within the package).
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TypeAlias
-
-from lattice import generate_lattice, cardinality
-from potential import (
-    vertex_potentials,
-    node_potential,
-    move_mass,
-    get_admissible_edges,
-    F_in,
-    F_out,
-    F_mid,
-    backbone,
-)
+from itertools import combinations_with_replacement
+from typing import TypeAlias, Iterator
 
 NodeKey: TypeAlias = tuple[str, ...] | tuple[str, int]  # ("core", α) or ("in"/"out", i)
 Edge = tuple[NodeKey, NodeKey]
 
+
+# =============================================================================
+# Lattice generation (internal)
+# =============================================================================
+
+def _generate_lattice(n: int, m: int) -> list[tuple[int, ...]]:
+    """Generate V_{n,m} = {α ∈ ℤ_≥0^{n+1} : Σαᵢ = m-1}.
+
+    Uses recursive enumeration (stars-and-bars conceptually).
+
+    Args:
+        n: Simplex dimension (number of vertices is n+1)
+        m: Resolution parameter (each edge has m lattice points)
+
+    Returns:
+        List of tuples α = (α₀, ..., αₙ) with Σαᵢ = m-1.
+        The cardinality is C(m+n-1, n).
+    """
+    if n < 1:
+        raise ValueError(f"n must be >= 1, got {n}")
+    if m < 2:
+        raise ValueError(f"m must be >= 2, got {m}")
+
+    s = m - 1  # Sum of coordinates
+    result = []
+
+    def helper(k: int, remaining: int, current: list[int]) -> None:
+        """Enumerate (α₀, ..., αₖ) with sum = remaining."""
+        if k == 0:
+            current.append(remaining)
+            result.append(tuple(current))
+            current.pop()
+            return
+
+        for α_k in range(remaining + 1):
+            current.append(α_k)
+            helper(k - 1, remaining - α_k, current)
+            current.pop()
+
+    helper(n, s, [])
+    return result
+
+
+def _cardinality(n: int, m: int) -> int:
+    """Return |V_{n,m}| = C(m+n-1, n)."""
+    from math import comb
+    return comb(m + n - 1, n)
+
+
+# =============================================================================
+# Potential functions and edge orientation (internal)
+# =============================================================================
+
+def _vertex_potentials(n: int) -> dict[int, int]:
+    """Return vertex potentials β = {0: 0, 1: 2, 2..n: 1}."""
+    beta = {0: 0, 1: 2}
+    for k in range(2, n + 1):
+        beta[k] = 1
+    return beta
+
+
+def _node_potential(alpha: tuple[int, ...], beta: dict[int, int]) -> int:
+    """Compute H(α) = Σᵢ βᵢ αᵢ."""
+    return sum(beta[i] * alpha[i] for i in range(len(alpha)))
+
+
+def _move_mass(alpha: tuple[int, ...], i: int, j: int) -> tuple[int, ...]:
+    """Compute α' = α + eᵢ - eⱼ."""
+    alpha_list = list(alpha)
+    alpha_list[i] += 1
+    alpha_list[j] -= 1
+    return tuple(alpha_list)
+
+
+def _get_admissible_edges(
+    alpha: tuple[int, ...],
+    beta: dict[int, int]
+) -> list[tuple[int, int]]:
+    """Get all admissible outgoing edges from α."""
+    n = len(alpha) - 1
+    edges = []
+    for j in range(n + 1):
+        if alpha[j] < 1:
+            continue
+        for i in range(n + 1):
+            if i == j:
+                continue
+            if beta[i] > beta[j]:
+                edges.append((i, j))
+    return edges
+
+
+def _F_in(lattice: list[tuple[int, ...]]) -> list[tuple[int, ...]]:
+    """Return input facet F_in = {α : α₁ = 0}."""
+    return [α for α in lattice if α[1] == 0]
+
+
+def _F_out(lattice: list[tuple[int, ...]]) -> list[tuple[int, ...]]:
+    """Return output facet F_out = {α : α₀ = 0}."""
+    return [α for α in lattice if α[0] == 0]
+
+
+def _F_mid(lattice: list[tuple[int, ...]]) -> list[tuple[int, ...]]:
+    """Return shared face F_mid = F_in ∩ F_out = {α : α₀ = α₁ = 0}."""
+    return [α for α in lattice if α[0] == 0 and α[1] == 0]
+
+
+def _backbone(lattice: list[tuple[int, ...]]) -> list[tuple[int, ...]]:
+    """Return backbone B_{n,m} = {α : α₂ = ... = αₙ = 0}."""
+    return [α for α in lattice if all(α[k] == 0 for k in range(2, len(α)))]
+
+
+# =============================================================================
+# SimplexMemoryGraph class
+# =============================================================================
 
 class SimplexMemoryGraph:
     """Directed acyclic graph for simplex memory network SMN(n,m).
@@ -67,8 +174,8 @@ class SimplexMemoryGraph:
         self.n_out = n_out
 
         # Generate lattice and create node keys
-        self._lattice = generate_lattice(n, m)
-        self._beta = vertex_potentials(n)
+        self._lattice = _generate_lattice(n, m)
+        self._beta = _vertex_potentials(n)
 
         # Node keys: ("core", α₀, ..., αₙ) for compact representation
         self.core_nodes = [("core",) + α for α in self._lattice]
@@ -106,19 +213,19 @@ class SimplexMemoryGraph:
         # Internal edges (core → core)
         for α in self._lattice:
             src = self._node_key(α)
-            for i, j in get_admissible_edges(α, self._beta):
-                α_prime = move_mass(α, i, j)
+            for i, j in _get_admissible_edges(α, self._beta):
+                α_prime = _move_mass(α, i, j)
                 dst = self._node_key(α_prime)
                 edges.append((src, dst))
 
         # Input edges: connect each input to all nodes in F_in
-        f_in_nodes = [self._node_key(α) for α in F_in(self._lattice)]
+        f_in_nodes = [self._node_key(α) for α in _F_in(self._lattice)]
         for inp in self.input_nodes:
             for core in f_in_nodes:
                 edges.append((inp, core))
 
         # Output edges: connect all nodes in F_out to each output
-        f_out_nodes = [self._node_key(α) for α in F_out(self._lattice)]
+        f_out_nodes = [self._node_key(α) for α in _F_out(self._lattice)]
         for out in self.output_nodes:
             for core in f_out_nodes:
                 edges.append((core, out))
@@ -227,22 +334,22 @@ class SimplexMemoryGraph:
     @property
     def F_in(self) -> list[NodeKey]:
         """Return input facet nodes."""
-        return [self._node_key(α) for α in F_in(self._lattice)]
+        return [self._node_key(α) for α in _F_in(self._lattice)]
 
     @property
     def F_out(self) -> list[NodeKey]:
         """Return output facet nodes."""
-        return [self._node_key(α) for α in F_out(self._lattice)]
+        return [self._node_key(α) for α in _F_out(self._lattice)]
 
     @property
     def F_mid(self) -> list[NodeKey]:
         """Return shared face nodes."""
-        return [self._node_key(α) for α in F_mid(self._lattice)]
+        return [self._node_key(α) for α in _F_mid(self._lattice)]
 
     @property
     def backbone(self) -> list[NodeKey]:
-        """Return backbone nodes 𝓑_{n,m}."""
-        return [self._node_key(α) for α in backbone(self._lattice)]
+        """Return backbone nodes B_{n,m}."""
+        return [self._node_key(α) for α in _backbone(self._lattice)]
 
     @property
     def core_node_count(self) -> int:
@@ -258,7 +365,7 @@ class SimplexMemoryGraph:
         """Return H(α) for a core node."""
         if node[0] != "core":
             raise ValueError(f"node_potential only defined for core nodes, got {node}")
-        return node_potential(self._alpha(node), self._beta)
+        return _node_potential(self._alpha(node), self._beta)
 
     def __repr__(self) -> str:
         return (
