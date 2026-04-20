@@ -172,6 +172,102 @@ mlp.plot(output_path="mlp_result.png")  # 2-panel
 
 ---
 
+## Advanced: Custom Loss Functions (RL, etc.)
+
+If you have your own training loop (e.g., reinforcement learning, custom objectives), use `SMNModule` directly:
+
+### Option 1: SMNModule only (recommended for RL)
+
+```python
+from smn_fitter import SMNModule
+import torch
+
+# Create the network (no training logic attached)
+net = SMNModule(n=2, m=3, n_in=4, n_out=2, x_bounds=[(-1, 1)] * 4)
+
+# Use in your own loop
+optimizer = torch.optim.Adam(net.parameters(), lr=3e-4)
+
+for step in range(1000):
+    # Your environment / data
+    obs = get_observation()      # shape: (n_in,)
+    action = net(obs.unsqueeze(0))  # forward pass
+    
+    # Your loss (policy gradient, TD error, etc.)
+    loss = your_custom_loss(action, reward, next_obs)
+    
+    loss.backward()
+    optimizer.step()
+    optimizer.zero_grad()
+```
+
+### Option 2: Access module from SMNFitter
+
+```python
+from smn_fitter import SMNFitter
+
+smn = SMNFitter(n=2, m=3, n_in=4, n_out=2)
+net = smn.module  # Access the underlying SMNModule
+
+# Now use `net` in your own loop (same as Option 1)
+```
+
+### Example: Policy Gradient with SMN
+
+```python
+from smn_fitter import SMNModule
+import torch
+import torch.nn.functional as F
+
+# SMN as policy network: state -> action probabilities
+policy_net = SMNModule(n=2, m=3, n_in=4, n_out=2)  # 4-dim state, 2 actions
+optimizer = torch.optim.Adam(policy_net.parameters(), lr=3e-4)
+
+def select_action(state):
+    state = torch.FloatTensor(state)
+    logits = policy_net(state.unsqueeze(0))
+    probs = F.softmax(logits, dim=1)
+    action = probs.multinomial(num_samples=1)
+    return action.item(), probs.log()[0, action.item()]
+
+def reinforce_loss(log_prob, reward):
+    return -log_prob * reward  # Gradient ascent via gradient descent
+
+for episode in range(100):
+    state = env.reset()
+    log_probs = []
+    rewards = []
+    
+    for t in range(100):
+        action, log_prob = select_action(state)
+        next_state, reward, done, _ = env.step(action)
+        log_probs.append(log_prob)
+        rewards.append(reward)
+        
+        if done:
+            break
+        state = next_state
+    
+    # Compute returns
+    returns = []
+    R = 0
+    for r in reversed(rewards):
+        R = r + 0.99 * R
+        returns.insert(0, R)
+    
+    # Policy gradient loss
+    policy_loss = []
+    for log_prob, G in zip(log_probs, returns):
+        policy_loss.append(reinforce_loss(log_prob, G))
+    
+    optimizer.zero_grad()
+    loss = torch.cat(policy_loss).sum()
+    loss.backward()
+    optimizer.step()
+```
+
+---
+
 ## Configuration (params.yaml)
 
 For `python3 run.py`, configure via `params.yaml`:
