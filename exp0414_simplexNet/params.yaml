@@ -8,25 +8,28 @@ run_name: exp0414_smn
 
 # SMN architecture parameters
 n: 5            # Simplex dimension (2 = triangle, 3 = tetrahedron)
-m: 3            # Resolution (each edge has m lattice points)
-n_in: 1         # Input dimension
-n_out: 1        # Output dimension
+m: 4            # Resolution (each edge has m lattice points)
+n_in: 2         # Input dimension
+n_out: 2        # Output dimension
 
 # MLP baseline architecture (used when model_type: mlp)
 mlp_layers: [8, 8, 8]
 
 # Activation function: "relu", "leaky_relu", "gelu", "tanh"
-node_activation: gelu
+node_activation: relu
 
-# Task: "sin", "sin_mix", "poly_wave", "piecewise" (1D)
-#       "sin_sum", "sin_product", "quadratic" (2D)
-task_name: sin_mix
+# Task registry (task → n_in, n_out):
+#   1i1o: sin, sin_mix, poly_wave, piecewise
+#   1i2o: sin_cos
+#   2i1o: sin_sum, sin_product, quadratic
+#   2i2o: trig_2d
+task_name: trig_2d
 custom_function: ""  # For custom tasks (eval-based, use with care)
 
 # Training parameters
 lr: 0.001
 batch_size: 64
-epochs: 1000
+epochs: 3000
 
 # Moving window training (set window_width > 0 to enable)
 # Window slides from left to right without cycling
@@ -35,6 +38,12 @@ epochs: 1000
 # sequentially and may experience catastrophic forgetting
 window_width: 0.0    # 0.0 = disabled (full domain training)
 window_hold: 20      # epochs per window position
+
+# Training set size: number of data points sampled from the target function per run.
+# Larger = better coverage but slower training (more batches per epoch).
+# For smooth 1D tasks (sin_mix etc.), 1000-2000 is usually sufficient.
+# Default: 10000
+num_train: 500
 
 # Data range (for 1D tasks)
 x_min: -6.283185307179586  # -2π
