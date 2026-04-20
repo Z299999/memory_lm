@@ -49,11 +49,11 @@ exp0420_RLforSMN/
 │   ├── smn_module.py      # SMN 核心模块（纯 nn.Module）
 │   ├── agents/            # RL Agent 定义
 │   │   ├── __init__.py
-│   │   ├── dqn_agent.py   # DQN agent（待实现）
+│   │   ├── dqn_agent.py   # DQN agent ✅
 │   │   └── reinforce_agent.py  # REINFORCE agent（待实现）
 │   ├── envs/              # 自定义环境
 │   │   ├── __init__.py
-│   │   └── siso_tracker.py  # SISO 轨迹跟踪环境（待实现）
+│   │   └── siso_tracker.py  # SISO 轨迹跟踪环境 ✅
 │   └── utils/             # 工具函数
 │       └── __init__.py
 ├── experiments/           # 实验脚本（待实现）
@@ -167,11 +167,70 @@ action = dist.sample()
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | 1 | 环境搭建与验证 | ✅ 完成 |
-| 2 | SISO 轨迹跟踪环境 | 🔄 进行中 |
-| 3 | DQN Agent 实现 | ⏳ 待开始 |
+| 2 | SISO 轨迹跟踪环境 + DQN Agent | ✅ 完成 |
+| 3 | 运行第一个 RL 实验 | ⏳ 下一步 |
 | 4 | REINFORCE Agent 实现 | ⏳ 待开始 |
 | 5 | 实验与调参 | ⏳ 待开始 |
 | 6 | 文档与总结 | ⏳ 待开始 |
+
+---
+
+## DQNAgent API
+
+DQN agent 使用 SMN 作为 Q 网络，支持离散动作空间。
+
+### 初始化
+
+```python
+from src.agents.dqn_agent import DQNAgent
+
+agent = DQNAgent(
+    state_dim=1,            # 状态维度（误差或误差 + 速度）
+    n_actions=7,            # 离散动作数量
+    x_bounds=[(-10, 10)],   # 状态范围
+    n=2, m=4,               # SMN 架构
+    lr=1e-3,                # 学习率
+    gamma=0.99,             # 折扣因子
+    epsilon=1.0,            # 初始探索率
+    epsilon_decay=0.995,    # 探索率衰减
+    epsilon_min=0.01,       # 最小探索率
+)
+```
+
+### 方法
+
+| 方法 | 说明 |
+|------|------|
+| `select_action(state, training)` | 选择动作（ε-greedy 或 greedy） |
+| `store_transition(state, action, reward, next_state, done)` | 存储经验 |
+| `train_step(batch_size)` | 从 replay buffer 采样并训练 |
+| `update_target_network()` | 更新目标网络 |
+| `decay_epsilon()` | 衰减探索率 |
+| `save_checkpoint(path)` / `load_checkpoint(path)` | 保存/加载检查点 |
+
+### 使用示例
+
+```python
+# 初始化
+env = SISOTrajectoryTracker()
+agent = DQNAgent(state_dim=1, n_actions=7)
+
+# 训练循环
+for episode in range(500):
+    state, _ = env.reset()
+    total_reward = 0
+    for t in range(200):
+        action = agent.select_action(state)
+        next_state, reward, terminated, truncated, _ = env.step(agent.action_values[action])
+        agent.store_transition(state, action, reward, next_state, done)
+        agent.train_step(batch_size=64)
+        state = next_state
+        total_reward += reward
+        if terminated or truncated:
+            break
+    agent.update_target_network()
+    agent.decay_epsilon()
+```
 
 ---
 
@@ -187,6 +246,6 @@ action = dist.sample()
 
 ## 下一步
 
-1. 实现 `src/envs/siso_tracker.py` — SISO 轨迹跟踪环境
-2. 实现 `src/agents/dqn_agent.py` — DQN agent
-3. 运行第一个 RL 实验！
+1. ✅ 实现 `src/envs/siso_tracker.py` — SISO 轨迹跟踪环境
+2. ✅ 实现 `src/agents/dqn_agent.py` — DQN agent
+3. 运行第一个 RL 实验！ — 创建 `experiments/run_dqn_siso.py`
