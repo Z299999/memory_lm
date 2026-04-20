@@ -16,11 +16,16 @@ env/
 *.swp
 *.swo
 
-# Results
+# Results (keep directory structure, ignore content)
 results/*.png
 results/*.jpg
 results/*.pt
 results/*.pth
+results/*/*.png
+results/*/*.jpg
+results/*/*.pt
+results/*/*.pth
+results/*/*.npy
 
 # OS
 .DS_Store

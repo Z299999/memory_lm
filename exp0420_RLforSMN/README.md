@@ -55,9 +55,10 @@ exp0420_RLforSMN/
 │   │   ├── __init__.py
 │   │   └── siso_tracker.py  # SISO 轨迹跟踪环境 ✅
 │   └── utils/             # 工具函数
-│       └── __init__.py
-├── experiments/           # 实验脚本（待实现）
-│   ├── run_dqn_siso.py
+│       ├── __init__.py
+│       └── plot_utils.py  # 画图工具 ✅
+├── experiments/           # 实验脚本
+│   ├── run_dqn_siso.py    # DQN 实验 ✅
 │   └── run_reinforce_siso.py
 └── results/               # 实验结果（.gitignore）
 ```
@@ -168,10 +169,37 @@ action = dist.sample()
 |------|------|------|
 | 1 | 环境搭建与验证 | ✅ 完成 |
 | 2 | SISO 轨迹跟踪环境 + DQN Agent | ✅ 完成 |
-| 3 | 运行第一个 RL 实验 | ⏳ 下一步 |
+| 3 | 运行第一个 RL 实验 | ✅ 完成 |
 | 4 | REINFORCE Agent 实现 | ⏳ 待开始 |
 | 5 | 实验与调参 | ⏳ 待开始 |
 | 6 | 文档与总结 | ⏳ 待开始 |
+
+---
+
+## 实验结果
+
+### DQN SISO 轨迹跟踪实验
+
+**配置：**
+- 目标轨迹：`sin(0.05 * t)`（低频正弦）
+- 状态：`[error, velocity]`（2 维）
+- 动作：7 个离散控制力档位
+- 训练：300 episodes
+
+**结果：**
+- Best 100-episode avg reward: **-73.00**
+- Final 100-episode avg reward: **-122.70**
+
+**生成的图表：**
+- `results/<date>/training.png` — 训练曲线（reward + loss）
+- `results/<date>/tracking.png` — 轨迹跟踪效果（target vs position）
+- `results/<date>/error_dist.png` — 误差分布直方图
+
+运行实验：
+```bash
+cd exp0420_RLforSMN
+PYTHONPATH=. python3 experiments/run_dqn_siso.py
+```
 
 ---
 
@@ -248,4 +276,6 @@ for episode in range(500):
 
 1. ✅ 实现 `src/envs/siso_tracker.py` — SISO 轨迹跟踪环境
 2. ✅ 实现 `src/agents/dqn_agent.py` — DQN agent
-3. 运行第一个 RL 实验！ — 创建 `experiments/run_dqn_siso.py`
+3. ✅ 运行第一个 RL 实验！ — `experiments/run_dqn_siso.py`
+4. ⏳ 实现 `src/agents/reinforce_agent.py` — REINFORCE agent
+5. ⏳ 对比 DQN vs REINFORCE 效果

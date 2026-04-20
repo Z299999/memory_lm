@@ -11,7 +11,7 @@ import numpy as np
 from collections import deque
 import random
 
-from smn_module import SMNModule
+from ..smn_module import SMNModule
 
 
 class DQNAgent:
@@ -102,6 +102,10 @@ class DQNAgent:
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
 
+        # Training configuration
+        self.train_start = 1000  # Start training after this many samples
+        self.train_frequency = 4  # Train every N steps
+
     def select_action(self, state: np.ndarray, training: bool = True) -> int:
         """Select action using epsilon-greedy policy.
 
@@ -135,16 +139,21 @@ class DQNAgent:
         """Store transition in replay buffer."""
         self.replay_buffer.append((state, action, reward, next_state, done))
 
-    def train_step(self, batch_size: int = 64) -> float | None:
+    def train_step(self, batch_size: int = 64, step: int = 0) -> float | None:
         """Perform one training step from replay buffer.
 
         Args:
             batch_size: Mini-batch size
+            step: Current time step (for training frequency control)
 
         Returns:
             Loss value, or None if not enough samples
         """
-        if len(self.replay_buffer) < batch_size:
+        # Only train every train_frequency steps
+        if step % self.train_frequency != 0:
+            return None
+
+        if len(self.replay_buffer) < self.train_start:
             return None
 
         # Sample batch
