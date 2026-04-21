@@ -4,7 +4,8 @@ This module provides a DQN (Deep Q-Network) implementation using SMNmodule
 as the Q-network approximator.
 
 Features:
-- Experience replay buffer
+- Experience replay buffer (standard mode)
+- Online sampling mode (latest policy only)
 - Target network for stable training
 - Epsilon-greedy exploration
 - Discretized action space for continuous control
@@ -17,11 +18,12 @@ Usage::
     # Create Q-network
     q_network = SMNmodule(n=2, m=4, n_in=4, n_out=2)
 
-    # Create DQN agent
+    # Create DQN agent - Standard mode (replay buffer)
     dqn = DQN(
         q_network=q_network,
         act_dim=2,
-        gamma=0.99, lr=1e-3
+        gamma=0.99, lr=1e-3,
+        sampler_type='replay'  # or 'online' or 'mixed'
     )
 
     # Training with trajectory
@@ -48,12 +50,14 @@ import torch.optim as optim
 # Support both package mode (import as module) and script mode (direct run)
 try:
     from ...core.SMNmodule import SMNmodule
+    from ..samplers import ReplayBufferSampler, OnlineSampler, MixedSampler, Sampler
 except ImportError:
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
     from core.SMNmodule import SMNmodule
+    from samplers import ReplayBufferSampler, OnlineSampler, MixedSampler, Sampler
 
 if TYPE_CHECKING:
     from ..mdp import MDPTrajectory
@@ -70,14 +74,27 @@ class DQN:
         epsilon: Initial exploration rate
         epsilon_decay: Epsilon decay per episode
         epsilon_min: Minimum exploration rate
-        buffer_size: Replay buffer capacity
+        sampler_type: Sampling strategy ('replay', 'online', 'mixed')
+        buffer_size: Replay buffer capacity (for 'replay' mode)
+        train_start: Minimum samples before training
+        train_frequency: Train every N steps
 
     Example::
 
+        # Standard DQN (replay buffer)
         dqn = DQN(
             q_network=SMNmodule(n=2, m=4, n_in=4, n_out=2),
             act_dim=2,
-            gamma=0.99, lr=1e-3
+            gamma=0.99, lr=1e-3,
+            sampler_type='replay'
+        )
+
+        # Online DQN (latest policy only)
+        dqn = DQN(
+            q_network=SMNmodule(n=6, m=5, n_in=4, n_out=2),
+            act_dim=2,
+            gamma=0.99, lr=1e-3,
+            sampler_type='online'
         )
     """
 
@@ -90,12 +107,15 @@ class DQN:
         epsilon: float = 1.0,
         epsilon_decay: float = 0.995,
         epsilon_min: float = 0.01,
+        sampler_type: str = 'replay',
         buffer_size: int = 10000,
         train_start: int = 100,
         train_frequency: int = 4,
     ):
         self.act_dim = act_dim
         self.gamma = gamma
+        self.train_start = train_start
+        self.train_frequency = train_frequency
 
         # Q-network and target network
         self.q_network = q_network
@@ -108,15 +128,30 @@ class DQN:
         self.target_network.load_state_dict(self.q_network.state_dict())
 
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=lr)
-        self.replay_buffer = deque(maxlen=buffer_size)
+
+        # Create sampler based on type
+        if sampler_type == 'replay':
+            self.sampler = ReplayBufferSampler(capacity=buffer_size)
+        elif sampler_type == 'online':
+            self.sampler = OnlineSampler(
+                batch_size=64,
+                min_samples=train_start,
+                buffer_size=buffer_size // 20  # Smaller buffer for online
+            )
+        elif sampler_type == 'mixed':
+            self.sampler = MixedSampler(
+                replay_capacity=buffer_size * 3 // 4,
+                online_buffer=buffer_size // 4,
+                online_ratio=0.3
+            )
+        else:
+            raise ValueError(f"Unknown sampler type: {sampler_type}")
+
+        self.sampler_type = sampler_type
 
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
-
-        # Training configuration
-        self.train_start = train_start
-        self.train_frequency = train_frequency
 
     def select_action(self, state: np.ndarray, training: bool = True) -> int:
         """Select action using epsilon-greedy policy.
@@ -144,8 +179,8 @@ class DQN:
         next_state: np.ndarray,
         done: bool,
     ) -> None:
-        """Store transition in replay buffer."""
-        self.replay_buffer.append((state, action, reward, next_state, done))
+        """Store transition in sampler."""
+        self.sampler.store((state, action, reward, next_state, done))
 
     def train(self, trajectory: 'MDPTrajectory') -> Optional[float]:
         """Train from a trajectory.
@@ -157,11 +192,11 @@ class DQN:
             Loss value, or None if not enough samples
 
         This method stores all transitions from the trajectory into
-        the replay buffer, then performs training steps.
+        the sampler, then performs training steps.
         """
         # Store all transitions from trajectory
         for i in range(len(trajectory)):
-            self.replay_buffer.append((
+            self.sampler.store((
                 trajectory.states[i],
                 trajectory.actions[i],
                 trajectory.rewards[i],
@@ -169,22 +204,35 @@ class DQN:
                 trajectory.dones[i],
             ))
 
-        # Train from replay buffer
+        # Train from sampler
         return self.train_step_from_buffer()
 
-    def train_step_from_buffer(self) -> Optional[float]:
-        """Perform one training step from replay buffer.
+    def train_step(self, batch_size: int = 64, step: int = 0) -> Optional[float]:
+        """Perform one training step (alias for train_step_from_buffer).
+
+        Args:
+            batch_size: Mini-batch size
+            step: Current time step (for training frequency control)
 
         Returns:
             Loss value, or None if not enough samples
         """
-        if len(self.replay_buffer) < self.train_start:
+        return self.train_step_from_buffer(batch_size, step)
+
+    def train_step_from_buffer(self, batch_size: int = 64, step: int = 0) -> Optional[float]:
+        """Perform one training step from sampler.
+
+        Returns:
+            Loss value, or None if not enough samples
+        """
+        if not self.sampler.can_sample(batch_size):
             return None
 
+        # For online mode, clear old data after training
+        clear_after_train = isinstance(self.sampler, OnlineSampler)
+
         # Sample batch
-        batch_size = 64
-        batch = list(np.random.choice(len(self.replay_buffer), batch_size, replace=False))
-        transitions = [self.replay_buffer[i] for i in batch]
+        transitions = self.sampler.sample(batch_size)
         states, actions, rewards, next_states, dones = zip(*transitions)
 
         # Convert to tensors
@@ -209,6 +257,10 @@ class DQN:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        # For online mode, clear old data to force re-sampling
+        if clear_after_train:
+            self.sampler.clear_old()
 
         return float(loss.item())
 
@@ -258,26 +310,17 @@ if __name__ == "__main__":
     import sys
     sys.path.insert(0, '.')
 
-    print("Testing DQN...")
+    print("Testing DQN with different samplers...")
 
-    # Test 1: Basic agent (1D state, 7 actions)
-    print("\n=== Test 1: Basic DQN agent ===")
+    # Test 1: Standard DQN (replay buffer)
+    print("\n=== Test 1: Standard DQN (replay) ===")
     q_net = SMNmodule(n=2, m=4, n_in=1, n_out=7)
-    agent = DQN(q_network=q_net, act_dim=7)
+    agent = DQN(q_network=q_net, act_dim=7, sampler_type='replay')
+    print(f"Sampler: {type(agent.sampler).__name__}")
     print(f"Q-network: {agent.q_network.arch_str}")
-    print(f"Epsilon: {agent.epsilon}")
-
-    # Test action selection
-    state = np.array([0.5], dtype=np.float32)
-    action = agent.select_action(state, training=False)
-    print(f"Greedy action for state {state}: {action}")
-
-    # Test epsilon-greedy
-    actions = [agent.select_action(state, training=True) for _ in range(20)]
-    print(f"Epsilon-greedy actions: {actions}")
 
     # Test storage and training
-    for _ in range(100):
+    for _ in range(150):
         state = np.random.randn(1)
         action = agent.select_action(state)
         next_state = state + np.random.randn(1) * 0.1
@@ -285,23 +328,51 @@ if __name__ == "__main__":
         done = np.random.random() < 0.1
         agent.store_transition(state, action, reward, next_state, done)
 
-    loss = agent.train_step_from_buffer()
+    loss = agent.train_step()
     if loss is not None:
         print(f"Training loss: {loss:.4f}")
-    print("Test 1: PASSED")
+    print("Test 1 (replay): PASSED")
 
-    # Test 2: 2D state (error + velocity)
-    print("\n=== Test 2: 2D state DQN agent ===")
-    q_net2 = SMNmodule(n=2, m=4, n_in=2, n_out=7)
-    agent2 = DQN(q_network=q_net2, act_dim=7)
-    state2 = np.array([0.5, 0.1], dtype=np.float32)
-    action2 = agent2.select_action(state2, training=False)
-    print(f"Q-network: {agent2.q_network.arch_str}")
-    print(f"Greedy action for state {state2}: {action2}")
-    print("Test 2: PASSED")
+    # Test 2: Online DQN (latest policy only)
+    print("\n=== Test 2: Online DQN (online) ===")
+    q_net2 = SMNmodule(n=2, m=4, n_in=1, n_out=7)
+    agent2 = DQN(q_network=q_net2, act_dim=7, sampler_type='online')
+    print(f"Sampler: {type(agent2.sampler).__name__}")
 
-    # Test 3: Checkpoint save/load
-    print("\n=== Test 3: Checkpoint save/load ===")
+    for _ in range(150):
+        state = np.random.randn(1)
+        action = agent2.select_action(state)
+        next_state = state + np.random.randn(1) * 0.1
+        reward = np.random.randn()
+        done = np.random.random() < 0.1
+        agent2.store_transition(state, action, reward, next_state, done)
+
+    loss = agent2.train_step()
+    if loss is not None:
+        print(f"Training loss: {loss:.4f}")
+    print("Test 2 (online): PASSED")
+
+    # Test 3: Mixed DQN
+    print("\n=== Test 3: Mixed DQN ===")
+    q_net3 = SMNmodule(n=2, m=4, n_in=1, n_out=7)
+    agent3 = DQN(q_network=q_net3, act_dim=7, sampler_type='mixed')
+    print(f"Sampler: {type(agent3.sampler).__name__}")
+
+    for _ in range(150):
+        state = np.random.randn(1)
+        action = agent3.select_action(state)
+        next_state = state + np.random.randn(1) * 0.1
+        reward = np.random.randn()
+        done = np.random.random() < 0.1
+        agent3.store_transition(state, action, reward, next_state, done)
+
+    loss = agent3.train_step()
+    if loss is not None:
+        print(f"Training loss: {loss:.4f}")
+    print("Test 3 (mixed): PASSED")
+
+    # Test 4: Checkpoint save/load
+    print("\n=== Test 4: Checkpoint save/load ===")
     import tempfile
     import os
     with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as f:

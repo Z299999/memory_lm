@@ -5,14 +5,15 @@ This script demonstrates the full training pipeline using SMN_RL wrapper.
 
 Usage::
 
-    python3 examples/train_rl.py --env CartPole-v1 --episodes 500
-    python3 examples/train_rl.py --env Acrobot-v1 --episodes 1000 --n 3 --m 5
+    python3 examples/train_rl.py --env CartPole-v1 --episodes 1000
+    python3 examples/train_rl.py --env Acrobot-v1 --episodes 1500 --n 6 --m 5
 
 Options:
     --env: Gymnasium environment name (default: CartPole-v1)
-    --episodes: Number of training episodes (default: 500)
-    --n: Simplex dimension (default: 2)
-    --m: Lattice parameter (default: 4)
+    --episodes: Number of training episodes (default: 1000)
+    --n: Simplex dimension (default: 6)
+    --m: Lattice parameter (default: 5)
+    --sampler-type: Sampling strategy (default: replay)
     --gamma: Discount factor (default: 0.99)
     --lr: Learning rate (default: 1e-3)
     --epsilon: Initial exploration rate (default: 1.0)
@@ -45,16 +46,21 @@ def parse_args():
                         help='Gymnasium environment name')
 
     # Training parameters
-    parser.add_argument('--episodes', type=int, default=500,
+    parser.add_argument('--episodes', type=int, default=1000,
                         help='Number of training episodes')
     parser.add_argument('--max-steps', type=int, default=500,
                         help='Maximum steps per episode')
 
-    # SMN architecture
-    parser.add_argument('--n', type=int, default=2,
+    # SMN architecture - larger defaults for better capacity
+    parser.add_argument('--n', type=int, default=6,
                         help='Simplex dimension (order of simplices)')
-    parser.add_argument('--m', type=int, default=4,
+    parser.add_argument('--m', type=int, default=5,
                         help='Lattice parameter (size in each dimension)')
+
+    # Sampler type
+    parser.add_argument('--sampler-type', type=str, default='replay',
+                        choices=['replay', 'online', 'mixed'],
+                        help='Sampling strategy: replay (standard), online (latest policy), mixed')
 
     # RL hyperparameters
     parser.add_argument('--gamma', type=float, default=0.99,
@@ -122,12 +128,14 @@ def main():
         epsilon=args.epsilon,
         epsilon_decay=args.epsilon_decay,
         epsilon_min=args.epsilon_min,
+        sampler_type=args.sampler_type,
         checkpoint_dir=args.checkpoint_dir,
         log_dir=args.log_dir,
         plot_dir=args.plot_dir,
     )
 
     print(f"SMN architecture: n={args.n}, m={args.m}")
+    print(f"Sampler type: {args.sampler_type}")
     print(f"Q-network: {smn_rl.q_network.arch_str}")
 
     if args.test_only:

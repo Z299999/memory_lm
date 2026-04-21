@@ -120,6 +120,7 @@ class SMN_RL:
         buffer_size: int = 10000,
         train_start: int = 100,
         train_frequency: int = 4,
+        sampler_type: str = 'replay',
         checkpoint_dir: str | Path = './runs/simplexnet/checkpoints',
         log_dir: str | Path = './runs/simplexnet/logs',
         plot_dir: str | Path = './runs/simplexnet/plots',
@@ -138,7 +139,7 @@ class SMN_RL:
             n=n, m=m, n_in=n_in, n_out=n_out, activation='relu'
         )
 
-        # Create DQN agent
+        # Create DQN agent with sampler type
         self.agent = DQN(
             q_network=self.q_network,
             act_dim=n_out,
@@ -147,6 +148,7 @@ class SMN_RL:
             epsilon=epsilon,
             epsilon_decay=epsilon_decay,
             epsilon_min=epsilon_min,
+            sampler_type=sampler_type,
             buffer_size=buffer_size,
             train_start=train_start,
             train_frequency=train_frequency,
