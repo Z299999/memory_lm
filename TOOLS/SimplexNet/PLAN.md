@@ -20,32 +20,33 @@
 
 ```
 TOOLS/SimplexNet/
-├── core/                    # 核心模块
-│   ├── __init__.py
-│   ├── SimplexMemoryGraph.py   # 单纯形图结构（DAG）
-│   ├── SMNmodule.py            # PyTorch 神经网络模块
-│   └── SMN_RL.py               # RL 高层封装
-│
-├── rl/                      # 强化学习模块
-│   ├── __init__.py
-│   ├── algorithms/          # RL 算法实现
-│   │   ├── dqn.py           # DQN 算法
-│   │   ├── ppo.py           # PPO 算法（Phase 2）
-│   │   └── reinforce.py     # REINFORCE 算法（Phase 2）
-│   ├── mdp.py               # MDP 定义基类（Phase 2）
-│   └── env_wrapper.py       # 环境封装（Phase 2）
-│
-├── tools/                   # 工具模块
-│   ├── __init__.py
-│   ├── checkpoint.py        # 数据持久化（保存/加载 checkpoint）
-│   ├── logger.py            # 训练日志（追加式 JSON Lines）
-│   ├── plot.py              # 可视化（loss curve, reward curve）
-│   └── gui.py               # PySide 用户交互窗口（Phase 2）
-│
-├── __init__.py              # 导出：SMNmodule, SMN_RL, SimplexMemoryGraph
-├── README.md                # 使用说明
-└── examples/                # 示例脚本
-    └── train_rl.py          # RL 训练示例
+├── src/
+│   └── simplexnet/             # 包源码
+│       ├── __init__.py
+│       ├── core/               # 核心模块
+│       │   ├── __init__.py
+│       │   ├── SimplexMemoryGraph.py   # 单纯形图结构（DAG）
+│       │   ├── SMNmodule.py            # PyTorch 神经网络模块
+│       │   └── SMN_RL.py               # RL 高层封装
+│       ├── rl/                 # 强化学习模块
+│       │   ├── __init__.py
+│       │   └── algorithms/
+│       │       ├── __init__.py
+│       │       └── dqn.py              # DQN 算法
+│       └── tools/              # 工具模块
+│           ├── __init__.py
+│           ├── checkpoint.py           # 数据持久化
+│           ├── logger.py               # 训练日志
+│           └── plot.py                 # 可视化
+├── examples/                   # 示例脚本
+│   └── train_rl.py
+├── runs/                       # 运行结果（.gitignore）
+│   └── simplexnet/
+│       ├── checkpoints/
+│       ├── logs/
+│       └── plots/
+├── README.md                   # 使用说明
+└── PLAN.md                     # 项目规划
 ```
 
 ---
@@ -304,6 +305,7 @@ logger.log('checkpoint_saved', path='...')
 - [x] `__init__.py` — 导出公共 API
 - [x] `README.md` — 基本使用说明
 - [x] `examples/train_rl.py` — RL 训练示例
+- [x] src/ layout 重构 — 开源准备
 
 ### Phase 2 (中优先级) — 增强功能
 
