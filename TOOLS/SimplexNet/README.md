@@ -23,7 +23,7 @@ pip install torch numpy gymnasium matplotlib
 ### High-level API (Recommended)
 
 ```python
-from SMN_RL import SMN_RL
+from TOOLS.SimplexNet import SMN_RL
 import gymnasium as gym
 
 # Create environment
@@ -52,8 +52,8 @@ smn_rl.plot_results()
 ### Low-level API
 
 ```python
-from SMNmodule import SMNmodule
-from rl.algorithms import DQN
+from TOOLS.SimplexNet import SMNmodule
+from TOOLS.SimplexNet.rl.algorithms import DQN
 
 # Create Q-network
 q_network = SMNmodule(n=2, m=4, n_in=4, n_out=2)
@@ -85,7 +85,7 @@ for episode in range(500):
 ### SMNmodule
 
 ```python
-from SMNmodule import SMNmodule
+from TOOLS.SimplexNet import SMNmodule
 
 module = SMNmodule(
     n=2,                # Simplex dimension (order of simplices)
@@ -103,7 +103,7 @@ output = module(input_tensor)  # input: [batch, n_in], output: [batch, n_out]
 ### SMN_RL
 
 ```python
-from SMN_RL import SMN_RL
+from TOOLS.SimplexNet import SMN_RL
 
 smn_rl = SMN_RL(
     env,                    # Gymnasium environment
@@ -142,7 +142,7 @@ smn_rl.plot_results(window=100)
 ### DQN
 
 ```python
-from rl.algorithms import DQN
+from TOOLS.SimplexNet.rl.algorithms import DQN
 
 dqn = DQN(
     q_network,              # SMNmodule instance
@@ -197,9 +197,12 @@ plot_reward_curve(rewards, window=100, save_path='reward.png')
 
 ```
 TOOLS/SimplexNet/
-├── SMNmodule.py          # Core neural network
-├── SMN_RL.py             # High-level RL wrapper
-├── __init__.py           # Package exports
+├── core/                 # Core modules
+│   ├── __init__.py
+│   ├── SimplexMemoryGraph.py   # Simplicial lattice DAG structure
+│   ├── SMNmodule.py            # PyTorch neural network module
+│   └── SMN_RL.py               # High-level RL wrapper
+├── __init__.py           # Package exports (re-exports from core/)
 ├── rl/
 │   ├── __init__.py
 │   └── algorithms/
