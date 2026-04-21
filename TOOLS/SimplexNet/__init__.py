@@ -25,9 +25,8 @@ Usage::
     graph = SimplexMemoryGraph(n=2, m=4)
 """
 
-from .SMNmodule import SMNmodule
-from .SMN_RL import SMN_RL
-from .SimplexMemoryGraph import SimplexMemoryGraph
+from .core import SMNmodule, SimplexMemoryGraph
+from .core.SMN_RL import SMN_RL
 
 __all__ = ['SMNmodule', 'SMN_RL', 'SimplexMemoryGraph']
 __version__ = '0.1.0'

@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import gymnasium as gym
 
-from SMN_RL import SMN_RL
+from core.SMN_RL import SMN_RL
 
 
 def parse_args():
