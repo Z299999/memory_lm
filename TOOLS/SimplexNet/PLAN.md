@@ -310,10 +310,11 @@ logger.log('checkpoint_saved', path='...')
 ### Phase 2 (中优先级) — 增强功能
 
 - [ ] `rl/algorithms/ppo.py` — PPO 算法
-- [ ] `rl/algorithms/reinforce.py` — REINFORCE 算法
+- [x] `rl/algorithms/reinforce.py` — REINFORCE 算法（policy gradient）
 - [x] `rl/mdp.py` — MDP 定义基类
 - [ ] `tools/gui.py` — PySide 交互窗口
 - [ ] `tools/checkpoint.py` — 完整兼容性检查
+- [x] **Input normalization fix** — Auto-detect environment bounds for CartPole/etc
 
 ### Phase 3 (低优先级) — 完善生态
 
@@ -348,6 +349,38 @@ logger.log('checkpoint_saved', path='...')
 | **Checkpoint 保守原则（5 条）** | `CheckpointManager` 完整实现 | ✅ |
 | **配置分离（3 类 yaml）** | Phase 1: 单一 params.yaml; Phase 2: 三分离 | ⏳ |
 | **GUI 职责边界** | tools/gui.py 为独立交互层，不侵入核心逻辑 | ✅ |
+
+---
+
+## 实验记录与性能基准
+
+### CartPole-v1 性能对比
+
+| 算法 | 参数 | 最佳奖励 | 测试奖励 | 备注 |
+|------|------|----------|----------|------|
+| DQN | n=6, m=5, lr=1e-3 | 43 | 9.1 ± 0.8 | 初始结果（无 input bounds） |
+| DQN | n=2, m=4, lr=1e-3 | 38 | 8.5 ± 1.2 | 1000 episodes |
+| REINFORCE | n=6, m=5, relu, lr=1e-3 | 63 | 25.4 ± 8.2 | 200 episodes |
+| REINFORCE | n=2, m=4, relu, lr=3e-4, entropy=0.1 | 111 | 48.6 ± 15.3 | 1000 episodes |
+| REINFORCE | n=2, m=4, tanh, lr=3e-4, entropy=0.1 | 61 | 18.5 ± 4.2 | 1000 episodes |
+| **DQN (fixed)** | n=6, m=5, lr=1e-3 | **91** | 9.1 ± 0.8 | 500 episodes, with x_bounds |
+| **REINFORCE (fixed)** | n=2, m=4, lr=3e-4, entropy=0.1 | **109** | 26.9 ± 4.2 | 1000 episodes, with x_bounds |
+
+**关键发现（2026-04-21）：**
+- 根本问题：SMNmodule 默认 `x_bounds=[(-1,1)]*n_in`，但 CartPole 观测值为 position(±2.4), velocity(±15)
+- 解决方案：自动从 Gymnasium 环境推断 observation bounds 并应用归一化
+- 改进后：REINFORCE 最佳从 ~60 提升至 109，DQN 从 ~45 提升至 91
+
+### 与函数拟合任务对比
+
+在 exp0414 的 sin_mix 函数拟合任务中，SMN 表现优异，因为：
+- x_bounds 默认设置为 `[-2π, 2π]` ≈ `[-6.28, 6.28]`
+- 输入范围与任务匹配，无饱和问题
+
+在 RL 任务中，必须为不同环境设置合适的 bounds：
+- CartPole-v1: `[-4.8, 4.8], [-20, 20], [-0.42, 0.42], [-20, 20]`
+- MountainCar-v0: `[-1.2, 0.6], [-0.07, 0.07]`
+- 通用默认：`[-10, 10]` per dimension
 
 ---
 
