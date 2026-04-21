@@ -311,7 +311,7 @@ logger.log('checkpoint_saved', path='...')
 
 - [ ] `rl/algorithms/ppo.py` — PPO 算法
 - [ ] `rl/algorithms/reinforce.py` — REINFORCE 算法
-- [ ] `rl/mdp.py` — MDP 定义基类
+- [x] `rl/mdp.py` — MDP 定义基类
 - [ ] `tools/gui.py` — PySide 交互窗口
 - [ ] `tools/checkpoint.py` — 完整兼容性检查
 
