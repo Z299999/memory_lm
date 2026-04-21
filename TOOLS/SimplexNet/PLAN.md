@@ -293,15 +293,15 @@ logger.log('checkpoint_saved', path='...')
 
 ### Phase 1 (高优先级) — 最小可用版本
 
-- [ ] `SMNmodule.py` — 网络模型（复制并简化自 exp0414/smn_fitter.py）
-- [ ] `SMN_RL.py` — RL 封装类
-- [ ] `rl/algorithms/dqn.py` — DQN 算法
-- [ ] `tools/checkpoint.py` — CheckpointManager（核心功能）
-- [ ] `tools/logger.py` — TrainingLogger
-- [ ] `tools/plot.py` — 训练曲线可视化
-- [ ] `__init__.py` — 导出公共 API
-- [ ] `README.md` — 基本使用说明
-- [ ] `examples/train_rl.py` — RL 训练示例
+- [x] `SMNmodule.py` — 网络模型（复制并简化自 exp0414/smn_fitter.py）
+- [x] `SMN_RL.py` — RL 封装类
+- [x] `rl/algorithms/dqn.py` — DQN 算法
+- [x] `tools/checkpoint.py` — CheckpointManager（核心功能）
+- [x] `tools/logger.py` — TrainingLogger
+- [x] `tools/plot.py` — 训练曲线可视化
+- [x] `__init__.py` — 导出公共 API
+- [x] `README.md` — 基本使用说明
+- [x] `examples/train_rl.py` — RL 训练示例
 
 ### Phase 2 (中优先级) — 增强功能
 
