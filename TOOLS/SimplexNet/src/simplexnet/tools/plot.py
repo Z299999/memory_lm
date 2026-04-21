@@ -59,9 +59,16 @@ def plot_training_curves(
         ax2 = ax1.twinx()
         color = 'tab:red'
         ax2.set_ylabel('Loss', color=color)
-        ax2.plot(episodes, losses, color=color, label='Loss', linewidth=1, alpha=0.7)
+        # Shift losses to positive range for log scale if needed
+        losses_arr = np.array(losses)
+        if np.any(losses_arr <= 0):
+            # Use linear scale for non-positive losses
+            ax2.plot(episodes, losses, color=color, label='Loss', linewidth=1, alpha=0.7)
+            ax2.axhline(y=0, color='gray', linestyle='--', linewidth=0.5)
+        else:
+            ax2.plot(episodes, losses, color=color, label='Loss', linewidth=1, alpha=0.7)
+            ax2.set_yscale('log')
         ax2.tick_params(axis='y', labelcolor=color)
-        ax2.set_yscale('log')
 
     plt.title(title)
     fig.tight_layout()

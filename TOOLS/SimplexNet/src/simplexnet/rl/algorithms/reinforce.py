@@ -203,7 +203,15 @@ class REINFORCE:
 
         Returns:
             Loss value, or None if no rewards to train on
+
+        This method extracts rewards from the trajectory and combines them
+        with log_probs stored during action selection in select_action().
         """
+        # Extract rewards from trajectory if our internal buffer is empty
+        # This handles the case where TrajectoryCollector is used
+        if len(self.rewards) == 0 and trajectory is not None and len(trajectory.rewards) > 0:
+            self.rewards = list(trajectory.rewards)
+
         if len(self.rewards) == 0:
             return None
 
