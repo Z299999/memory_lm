@@ -29,3 +29,8 @@ exp0408_memory_backprop/plots/
 # Exp0418 - ignore generated plots (reproducible from data + scripts)
 exp0418_brainSimplex/plots/
 
+# TOOLS/SimplexNet - ignore generated outputs
+TOOLS/SimplexNet/plots/
+TOOLS/SimplexNet/checkpoints/
+TOOLS/SimplexNet/logs/
+
