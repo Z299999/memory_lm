@@ -40,11 +40,15 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Support both package mode (import as module) and script mode (direct run)
+try:
+    from ...core.SMNmodule import SMNmodule
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from core.SMNmodule import SMNmodule
+    from core.SMNmodule import SMNmodule
 
 
 class DQN:

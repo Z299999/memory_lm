@@ -46,14 +46,22 @@ from typing import Optional, Callable
 
 import numpy as np
 
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Support both package mode (import as module) and script mode (direct run)
+try:
+    from .SMNmodule import SMNmodule
+    from ..rl.algorithms.dqn import DQN
+    from ..tools.checkpoint import CheckpointManager
+    from ..tools.logger import TrainingLogger
+    from ..tools.plot import plot_training_curves, plot_reward_curve
+except ImportError:
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from .SMNmodule import SMNmodule
-from rl.algorithms.dqn import DQN
-from tools.checkpoint import CheckpointManager
-from tools.logger import TrainingLogger
-from tools.plot import plot_training_curves, plot_reward_curve
+    from .SMNmodule import SMNmodule
+    from rl.algorithms.dqn import DQN
+    from tools.checkpoint import CheckpointManager
+    from tools.logger import TrainingLogger
+    from tools.plot import plot_training_curves, plot_reward_curve
 
 
 class SMN_RL:
