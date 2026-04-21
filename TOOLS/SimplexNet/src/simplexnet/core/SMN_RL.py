@@ -50,6 +50,7 @@ import numpy as np
 try:
     from .SMNmodule import SMNmodule
     from ..rl.algorithms.dqn import DQN
+    from ..rl.algorithms.reinforce import REINFORCE
     from ..rl.mdp import GymMDP, MDPTrajectory
     from ..rl.collector import TrajectoryCollector
     from ..tools.checkpoint import CheckpointManager
@@ -61,6 +62,7 @@ except ImportError:
 
     from .SMNmodule import SMNmodule
     from rl.algorithms.dqn import DQN
+    from rl.algorithms.reinforce import REINFORCE
     from rl.mdp import GymMDP, MDPTrajectory
     from rl.collector import TrajectoryCollector
     from tools.checkpoint import CheckpointManager
@@ -79,41 +81,57 @@ class SMN_RL:
 
     Args:
         env: Gymnasium-style environment with observation_space and action_space
+        algorithm: 'dqn' or 'reinforce'
         n: Simplex dimension (order of simplices)
         m: Lattice parameter (size in each dimension)
         n_in: Input dimension (observation space)
         n_out: Output dimension (action space)
         gamma: Discount factor for RL
         lr: Learning rate
-        epsilon: Initial exploration rate
-        epsilon_decay: Epsilon decay per episode
-        epsilon_min: Minimum exploration rate
-        buffer_size: Replay buffer capacity
-        train_start: Minimum samples before training
-        train_frequency: Train every N steps
+        epsilon: Initial exploration rate (DQN only)
+        epsilon_decay: Epsilon decay per episode (DQN only)
+        epsilon_min: Minimum exploration rate (DQN only)
+        buffer_size: Replay buffer capacity (DQN only)
+        train_start: Minimum samples before training (DQN only)
+        train_frequency: Train every N steps (DQN only)
+        sampler_type: Sampling strategy (DQN only)
+        entropy_coef: Entropy regularization coefficient (REINFORCE only)
+        action_type: 'discrete' or 'continuous' (REINFORCE only)
         checkpoint_dir: Directory for checkpoints
         log_dir: Directory for logs
         plot_dir: Directory for plots
 
     Example::
 
+        # DQN (value-based, discrete actions)
         smn_rl = SMN_RL(
             env=gym.make('CartPole-v1'),
+            algorithm='dqn',
             n=2, m=4,
             n_in=4, n_out=2
         )
-        rewards = smn_rl.train(num_episodes=500)
+
+        # REINFORCE (policy-based, discrete or continuous)
+        smn_rl = SMN_RL(
+            env=gym.make('CartPole-v1'),
+            algorithm='reinforce',
+            n=2, m=4,
+            n_in=4, n_out=2,
+            entropy_coef=0.01
+        )
     """
 
     def __init__(
         self,
         env: Optional['gym.Env'] = None,
+        algorithm: str = 'dqn',
         n: int = 2,
         m: int = 4,
         n_in: int = 4,
         n_out: int = 2,
         gamma: float = 0.99,
         lr: float = 1e-3,
+        # DQN-specific parameters
         epsilon: float = 1.0,
         epsilon_decay: float = 0.995,
         epsilon_min: float = 0.01,
@@ -121,6 +139,12 @@ class SMN_RL:
         train_start: int = 100,
         train_frequency: int = 4,
         sampler_type: str = 'replay',
+        # REINFORCE-specific parameters
+        entropy_coef: float = 0.0,
+        action_type: str = 'discrete',
+        action_bounds: tuple[float, float] = (-1.0, 1.0),
+        max_grad_norm: float = 0.5,
+        # Directories
         checkpoint_dir: str | Path = './runs/simplexnet/checkpoints',
         log_dir: str | Path = './runs/simplexnet/logs',
         plot_dir: str | Path = './runs/simplexnet/plots',
@@ -128,31 +152,52 @@ class SMN_RL:
         # Store either env or mdp
         self._env = env
         self._mdp = None
+        self.algorithm = algorithm
 
         self.n = n
         self.m = m
         self.n_in = n_in
         self.n_out = n_out
 
-        # Create Q-network
-        self.q_network = SMNmodule(
+        # Create policy/Q-network
+        self.network = SMNmodule(
             n=n, m=m, n_in=n_in, n_out=n_out, activation='relu'
         )
 
-        # Create DQN agent with sampler type
-        self.agent = DQN(
-            q_network=self.q_network,
-            act_dim=n_out,
-            gamma=gamma,
-            lr=lr,
-            epsilon=epsilon,
-            epsilon_decay=epsilon_decay,
-            epsilon_min=epsilon_min,
-            sampler_type=sampler_type,
-            buffer_size=buffer_size,
-            train_start=train_start,
-            train_frequency=train_frequency,
-        )
+        # Create agent based on algorithm
+        if algorithm == 'dqn':
+            self.agent = DQN(
+                q_network=self.network,
+                act_dim=n_out,
+                gamma=gamma,
+                lr=lr,
+                epsilon=epsilon,
+                epsilon_decay=epsilon_decay,
+                epsilon_min=epsilon_min,
+                sampler_type=sampler_type,
+                buffer_size=buffer_size,
+                train_start=train_start,
+                train_frequency=train_frequency,
+            )
+        elif algorithm == 'reinforce':
+            # For continuous action type, n_out should be 2 * act_dim (mean + log_std)
+            if action_type == 'continuous':
+                # Network output is [mean, log_std], so n_out = 2 * act_dim
+                self.network = SMNmodule(
+                    n=n, m=m, n_in=n_in, n_out=2 * n_out, activation='relu'
+                )
+            self.agent = REINFORCE(
+                policy_network=self.network,
+                act_dim=n_out,
+                action_type=action_type,
+                gamma=gamma,
+                lr=lr,
+                entropy_coef=entropy_coef,
+                max_grad_norm=max_grad_norm,
+                action_bounds=action_bounds,
+            )
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}. Choose 'dqn' or 'reinforce'.")
 
         # Initialize collectors and managers
         self._collector = None  # Created when train() is called
@@ -179,7 +224,7 @@ class SMN_RL:
         Args:
             num_episodes: Number of training episodes
             max_steps: Maximum steps per episode
-            update_target_every: Update target network every N episodes
+            update_target_every: Update target network every N episodes (DQN only)
             checkpoint_every: Save checkpoint every N episodes
             verbose: Print progress
             render: Render environment (requires gym to support it)
@@ -200,14 +245,21 @@ class SMN_RL:
             checkpoint = self.checkpoint_mgr.load_latest()
             if checkpoint is not None:
                 start_episode = checkpoint.get('episode', 0)
-                # Convert CheckpointManager format to DQN format
-                dqn_checkpoint = {
-                    'q_network': checkpoint['state_dict'],
-                    'target_network': checkpoint['state_dict'],
-                    'optimizer': checkpoint.get('optimizer_state'),
-                    'epsilon': self.agent.epsilon,
-                }
-                self.agent.load_checkpoint_from_dict(dqn_checkpoint)
+                # Load checkpoint based on algorithm
+                if self.algorithm == 'dqn':
+                    dqn_checkpoint = {
+                        'q_network': checkpoint['state_dict'],
+                        'target_network': checkpoint['state_dict'],
+                        'optimizer': checkpoint.get('optimizer_state'),
+                        'epsilon': self.agent.epsilon,
+                    }
+                    self.agent.load_checkpoint_from_dict(dqn_checkpoint)
+                else:  # reinforce
+                    reinforce_checkpoint = {
+                        'policy_network': checkpoint['state_dict'],
+                        'optimizer': checkpoint.get('optimizer_state'),
+                    }
+                    self.agent.load_checkpoint_from_dict(reinforce_checkpoint)
                 if verbose:
                     print(f"Loaded checkpoint from episode {start_episode}")
 
@@ -224,6 +276,7 @@ class SMN_RL:
         # Log training start
         self.logger.log_init(
             config={
+                'algorithm': self.algorithm,
                 'n': self.n,
                 'm': self.m,
                 'n_in': self.n_in,
@@ -246,14 +299,15 @@ class SMN_RL:
             # Train from trajectory
             loss = self.agent.train(trajectory)
 
-            # Update target network
-            if (episode + 1) % update_target_every == 0:
-                self.agent.update_target_network()
-                if verbose:
-                    print(f"Episode {episode + 1}: Updated target network")
+            # DQN-specific: Update target network
+            if self.algorithm == 'dqn':
+                if (episode + 1) % update_target_every == 0:
+                    self.agent.update_target_network()
+                    if verbose:
+                        print(f"Episode {episode + 1}: Updated target network")
 
-            # Decay epsilon
-            self.agent.decay_epsilon()
+                # DQN-specific: Decay epsilon
+                self.agent.decay_epsilon()
 
             # Record history
             episode_reward = sum(trajectory.rewards)
@@ -262,11 +316,17 @@ class SMN_RL:
             rewards_history.append(episode_reward)
             losses_history.append(avg_loss)
 
+            # Log epsilon for DQN, entropy_coef for REINFORCE
+            if self.algorithm == 'dqn':
+                log_extra = {'epsilon': self.agent.epsilon}
+            else:
+                log_extra = {'entropy_coef': self.agent.entropy_coef}
+
             self.training_history.append({
                 'episode': episode + 1,
                 'reward': episode_reward,
                 'loss': avg_loss,
-                'epsilon': self.agent.epsilon,
+                **log_extra,
             })
 
             # Log epoch
@@ -274,13 +334,13 @@ class SMN_RL:
                 episode=episode + 1,
                 reward=episode_reward,
                 loss=avg_loss,
-                epsilon=self.agent.epsilon,
+                **log_extra,
             )
 
             # Save checkpoint
             if (episode + 1) % checkpoint_every == 0:
                 ckpt_path = self.checkpoint_mgr.save_checkpoint(
-                    module=self.q_network,
+                    module=self.network,
                     optimizer=self.agent.optimizer,
                     episode=episode + 1,
                     reward=episode_reward,
@@ -288,6 +348,7 @@ class SMN_RL:
                     metadata={
                         'rewards_history': rewards_history,
                         'losses_history': losses_history,
+                        'algorithm': self.algorithm,
                     }
                 )
                 self.logger.log_checkpoint_saved(
@@ -298,12 +359,19 @@ class SMN_RL:
 
             # Print progress
             if verbose and (episode + 1) % 10 == 0:
-                print(
-                    f"Episode {episode + 1}/{num_episodes} | "
-                    f"Reward: {episode_reward:.2f} | "
-                    f"Loss: {avg_loss:.4f} | "
-                    f"Epsilon: {self.agent.epsilon:.3f}"
-                )
+                if self.algorithm == 'dqn':
+                    print(
+                        f"Episode {episode + 1}/{num_episodes} | "
+                        f"Reward: {episode_reward:.2f} | "
+                        f"Loss: {avg_loss:.4f} | "
+                        f"Epsilon: {self.agent.epsilon:.3f}"
+                    )
+                else:
+                    print(
+                        f"Episode {episode + 1}/{num_episodes} | "
+                        f"Reward: {episode_reward:.2f} | "
+                        f"Loss: {avg_loss:.4f}"
+                    )
 
         return rewards_history
 
@@ -422,12 +490,13 @@ class SMN_RL:
             reward = 0.0
 
         ckpt_path = self.checkpoint_mgr.save_checkpoint(
-            module=self.q_network,
+            module=self.network,
             optimizer=self.agent.optimizer,
             episode=episode,
             reward=reward,
             metadata={
                 'training_history': self.training_history,
+                'algorithm': self.algorithm,
             }
         )
         print(f"Saved checkpoint to {ckpt_path}")
@@ -440,7 +509,20 @@ class SMN_RL:
         """
         checkpoint = self.checkpoint_mgr.load_checkpoint(Path(path))
         if checkpoint is not None:
-            self.agent.load_checkpoint_from_dict(checkpoint)
+            if self.algorithm == 'dqn':
+                dqn_checkpoint = {
+                    'q_network': checkpoint['state_dict'],
+                    'target_network': checkpoint['state_dict'],
+                    'optimizer': checkpoint.get('optimizer_state'),
+                    'epsilon': self.agent.epsilon,
+                }
+                self.agent.load_checkpoint_from_dict(dqn_checkpoint)
+            else:  # reinforce
+                reinforce_checkpoint = {
+                    'policy_network': checkpoint['state_dict'],
+                    'optimizer': checkpoint.get('optimizer_state'),
+                }
+                self.agent.load_checkpoint_from_dict(reinforce_checkpoint)
             print(f"Loaded checkpoint from {path}")
 
     def launch_gui(self) -> None:

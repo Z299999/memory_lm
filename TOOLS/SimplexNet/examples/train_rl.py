@@ -7,18 +7,22 @@ Usage::
 
     python3 examples/train_rl.py --env CartPole-v1 --episodes 1000
     python3 examples/train_rl.py --env Acrobot-v1 --episodes 1500 --n 6 --m 5
+    python3 examples/train_rl.py --env CartPole-v1 --algorithm reinforce --entropy-coef 0.01
 
 Options:
     --env: Gymnasium environment name (default: CartPole-v1)
     --episodes: Number of training episodes (default: 1000)
     --n: Simplex dimension (default: 6)
     --m: Lattice parameter (default: 5)
-    --sampler-type: Sampling strategy (default: replay)
+    --algorithm: RL algorithm (default: dqn)
+    --sampler-type: Sampling strategy (default: replay, DQN only)
     --gamma: Discount factor (default: 0.99)
     --lr: Learning rate (default: 1e-3)
-    --epsilon: Initial exploration rate (default: 1.0)
-    --epsilon-decay: Epsilon decay per episode (default: 0.995)
-    --epsilon-min: Minimum exploration rate (default: 0.01)
+    --epsilon: Initial exploration rate (default: 1.0, DQN only)
+    --epsilon-decay: Epsilon decay per episode (default: 0.995, DQN only)
+    --epsilon-min: Minimum exploration rate (default: 0.01, DQN only)
+    --entropy-coef: Entropy regularization (default: 0.0, REINFORCE only)
+    --action-type: Action type (default: discrete, REINFORCE only)
     --checkpoint-dir: Checkpoint directory (default: ./checkpoints)
     --log-dir: Log directory (default: ./logs)
     --plot-dir: Plot directory (default: ./plots)
@@ -57,22 +61,36 @@ def parse_args():
     parser.add_argument('--m', type=int, default=5,
                         help='Lattice parameter (size in each dimension)')
 
-    # Sampler type
+    # Algorithm selection
+    parser.add_argument('--algorithm', type=str, default='dqn',
+                        choices=['dqn', 'reinforce'],
+                        help='RL algorithm: dqn (value-based) or reinforce (policy gradient)')
+
+    # Sampler type (DQN only)
     parser.add_argument('--sampler-type', type=str, default='replay',
                         choices=['replay', 'online', 'mixed'],
-                        help='Sampling strategy: replay (standard), online (latest policy), mixed')
+                        help='Sampling strategy: replay (standard), online (latest policy), mixed (DQN only)')
 
     # RL hyperparameters
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='Discount factor')
     parser.add_argument('--lr', type=float, default=1e-3,
                         help='Learning rate')
+
+    # DQN-specific parameters
     parser.add_argument('--epsilon', type=float, default=1.0,
-                        help='Initial exploration rate')
+                        help='Initial exploration rate (DQN only)')
     parser.add_argument('--epsilon-decay', type=float, default=0.995,
-                        help='Epsilon decay per episode')
+                        help='Epsilon decay per episode (DQN only)')
     parser.add_argument('--epsilon-min', type=float, default=0.01,
-                        help='Minimum exploration rate')
+                        help='Minimum exploration rate (DQN only)')
+
+    # REINFORCE-specific parameters
+    parser.add_argument('--entropy-coef', type=float, default=0.0,
+                        help='Entropy regularization coefficient (REINFORCE only)')
+    parser.add_argument('--action-type', type=str, default='discrete',
+                        choices=['discrete', 'continuous'],
+                        help='Action type for REINFORCE: discrete or continuous')
 
     # Directories (relative to script location)
     script_dir = Path(__file__).parent
@@ -119,24 +137,33 @@ def main():
     # Create SMN_RL wrapper
     smn_rl = SMN_RL(
         env=env,
+        algorithm=args.algorithm,
         n=args.n,
         m=args.m,
         n_in=obs_dim,
         n_out=act_dim,
         gamma=args.gamma,
         lr=args.lr,
+        # DQN-specific
         epsilon=args.epsilon,
         epsilon_decay=args.epsilon_decay,
         epsilon_min=args.epsilon_min,
         sampler_type=args.sampler_type,
+        # REINFORCE-specific
+        entropy_coef=args.entropy_coef,
+        action_type=args.action_type,
         checkpoint_dir=args.checkpoint_dir,
         log_dir=args.log_dir,
         plot_dir=args.plot_dir,
     )
 
+    print(f"Algorithm: {args.algorithm}")
     print(f"SMN architecture: n={args.n}, m={args.m}")
-    print(f"Sampler type: {args.sampler_type}")
-    print(f"Q-network: {smn_rl.q_network.arch_str}")
+    if args.algorithm == 'dqn':
+        print(f"Sampler type: {args.sampler_type}")
+    else:
+        print(f"Action type: {args.action_type}, Entropy coef: {args.entropy_coef}")
+    print(f"Network: {smn_rl.network.arch_str}")
 
     if args.test_only:
         # Test only (no training)
