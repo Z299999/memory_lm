@@ -34,12 +34,59 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
+
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 import gymnasium as gym
 
 from simplexnet.core.SMN_RL import SMN_RL
+
+
+def get_env_obs_bounds(env: gym.Env) -> list[tuple[float, float]]:
+    """Infer reasonable input bounds from environment observation space.
+
+    For Box spaces with finite low/high, use those directly.
+    For common environments, use known physical limits.
+
+    Args:
+        env: Gymnasium environment
+
+    Returns:
+        List of (min, max) tuples per observation dimension
+    """
+    obs_space = env.observation_space
+
+    # Box space: use the low/high bounds directly
+    if isinstance(obs_space, gym.spaces.Box):
+        low = obs_space.low
+        high = obs_space.high
+
+        # Handle infinite bounds - replace with reasonable defaults
+        bounds = []
+        for i in range(len(low)):
+            l, h = float(low[i]), float(high[i])
+            if not np.isfinite(l) or not np.isfinite(h):
+                # Use environment-specific defaults for unbounded observations
+                if hasattr(env, 'spec') and env.spec:
+                    env_name = env.spec.id
+                    # CartPole-style: position/velocity typically ±2.4/±15
+                    if 'CartPole' in env_name:
+                        l, h = -20.0, 20.0
+                    # MountainCar: position [-1.2, 0.6], velocity [-0.07, 0.07]
+                    elif 'MountainCar' in env_name:
+                        l, h = -1.5, 1.5
+                    # Generic fallback
+                    else:
+                        l, h = -10.0, 10.0
+                else:
+                    l, h = -10.0, 10.0
+            bounds.append((l, h))
+        return bounds
+
+    # Fallback: use [-1, 1] for unknown spaces
+    return [(-1.0, 1.0)] * obs_space.shape[0]
 
 
 def parse_args():
@@ -131,7 +178,10 @@ def main():
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
 
+    # Infer observation bounds for input normalization
+    obs_bounds = get_env_obs_bounds(env)
     print(f"Observation dimension: {obs_dim}")
+    print(f"Observation bounds: {obs_bounds}")
     print(f"Action dimension: {act_dim}")
 
     # Create SMN_RL wrapper
@@ -152,6 +202,8 @@ def main():
         # REINFORCE-specific
         entropy_coef=args.entropy_coef,
         action_type=args.action_type,
+        # Input normalization
+        x_bounds=obs_bounds,
         checkpoint_dir=args.checkpoint_dir,
         log_dir=args.log_dir,
         plot_dir=args.plot_dir,

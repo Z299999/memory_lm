@@ -97,6 +97,7 @@ class SMN_RL:
         sampler_type: Sampling strategy (DQN only)
         entropy_coef: Entropy regularization coefficient (REINFORCE only)
         action_type: 'discrete' or 'continuous' (REINFORCE only)
+        x_bounds: Per-channel input normalization bounds. If None, uses [(-1, 1)] * n_in
         checkpoint_dir: Directory for checkpoints
         log_dir: Directory for logs
         plot_dir: Directory for plots
@@ -144,6 +145,8 @@ class SMN_RL:
         action_type: str = 'discrete',
         action_bounds: tuple[float, float] = (-1.0, 1.0),
         max_grad_norm: float = 0.5,
+        # Input normalization
+        x_bounds: list[tuple[float, float]] | None = None,
         # Directories
         checkpoint_dir: str | Path = './runs/simplexnet/checkpoints',
         log_dir: str | Path = './runs/simplexnet/logs',
@@ -159,9 +162,10 @@ class SMN_RL:
         self.n_in = n_in
         self.n_out = n_out
 
-        # Create policy/Q-network
+        # Create policy/Q-network with input normalization
+        # Use tanh for better output balance (relu causes systematic bias)
         self.network = SMNmodule(
-            n=n, m=m, n_in=n_in, n_out=n_out, activation='relu'
+            n=n, m=m, n_in=n_in, n_out=n_out, activation='tanh', x_bounds=x_bounds
         )
 
         # Create agent based on algorithm
@@ -184,7 +188,7 @@ class SMN_RL:
             if action_type == 'continuous':
                 # Network output is [mean, log_std], so n_out = 2 * act_dim
                 self.network = SMNmodule(
-                    n=n, m=m, n_in=n_in, n_out=2 * n_out, activation='relu'
+                    n=n, m=m, n_in=n_in, n_out=2 * n_out, activation='relu', x_bounds=x_bounds
                 )
             self.agent = REINFORCE(
                 policy_network=self.network,
