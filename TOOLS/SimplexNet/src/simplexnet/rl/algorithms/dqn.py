@@ -20,20 +20,25 @@ Usage::
     # Create DQN agent
     dqn = DQN(
         q_network=q_network,
-        obs_dim=4, act_dim=2,
+        act_dim=2,
         gamma=0.99, lr=1e-3
     )
 
-    # Training loop
-    action = dqn.select_action(state, epsilon=0.1)
-    dqn.store_transition(state, action, reward, next_state, done)
-    loss = dqn.train_step()
+    # Training with trajectory
+    from rl.collector import TrajectoryCollector
+    from rl.mdp import GymMDP
+
+    mdp = GymMDP('CartPole-v1')
+    collector = TrajectoryCollector(mdp)
+
+    trajectory = collector.collect_episode(dqn)
+    loss = dqn.train(trajectory)
 """
 
 from __future__ import annotations
 
 from collections import deque
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -50,13 +55,15 @@ except ImportError:
 
     from core.SMNmodule import SMNmodule
 
+if TYPE_CHECKING:
+    from ..mdp import MDPTrajectory
+
 
 class DQN:
     """DQN agent with SMN Q-network.
 
     Args:
         q_network: SMNmodule instance for Q-network
-        obs_dim: Dimension of observation space
         act_dim: Dimension of action space (number of discrete actions)
         gamma: Discount factor
         lr: Learning rate
@@ -69,7 +76,7 @@ class DQN:
 
         dqn = DQN(
             q_network=SMNmodule(n=2, m=4, n_in=4, n_out=2),
-            obs_dim=4, act_dim=2,
+            act_dim=2,
             gamma=0.99, lr=1e-3
         )
     """
@@ -77,7 +84,6 @@ class DQN:
     def __init__(
         self,
         q_network: SMNmodule,
-        obs_dim: int,
         act_dim: int,
         gamma: float = 0.99,
         lr: float = 1e-3,
@@ -85,11 +91,11 @@ class DQN:
         epsilon_decay: float = 0.995,
         epsilon_min: float = 0.01,
         buffer_size: int = 10000,
-        train_start: int = 1000,
+        train_start: int = 100,
         train_frequency: int = 4,
     ):
-        self.obs_dim = obs_dim
         self.act_dim = act_dim
+        self.gamma = gamma
 
         # Q-network and target network
         self.q_network = q_network
@@ -104,7 +110,6 @@ class DQN:
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=lr)
         self.replay_buffer = deque(maxlen=buffer_size)
 
-        self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
@@ -142,24 +147,42 @@ class DQN:
         """Store transition in replay buffer."""
         self.replay_buffer.append((state, action, reward, next_state, done))
 
-    def train_step(self, batch_size: int = 64, step: int = 0) -> Optional[float]:
-        """Perform one training step from replay buffer.
+    def train(self, trajectory: 'MDPTrajectory') -> Optional[float]:
+        """Train from a trajectory.
 
         Args:
-            batch_size: Mini-batch size
-            step: Current time step (for training frequency control)
+            trajectory: MDPTrajectory containing SARSA sequence
+
+        Returns:
+            Loss value, or None if not enough samples
+
+        This method stores all transitions from the trajectory into
+        the replay buffer, then performs training steps.
+        """
+        # Store all transitions from trajectory
+        for i in range(len(trajectory)):
+            self.replay_buffer.append((
+                trajectory.states[i],
+                trajectory.actions[i],
+                trajectory.rewards[i],
+                trajectory.next_states[i],
+                trajectory.dones[i],
+            ))
+
+        # Train from replay buffer
+        return self.train_step_from_buffer()
+
+    def train_step_from_buffer(self) -> Optional[float]:
+        """Perform one training step from replay buffer.
 
         Returns:
             Loss value, or None if not enough samples
         """
-        # Only train every train_frequency steps
-        if step % self.train_frequency != 0:
-            return None
-
         if len(self.replay_buffer) < self.train_start:
             return None
 
         # Sample batch
+        batch_size = 64
         batch = list(np.random.choice(len(self.replay_buffer), batch_size, replace=False))
         transitions = [self.replay_buffer[i] for i in batch]
         states, actions, rewards, next_states, dones = zip(*transitions)
@@ -240,7 +263,7 @@ if __name__ == "__main__":
     # Test 1: Basic agent (1D state, 7 actions)
     print("\n=== Test 1: Basic DQN agent ===")
     q_net = SMNmodule(n=2, m=4, n_in=1, n_out=7)
-    agent = DQN(q_network=q_net, obs_dim=1, act_dim=7)
+    agent = DQN(q_network=q_net, act_dim=7)
     print(f"Q-network: {agent.q_network.arch_str}")
     print(f"Epsilon: {agent.epsilon}")
 
@@ -262,7 +285,7 @@ if __name__ == "__main__":
         done = np.random.random() < 0.1
         agent.store_transition(state, action, reward, next_state, done)
 
-    loss = agent.train_step(batch_size=32)
+    loss = agent.train_step_from_buffer()
     if loss is not None:
         print(f"Training loss: {loss:.4f}")
     print("Test 1: PASSED")
@@ -270,7 +293,7 @@ if __name__ == "__main__":
     # Test 2: 2D state (error + velocity)
     print("\n=== Test 2: 2D state DQN agent ===")
     q_net2 = SMNmodule(n=2, m=4, n_in=2, n_out=7)
-    agent2 = DQN(q_network=q_net2, obs_dim=2, act_dim=7)
+    agent2 = DQN(q_network=q_net2, act_dim=7)
     state2 = np.array([0.5, 0.1], dtype=np.float32)
     action2 = agent2.select_action(state2, training=False)
     print(f"Q-network: {agent2.q_network.arch_str}")

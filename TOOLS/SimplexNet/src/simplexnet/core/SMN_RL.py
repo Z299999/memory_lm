@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, TYPE_CHECKING
 
 import numpy as np
 
@@ -50,6 +50,8 @@ import numpy as np
 try:
     from .SMNmodule import SMNmodule
     from ..rl.algorithms.dqn import DQN
+    from ..rl.mdp import GymMDP, MDPTrajectory
+    from ..rl.collector import TrajectoryCollector
     from ..tools.checkpoint import CheckpointManager
     from ..tools.logger import TrainingLogger
     from ..tools.plot import plot_training_curves, plot_reward_curve
@@ -59,9 +61,14 @@ except ImportError:
 
     from .SMNmodule import SMNmodule
     from rl.algorithms.dqn import DQN
+    from rl.mdp import GymMDP, MDPTrajectory
+    from rl.collector import TrajectoryCollector
     from tools.checkpoint import CheckpointManager
     from tools.logger import TrainingLogger
     from tools.plot import plot_training_curves, plot_reward_curve
+
+if TYPE_CHECKING:
+    import gymnasium as gym
 
 
 class SMN_RL:
@@ -100,7 +107,7 @@ class SMN_RL:
 
     def __init__(
         self,
-        env,
+        env: Optional['gym.Env'] = None,
         n: int = 2,
         m: int = 4,
         n_in: int = 4,
@@ -111,13 +118,16 @@ class SMN_RL:
         epsilon_decay: float = 0.995,
         epsilon_min: float = 0.01,
         buffer_size: int = 10000,
-        train_start: int = 100,  # Lower default for faster learning
+        train_start: int = 100,
         train_frequency: int = 4,
         checkpoint_dir: str | Path = './runs/simplexnet/checkpoints',
         log_dir: str | Path = './runs/simplexnet/logs',
         plot_dir: str | Path = './runs/simplexnet/plots',
     ):
-        self.env = env
+        # Store either env or mdp
+        self._env = env
+        self._mdp = None
+
         self.n = n
         self.m = m
         self.n_in = n_in
@@ -131,7 +141,6 @@ class SMN_RL:
         # Create DQN agent
         self.agent = DQN(
             q_network=self.q_network,
-            obs_dim=n_in,
             act_dim=n_out,
             gamma=gamma,
             lr=lr,
@@ -143,7 +152,8 @@ class SMN_RL:
             train_frequency=train_frequency,
         )
 
-        # Initialize managers
+        # Initialize collectors and managers
+        self._collector = None  # Created when train() is called
         self.checkpoint_mgr = CheckpointManager(checkpoint_dir)
         self.logger = TrainingLogger(log_dir)
         self.plot_dir = Path(plot_dir)
@@ -191,13 +201,23 @@ class SMN_RL:
                 # Convert CheckpointManager format to DQN format
                 dqn_checkpoint = {
                     'q_network': checkpoint['state_dict'],
-                    'target_network': checkpoint['state_dict'],  # Same as q_network
+                    'target_network': checkpoint['state_dict'],
                     'optimizer': checkpoint.get('optimizer_state'),
-                    'epsilon': self.agent.epsilon,  # Keep current epsilon
+                    'epsilon': self.agent.epsilon,
                 }
                 self.agent.load_checkpoint_from_dict(dqn_checkpoint)
                 if verbose:
                     print(f"Loaded checkpoint from episode {start_episode}")
+
+        # Create MDP and collector if not already created
+        if self._mdp is None:
+            if self._env is not None:
+                self._mdp = GymMDP(self._env)
+            else:
+                raise ValueError("No env or mdp provided")
+
+        if self._collector is None:
+            self._collector = TrajectoryCollector(self._mdp)
 
         # Log training start
         self.logger.log_init(
@@ -214,42 +234,15 @@ class SMN_RL:
 
         rewards_history = []
         losses_history = []
-        total_steps = 0
 
         for episode in range(start_episode, num_episodes):
-            state, _ = self.env.reset()
-            state = np.array(state, dtype=np.float32)
-            episode_reward = 0
-            episode_loss = 0
-            num_updates = 0
+            # Collect trajectory using new collector
+            trajectory = self._collector.collect_episode(
+                self.agent, max_steps=max_steps, training=True
+            )
 
-            for step in range(max_steps):
-                if render:
-                    self.env.render()
-
-                # Select action
-                action = self.agent.select_action(state, training=True)
-
-                # Take step
-                next_state, reward, terminated, truncated, _ = self.env.step(action)
-                next_state = np.array(next_state, dtype=np.float32)
-                done = terminated or truncated
-
-                # Store transition
-                self.agent.store_transition(state, action, reward, next_state, done)
-
-                # Train
-                loss = self.agent.train_step(batch_size=64, step=total_steps)
-                if loss is not None:
-                    episode_loss += loss
-                    num_updates += 1
-
-                state = next_state
-                episode_reward += reward
-                total_steps += 1
-
-                if done:
-                    break
+            # Train from trajectory
+            loss = self.agent.train(trajectory)
 
             # Update target network
             if (episode + 1) % update_target_every == 0:
@@ -261,7 +254,9 @@ class SMN_RL:
             self.agent.decay_epsilon()
 
             # Record history
-            avg_loss = episode_loss / max(num_updates, 1)
+            episode_reward = sum(trajectory.rewards)
+            avg_loss = loss if loss is not None else 0.0
+
             rewards_history.append(episode_reward)
             losses_history.append(avg_loss)
 
@@ -333,27 +328,27 @@ class SMN_RL:
             mean, std, rewards = smn_rl.test(num_episodes=10)
             print(f"Test reward: {mean:.2f} +/- {std:.2f}")
         """
+        # Create MDP if not already created
+        if self._mdp is None:
+            if self._env is not None:
+                self._mdp = GymMDP(self._env)
+            else:
+                raise ValueError("No env or mdp provided")
+
         rewards = []
 
         for episode in range(num_episodes):
-            state, _ = self.env.reset()
-            state = np.array(state, dtype=np.float32)
+            state = self._mdp.reset()
             episode_reward = 0
 
             for step in range(max_steps):
-                if render:
-                    self.env.render()
-
                 # Select action (greedy for deterministic mode)
                 action = self.agent.select_action(
                     state, training=not deterministic
                 )
 
                 # Take step
-                next_state, reward, terminated, truncated, _ = self.env.step(action)
-                next_state = np.array(next_state, dtype=np.float32)
-                done = terminated or truncated
-
+                next_state, reward, done = self._mdp.step(action)
                 state = next_state
                 episode_reward += reward
 
