@@ -1,0 +1,16 @@
+# 运行结果
+runs/
+*.pt
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

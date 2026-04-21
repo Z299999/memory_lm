@@ -113,9 +113,9 @@ class SMN_RL:
         buffer_size: int = 10000,
         train_start: int = 100,  # Lower default for faster learning
         train_frequency: int = 4,
-        checkpoint_dir: str | Path = './checkpoints',
-        log_dir: str | Path = './logs',
-        plot_dir: str | Path = './plots',
+        checkpoint_dir: str | Path = './runs/simplexnet/checkpoints',
+        log_dir: str | Path = './runs/simplexnet/logs',
+        plot_dir: str | Path = './runs/simplexnet/plots',
     ):
         self.env = env
         self.n = n

@@ -23,7 +23,7 @@ pip install torch numpy gymnasium matplotlib
 ### High-level API (Recommended)
 
 ```python
-from TOOLS.SimplexNet import SMN_RL
+from simplexnet import SMN_RL
 import gymnasium as gym
 
 # Create environment
@@ -52,8 +52,8 @@ smn_rl.plot_results()
 ### Low-level API
 
 ```python
-from TOOLS.SimplexNet import SMNmodule
-from TOOLS.SimplexNet.rl.algorithms import DQN
+from simplexnet import SMNmodule
+from simplexnet.rl.algorithms import DQN
 
 # Create Q-network
 q_network = SMNmodule(n=2, m=4, n_in=4, n_out=2)
@@ -85,7 +85,7 @@ for episode in range(500):
 ### SMNmodule
 
 ```python
-from TOOLS.SimplexNet import SMNmodule
+from simplexnet import SMNmodule
 
 module = SMNmodule(
     n=2,                # Simplex dimension (order of simplices)
@@ -103,7 +103,7 @@ output = module(input_tensor)  # input: [batch, n_in], output: [batch, n_out]
 ### SMN_RL
 
 ```python
-from TOOLS.SimplexNet import SMN_RL
+from simplexnet import SMN_RL
 
 smn_rl = SMN_RL(
     env,                    # Gymnasium environment
@@ -114,9 +114,9 @@ smn_rl = SMN_RL(
     epsilon=1.0,            # Initial exploration rate
     epsilon_decay=0.995,    # Epsilon decay per episode
     epsilon_min=0.01,       # Minimum exploration rate
-    checkpoint_dir='./ckpts',
-    log_dir='./logs',
-    plot_dir='./plots'
+    checkpoint_dir='./runs/simplexnet/checkpoints',
+    log_dir='./runs/simplexnet/logs',
+    plot_dir='./runs/simplexnet/plots'
 )
 
 # Train
@@ -142,7 +142,7 @@ smn_rl.plot_results(window=100)
 ### DQN
 
 ```python
-from TOOLS.SimplexNet.rl.algorithms import DQN
+from simplexnet.rl.algorithms import DQN
 
 dqn = DQN(
     q_network,              # SMNmodule instance
@@ -175,15 +175,15 @@ dqn.decay_epsilon()
 ### Tools
 
 ```python
-from tools import CheckpointManager, TrainingLogger, plot_training_curves
+from simplexnet.tools import CheckpointManager, TrainingLogger, plot_training_curves
 
 # Checkpoint management
-ckpt_mgr = CheckpointManager('./checkpoints')
+ckpt_mgr = CheckpointManager('./runs/simplexnet/checkpoints')
 ckpt_mgr.save_checkpoint(module, optimizer, episode, reward)
 checkpoint = ckpt_mgr.load_latest()
 
 # Training logger
-logger = TrainingLogger('./logs')
+logger = TrainingLogger('./runs/simplexnet/logs')
 logger.log_init(config={'lr': 1e-3})
 logger.log_epoch(episode=1, reward=100, loss=0.5)
 logs = logger.get_logs()
@@ -197,25 +197,32 @@ plot_reward_curve(rewards, window=100, save_path='reward.png')
 
 ```
 TOOLS/SimplexNet/
-├── core/                 # Core modules
-│   ├── __init__.py
-│   ├── SimplexMemoryGraph.py   # Simplicial lattice DAG structure
-│   ├── SMNmodule.py            # PyTorch neural network module
-│   └── SMN_RL.py               # High-level RL wrapper
-├── __init__.py           # Package exports (re-exports from core/)
-├── rl/
-│   ├── __init__.py
-│   └── algorithms/
+├── src/
+│   └── simplexnet/             # Package source
 │       ├── __init__.py
-│       └── dqn.py        # DQN algorithm
-├── tools/
-│   ├── __init__.py
-│   ├── checkpoint.py     # Checkpoint management
-│   ├── logger.py         # Training logger
-│   ├── plot.py           # Visualization utilities
-│   └── gui.py            # GUI (Phase 2)
-└── examples/
-    └── train_rl.py       # Training example script
+│       ├── core/               # Core modules
+│       │   ├── __init__.py
+│       │   ├── SimplexMemoryGraph.py   # Simplicial lattice DAG structure
+│       │   ├── SMNmodule.py            # PyTorch neural network module
+│       │   └── SMN_RL.py               # High-level RL wrapper
+│       ├── rl/
+│       │   ├── __init__.py
+│       │   └── algorithms/
+│       │       ├── __init__.py
+│       │       └── dqn.py        # DQN algorithm
+│       └── tools/
+│           ├── __init__.py
+│           ├── checkpoint.py     # Checkpoint management
+│           ├── logger.py         # Training logger
+│           ├── plot.py           # Visualization utilities
+│           └── gui.py            # GUI (Phase 2)
+├── examples/
+│   └── train_rl.py       # Training example script
+└── runs/                 # Run artifacts (auto-generated, ignored by git)
+    └── simplexnet/
+        ├── checkpoints/
+        ├── logs/
+        └── plots/
 ```
 
 ## Examples
@@ -226,6 +233,8 @@ See `examples/` directory for complete training scripts:
 cd TOOLS/SimplexNet
 python3 examples/train_rl.py --env CartPole-v1 --episodes 500
 ```
+
+All outputs (checkpoints, logs, plots) are saved to `runs/simplexnet/` directory.
 
 ## Checkpoint Format
 

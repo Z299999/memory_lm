@@ -30,11 +30,11 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 import gymnasium as gym
 
-from core.SMN_RL import SMN_RL
+from simplexnet.core.SMN_RL import SMN_RL
 
 
 def parse_args():
@@ -70,9 +70,9 @@ def parse_args():
 
     # Directories (relative to script location)
     script_dir = Path(__file__).parent
-    default_checkpoint_dir = script_dir / '../checkpoints'
-    default_log_dir = script_dir / '../logs'
-    default_plot_dir = script_dir / '../plots'
+    default_checkpoint_dir = script_dir / '../runs/simplexnet/checkpoints'
+    default_log_dir = script_dir / '../runs/simplexnet/logs'
+    default_plot_dir = script_dir / '../runs/simplexnet/plots'
 
     parser.add_argument('--checkpoint-dir', type=str, default=str(default_checkpoint_dir),
                         help='Checkpoint directory')
