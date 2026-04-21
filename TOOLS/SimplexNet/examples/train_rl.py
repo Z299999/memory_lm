@@ -68,12 +68,17 @@ def parse_args():
     parser.add_argument('--epsilon-min', type=float, default=0.01,
                         help='Minimum exploration rate')
 
-    # Directories
-    parser.add_argument('--checkpoint-dir', type=str, default='./checkpoints',
+    # Directories (relative to script location)
+    script_dir = Path(__file__).parent
+    default_checkpoint_dir = script_dir / '../checkpoints'
+    default_log_dir = script_dir / '../logs'
+    default_plot_dir = script_dir / '../plots'
+
+    parser.add_argument('--checkpoint-dir', type=str, default=str(default_checkpoint_dir),
                         help='Checkpoint directory')
-    parser.add_argument('--log-dir', type=str, default='./logs',
+    parser.add_argument('--log-dir', type=str, default=str(default_log_dir),
                         help='Log directory')
-    parser.add_argument('--plot-dir', type=str, default='./plots',
+    parser.add_argument('--plot-dir', type=str, default=str(default_plot_dir),
                         help='Plot directory')
 
     # Options
