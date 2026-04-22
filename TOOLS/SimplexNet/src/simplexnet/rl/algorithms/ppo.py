@@ -52,6 +52,8 @@ class PPO:
         self.actor_network = actor_network
         self.critic_network = critic_network
         self.act_dim = act_dim
+        self.actor_lr = actor_lr
+        self.critic_lr = critic_lr
 
         self.gamma = gamma
         self.clip_eps = clip_eps

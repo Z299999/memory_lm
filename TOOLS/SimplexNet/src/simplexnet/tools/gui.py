@@ -656,13 +656,13 @@ DQN Settings:
         elif smn_rl.algorithm == 'ppo':
             info += f"""
 PPO Settings:
-  actor_lr: {smn_rl.agent.actor_lr:.6f}
-  critic_lr: {smn_rl.agent.critic_lr:.6f}
-  clip_eps: {smn_rl.agent.clip_eps}
-  gae_lambda: {smn_rl.agent.gae_lambda}
-  entropy_coef: {smn_rl.agent.entropy_coef}
+  actor_lr: {getattr(smn_rl.agent, 'actor_lr', 'N/A')}
+  critic_lr: {getattr(smn_rl.agent, 'critic_lr', 'N/A')}
+  clip_eps: {getattr(smn_rl.agent, 'clip_eps', 'N/A')}
+  gae_lambda: {getattr(smn_rl.agent, 'gae_lambda', 'N/A')}
+  entropy_coef: {getattr(smn_rl.agent, 'entropy_coef', 'N/A')}
 """
-            if smn_rl.value_network is not None:
+            if getattr(smn_rl, 'value_network', None) is not None:
                 info += f"""
 Value Network: {smn_rl.value_network.arch_str}
   Parameters: {smn_rl.value_network.param_count:,}
