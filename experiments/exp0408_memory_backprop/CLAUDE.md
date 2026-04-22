@@ -19,7 +19,7 @@ python3 -c "
 import sys, math; sys.path.insert(0, 'scripts')
 import yaml; cfg = yaml.safe_load(open('config.yaml'))
 from forward import run_forward
-run_forward(data_path=__import__('pathlib').Path('../exp0406_distil/data/generated/distillation_data.jsonl'),
+run_forward(data_path=__import__('pathlib').Path('../../experiments/exp0406_distil/data/generated/distillation_data.jsonl'),
     runs_dir=__import__('pathlib').Path('runs'), run_id='smoke',
     host_model=cfg['host']['model'], student_model=cfg['student']['model'],
     host_temperature=cfg['host']['temperature'], student_temperature=cfg['student']['temperature'],

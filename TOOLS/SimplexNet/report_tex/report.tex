@@ -28,14 +28,14 @@
 \maketitle
 
 \begin{abstract}
-本文稿描述 \texttt{TOOLS/SimplexNet} 项目的设计规划。该项目是一个面向强化学习的 Simplex Memory Network (SMN) 工具包，基于 \texttt{exp0414\_simplexNet} 的代码实现和 \texttt{writing/w0001-simplex-theory} 的理论基础。文稿分为三部分：其一，说明项目定位与目标用户；其二，描述两层类设计与两个子模块的组织架构；其三，给出实现优先级与 Phase 划分。本文稿旨在在代码实现前完成设计对齐，避免后续返工。
+本文稿描述 \texttt{TOOLS/SimplexNet} 项目的设计规划。该项目是一个面向强化学习的 Simplex Memory Network (SMN) 工具包，基于 \texttt{experiments/exp0414\_simplexNet} 的代码实现和 \texttt{writing/w0001-simplex-theory} 的理论基础。文稿分为三部分：其一，说明项目定位与目标用户；其二，描述两层类设计与两个子模块的组织架构；其三，给出实现优先级与 Phase 划分。本文稿旨在在代码实现前完成设计对齐，避免后续返工。
 \end{abstract}
 
 \tableofcontents
 
 \section{项目定位}
 
-\texttt{TOOLS/SimplexNet} 的核心目标是提供一个\textbf{开箱即用}的 SMN 强化学习工具包，使研究者和开发者能够快速将 SMN 集成到 RL 系统中。与 \texttt{exp0414\_simplexNet} 的"研究原型"定位不同，本项目的定位是\textbf{生产级工具包}。
+\texttt{TOOLS/SimplexNet} 的核心目标是提供一个\textbf{开箱即用}的 SMN 强化学习工具包，使研究者和开发者能够快速将 SMN 集成到 RL 系统中。与 \texttt{experiments/exp0414\_simplexNet} 的"研究原型"定位不同，本项目的定位是\textbf{生产级工具包}。
 
 目标用户包括：
 \begin{itemize}[leftmargin=2em]
@@ -48,7 +48,7 @@
 \begin{enumerate}[leftmargin=2em]
   \item \textbf{最小依赖}：仅需 PyTorch 和 Gymnasium，清晰接口；
   \item \textbf{可恢复训练}：完整的 checkpoint 生命周期管理；
-  \item \textbf{向后兼容}：保持与 \texttt{exp0414} 的 API 互操作性。
+  \item \textbf{向后兼容}：保持与 \texttt{experiments/exp0414} 的 API 互操作性。
 \end{enumerate}
 
 \section{核心类设计}
@@ -282,12 +282,12 @@ TOOLS/SimplexNet/
   \item 文档网站
 \end{itemize}
 
-\section{与 exp0414 的对比}
+\section{与 experiments/exp0414 的对比}
 
 \begin{center}
 \begin{tabular}{p{0.25\linewidth} p{0.3\linewidth} p{0.3\linewidth}}
 \toprule
-方面 & exp0414 (现状) & SimplexNet (目标) \\
+方面 & experiments/exp0414 (现状) & SimplexNet (目标) \\
 \midrule
 定位 & 研究原型 + 实验验证 & 生产级工具包 \\
 代码组织 & 扁平结构 (6 文件) & 模块化分层 \\
@@ -316,10 +316,10 @@ GUI & 无 & PySide 交互窗口 \\
 \section{参考文档}
 
 \begin{itemize}[leftmargin=2em]
-  \item exp0414 工程说明文稿：\texttt{exp0414\_simplexNet/report\_tex/report.tex}
+  \item exp0414 工程说明文稿：\texttt{experiments/exp0414\_simplexNet/report\_tex/report.tex}
   \item SMN 理论文档：\texttt{writing/w0001-simplex-theory/report.tex}
-  \item exp0414 代码：\texttt{exp0414\_simplexNet/src/}
-  \item exp0420 RL 代码：\texttt{exp0420\_RLforSMN/src/}
+  \item exp0414 代码：\texttt{experiments/exp0414\_simplexNet/src/}
+  \item exp0420 RL 代码：\texttt{experiments/exp0420\_RLforSMN/src/}
 \end{itemize}
 
 \end{document}

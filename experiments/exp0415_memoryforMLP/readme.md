@@ -107,4 +107,4 @@ lr= 10.0  y0=0.622  y1_pred=0.005  (need y1≈1)  no
 ## 与后续实验的关系
 
 - **delayed_grad** 的成功揭示：通过修改梯度的时间对齐方式，同一个 MLP 权重可以编码交替序列记忆
-- 下一步：将 delayed_grad 机制引入 exp0414/exp0410 的 simplex/triangle 网络，验证更复杂序列是否也能通过梯度时间对齐来学习
+- 下一步：将 delayed_grad 机制引入 ../../exp0414_simplexNet/ 和 ../../exp0410_triangleNet/ 的 simplex/triangle 网络，验证更复杂序列是否也能通过梯度时间对齐来学习

@@ -299,6 +299,6 @@
 
 ## 参考
 
-- 0414_simplexNet: `exp0414_simplexNet/src/smn_fitter.py` — SMNModule 实现
-- 0414_simplexNet: `exp0414_simplexNet/examples/smn_for_rl.py` — DQN/REINFORCE 示例
+- 0414_simplexNet: `../exp0414_simplexNet/src/smn_fitter.py` — SMNModule 实现
+- 0414_simplexNet: `../exp0414_simplexNet/examples/smn_for_rl.py` — DQN/REINFORCE 示例
 - Gymnasium 文档：https://gymnasium.farama.org/

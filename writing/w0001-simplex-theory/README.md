@@ -33,7 +33,7 @@ w0001-simplex-theory/
 
 ## 代码实现
 
-完整代码实现在 [exp0414_simplexNet](../../exp0414_simplexNet/)
+完整代码实现在 [exp0414_simplexNet](../../experiments/exp0414_simplexNet/)
 
 - **SMNModule**: 纯 PyTorch nn.Module，用于强化学习/自定义训练
 - **SMNFitter**: 高级训练包装器，内置 fit()/predict()/plot()
@@ -43,6 +43,6 @@ w0001-simplex-theory/
 | 资源 | 位置 |
 |------|------|
 | 理论文档 | `writing/w0001-simplex-theory/` |
-| 代码实现 | `exp0414_simplexNet/` |
-| RL 示例 | `exp0414_simplexNet/examples/smn_for_rl.py` |
-| API 文档 | `exp0414_simplexNet/README.md` |
+| 代码实现 | `experiments/exp0414_simplexNet/` |
+| RL 示例 | `experiments/exp0414_simplexNet/examples/smn_for_rl.py` |
+| API 文档 | `experiments/exp0414_simplexNet/README.md` |

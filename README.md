@@ -8,40 +8,40 @@ The codebase is bilingual. Most implementation is in Python, while much of the s
 
 ### Experiments
 
-- `exp0404_three_world/`
+- `experiments/exp0404_three_world/`
   - A world-based testbed for stateless agents with external memory.
   - A `host` controls the world, scoring, and prompting; the tested agent is re-called fresh each round and can only persist information through saved memory files.
   - The most complete experiment runner in the repo.
 
-- `exp0406_distil/`
+- `experiments/exp0406_distil/`
   - A math data generation pipeline that uses an LLM API to create step-by-step supervision data from datasets such as GSM8K and related math corpora.
   - Output is written as conversation-style JSONL for downstream training or experiments.
 
-- `exp0408_memory_backprop/`
+- `experiments/exp0408_memory_backprop/`
   - A follow-on experiment built around an age-structured memory model.
   - Focuses on the simplest discrete case where memory has a single slot and each new response replaces the previous one.
   - Combines forward interaction, host-generated feedback, optional backward training, and visualization.
 
-- `exp0409_atten2017_implement/`
+- `experiments/exp0409_atten2017_implement/`
   - A from-scratch PyTorch reimplementation of the Transformer architecture (Vaswani et al., 2017).
   - Goal: faithful reproduction of every module in the original paper, verified on small data, as a foundation for later fine-tuning experiments.
 
-- `exp0410_triangleNet/`
+- `experiments/exp0410_triangleNet/`
   - Implementation and validation of the **Triangular Memory Network (TMN)**: a DAG architecture where nodes are arranged in a triangle and signal flows along Y (left→right) and Z (vertical + diagonal) axes.
   - Benchmarked against an MLP baseline on 1D and 2D function-fitting tasks.
 
-- `exp0414_simplexNet/`
+- `experiments/exp0414_simplexNet/`
   - **Simplex Memory Networks (SMN)**: a geometric feedforward architecture where hidden nodes are lattice points of a regular n-simplex and information flows along a potential-induced DAG.
   - Full implementation in PyTorch with SISO, MISO, SIMO, and MIMO support. Benchmarked against an MLP baseline across 1D and 2D tasks.
   - Configurable via `params.yaml`; output saved as 4-panel comparison plots (scatter + loss curves).
   - See `report_tex/report.pdf` for the full mathematical treatment.
 
-- `exp0418_brainSimplex/`
+- `experiments/exp0418_brainSimplex/`
   - Directed simplex structure analysis of the **Drosophila central brain connectome**, following the methodology of Reimann et al. (2017).
   - Uses the Oxford C5.4 FlyWire dataset (32 272 nodes, 849 981 directed edges).
   - Counts simplices of dimension 0–15 and compares against null models.
 
-- `exp0415_memoryforMLP/`
+- `experiments/exp0415_memoryforMLP/`
   - Smoke test for whether an MLP can encode sequence memory purely through weight dynamics under online learning.
   - Setup: constant input `1`, alternating targets `0, 1, 0, 1, ...`, MLP `[1, 4, 4, 1]`, one SGD step per time step.
   - **Key finding**: MLP fails — standard SGD gradient always serves the current step and structurally conflicts with predicting the next alternating target. The network collapses to a fixed output regardless of learning rate.
@@ -58,14 +58,15 @@ The codebase is bilingual. Most implementation is in Python, while much of the s
 
 ```text
 memory_lm/
-├── exp0404_three_world/        # stateless-agent external-memory simulator
-├── exp0406_distil/             # math data generation
-├── exp0408_memory_backprop/    # age-structured memory backpropagation
-├── exp0409_atten2017_implement/ # Transformer (2017) reimplementation
-├── exp0410_triangleNet/        # Triangular Memory Network + MLP baseline
-├── exp0414_simplexNet/         # Simplex Memory Networks — full MIMO implementation
-├── exp0415_memoryforMLP/       # MLP online learning smoke test
-├── exp0418_brainSimplex/       # Drosophila connectome simplex analysis
+├── experiments/
+│   ├── exp0404_three_world/        # stateless-agent external-memory simulator
+│   ├── exp0406_distil/             # math data generation
+│   ├── exp0408_memory_backprop/    # age-structured memory backpropagation
+│   ├── exp0409_atten2017_implement/ # Transformer (2017) reimplementation
+│   ├── exp0410_triangleNet/        # Triangular Memory Network + MLP baseline
+│   ├── exp0414_simplexNet/         # Simplex Memory Networks — full MIMO implementation
+│   ├── exp0415_memoryforMLP/       # MLP online learning smoke test
+│   ├── exp0418_brainSimplex/       # Drosophila connectome simplex analysis
 ├── literature/                 # papers, books, TeX drafts, bibliography index
 └── prompt/                     # reusable repo prompts / command templates
 ```
@@ -76,77 +77,77 @@ memory_lm/
 
 Each experiment runs from its own folder. There is no single root install step.
 
-### `exp0404_three_world`
+### `experiments/exp0404_three_world`
 
 ```bash
-cd exp0404_three_world
+cd experiments/exp0404_three_world
 python3 run.py
 ```
 
 Configure `ACTION`, `RUN_ID`, `WORLD_PATH`, `ROUNDS`, `TESTED_MODEL`, `HOST_MODEL` at the top of `run.py`.
 Requires an OpenAI-compatible API endpoint (`DASHSCOPE_API_KEY`, `DASHSCOPE_BASE_URL`).
 
-### `exp0406_distil`
+### `experiments/exp0406_distil`
 
 ```bash
-cd exp0406_distil
+cd experiments/exp0406_distil
 pip install -r requirements.txt
 python3 run.py generate
 ```
 
 Output: `data/generated/distillation_data.jsonl`.
 
-### `exp0408_memory_backprop`
+### `experiments/exp0408_memory_backprop`
 
 ```bash
-cd exp0408_memory_backprop
+cd experiments/exp0408_memory_backprop
 pip install -r requirements.txt
 python3 run.py
 ```
 
-Reads from `../exp0406_distil/data/generated/distillation_data.jsonl` by default.
+Reads from `../../experiments/exp0406_distil/data/generated/distillation_data.jsonl` by default.
 
-### `exp0409_atten2017_implement`
+### `experiments/exp0409_atten2017_implement`
 
 ```bash
-cd exp0409_atten2017_implement
+cd experiments/exp0409_atten2017_implement
 pip install -r requirements.txt
 python3 inference.py
 ```
 
-### `exp0410_triangleNet`
+### `experiments/exp0410_triangleNet`
 
 ```bash
-cd exp0410_triangleNet
+cd experiments/exp0410_triangleNet
 pip install -r requirements.txt
 python3 run.py
 ```
 
 Configure via `params.yaml`. Output images saved to `runs/`.
 
-### `exp0414_simplexNet`
+### `experiments/exp0414_simplexNet`
 
 ```bash
-cd exp0414_simplexNet
+cd experiments/exp0414_simplexNet
 python3 run.py
 ```
 
 Configure `n`, `m`, `n_in`, `n_out`, `task_name`, `epochs`, `num_train` etc. via `params.yaml`. Output images saved to `runs/`.
 
-### `exp0415_memoryforMLP`
+### `experiments/exp0415_memoryforMLP`
 
 ```bash
-cd exp0415_memoryforMLP
+cd experiments/exp0415_memoryforMLP
 pip install -r requirements.txt
 python3 run.py
 ```
 
 Configure via `params.yaml`. Output images saved to `runs/`.
 
-### `exp0418_brainSimplex`
+### `experiments/exp0418_brainSimplex`
 
 ```bash
-cd exp0418_brainSimplex
+cd experiments/exp0418_brainSimplex
 python src/import_oxford_data.py    # standardise raw data
 python src/preprocessing.py         # build adjacency matrix + graph statistics
 python src/simplex_detection.py 15  # count simplices up to dimension 15
@@ -188,13 +189,13 @@ Registry: `prompt/command_list.jsonl`.
 ## Suggested Reading Order
 
 1. This file.
-2. `exp0404_three_world/README.md` — the original external-memory testbed.
-3. `exp0408_memory_backprop/model.md` — memory dynamics motivation.
-4. `exp0410_triangleNet/readme.md` — triangle network architecture and results.
-5. `exp0414_simplexNet/report_tex/report.pdf` — Simplex Memory Networks paper.
-6. `exp0414_simplexNet/README.md` — code, config, and task registry.
-7. `exp0415_memoryforMLP/readme.md` — MLP baseline and why it fails.
-8. `exp0418_brainSimplex/README.md` — connectome simplex analysis.
+2. `experiments/exp0404_three_world/README.md` — the original external-memory testbed.
+3. `experiments/exp0408_memory_backprop/model.md` — memory dynamics motivation.
+4. `experiments/exp0410_triangleNet/readme.md` — triangle network architecture and results.
+5. `experiments/exp0414_simplexNet/report_tex/report.pdf` — Simplex Memory Networks paper.
+6. `experiments/exp0414_simplexNet/README.md` — code, config, and task registry.
+7. `experiments/exp0415_memoryforMLP/readme.md` — MLP baseline and why it fails.
+8. `experiments/exp0418_brainSimplex/README.md` — connectome simplex analysis.
 
 ---
 
@@ -202,11 +203,11 @@ Registry: `prompt/command_list.jsonl`.
 
 | Experiment | Status |
 |---|---|
-| `exp0404_three_world` | Mature, operational |
-| `exp0406_distil` | Usable utility project |
-| `exp0408_memory_backprop` | In-progress, runnable + some forward-looking docs |
-| `exp0409_atten2017_implement` | Runnable reimplementation |
-| `exp0410_triangleNet` | Runnable, benchmarked against MLP |
-| `exp0414_simplexNet` | Complete — full MIMO implementation, benchmarked against MLP |
-| `exp0415_memoryforMLP` | Smoke test complete — MLP baseline established |
-| `exp0418_brainSimplex` | Active — Drosophila connectome simplex analysis in progress |
+| `experiments/exp0404_three_world` | Mature, operational |
+| `experiments/exp0406_distil` | Usable utility project |
+| `experiments/exp0408_memory_backprop` | In-progress, runnable + some forward-looking docs |
+| `experiments/exp0409_atten2017_implement` | Runnable reimplementation |
+| `experiments/exp0410_triangleNet` | Runnable, benchmarked against MLP |
+| `experiments/exp0414_simplexNet` | Complete — full MIMO implementation, benchmarked against MLP |
+| `experiments/exp0415_memoryforMLP` | Smoke test complete — MLP baseline established |
+| `experiments/exp0418_brainSimplex` | Active — Drosophila connectome simplex analysis in progress |

@@ -13,7 +13,7 @@ experiment:
   mode: "new"                           # "new" = auto-create next r0000x | "resume" = continue latest incomplete run
   num_problems: 10                      # null = all 4558
   stub: false                           # true = offline fake LLM for smoke testing
-  data_path: "../exp0406_distil/data/generated/distillation_data.jsonl"
+  data_path: "../../experiments/exp0406_distil/data/generated/distillation_data.jsonl"
   runs_dir: "runs"
 
   max_feedback_rounds: 3                # max feedback turns per problem（事不过三）

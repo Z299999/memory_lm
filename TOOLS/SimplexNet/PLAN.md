@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-**TOOLS/SimplexNet** 是一个封装完善的 Simplex Memory Network (SMN) 工具包，基于 exp0414_simplexNet 的代码实现和 writing/w0001-simplex-theory 的理论基础。
+**TOOLS/SimplexNet** 是一个封装完善的 Simplex Memory Network (SMN) 工具包，基于 experiments/exp0414_simplexNet 的代码实现和 writing/w0001-simplex-theory 的理论基础。
 
 **目标用户：**
 - 想要快速使用 SMN 进行实验的研究者
@@ -12,7 +12,7 @@
 **核心价值：**
 - 开箱即用：最小依赖，清晰接口
 - 可恢复训练：完整的 checkpoint 生命周期管理
-- 向后兼容：保持与 exp0414 的互操作性
+- 向后兼容：保持与 experiments/exp0414 的互操作性
 
 ---
 
@@ -51,9 +51,9 @@ TOOLS/SimplexNet/
 
 ---
 
-## 与 exp0414 的对比
+## 与 experiments/exp0414 的对比
 
-| 方面 | exp0414_simplexNet (现状) | TOOLS/SimplexNet (目标) |
+| 方面 | experiments/exp0414_simplexNet (现状) | TOOLS/SimplexNet (目标) |
 |------|---------------------------|-------------------------|
 | 定位 | 研究原型 + 实验验证 | 生产级工具包 |
 | 代码组织 | 扁平结构 (6 个文件) | 模块化分层 (core/training/problems/utils) |
@@ -61,7 +61,7 @@ TOOLS/SimplexNet/
 | 日志 | 无 | 追加式训练日志 |
 | 配置 | 单一 params.yaml | 分离 model.yaml / train.yaml |
 | 确认机制 | 无 | 配置兼容性检查 + 用户确认 |
-| 向后兼容 | N/A | 保持与 exp0414 API 兼容 |
+| 向后兼容 | N/A | 保持与 experiments/exp0414 API 兼容 |
 
 ---
 
@@ -296,7 +296,7 @@ logger.log('checkpoint_saved', path='...')
 
 ### Phase 1 (高优先级) — 最小可用版本
 
-- [x] `SMNmodule.py` — 网络模型（复制并简化自 exp0414/smn_fitter.py）
+- [x] `SMNmodule.py` — 网络模型（复制并简化自 experiments/exp0414/smn_fitter.py）
 - [x] `SMN_RL.py` — RL 封装类
 - [x] `rl/algorithms/dqn.py` — DQN 算法
 - [x] `tools/checkpoint.py` — CheckpointManager（核心功能）
@@ -329,9 +329,9 @@ logger.log('checkpoint_saved', path='...')
 **计划已就绪，等待用户指令开始 Phase 1 实现。**
 
 实现顺序：
-1. `SMNmodule.py` — 网络模型（基于 exp0414/smn_fitter.py 的 SMNModule）
+1. `SMNmodule.py` — 网络模型（基于 experiments/exp0414/smn_fitter.py 的 SMNModule）
 2. `rl/` 子文件夹创建
-3. `rl/algorithms/dqn.py` — DQN 算法（基于 exp0420/dqn_agent.py）
+3. `rl/algorithms/dqn.py` — DQN 算法（基于 experiments/exp0420/dqn_agent.py）
 4. `tools/` 子文件夹创建
 5. `tools/checkpoint.py` — CheckpointManager
 6. `tools/logger.py` — TrainingLogger
@@ -373,7 +373,7 @@ logger.log('checkpoint_saved', path='...')
 
 ### 与函数拟合任务对比
 
-在 exp0414 的 sin_mix 函数拟合任务中，SMN 表现优异，因为：
+在 experiments/exp0414 的 sin_mix 函数拟合任务中，SMN 表现优异，因为：
 - x_bounds 默认设置为 `[-2π, 2π]` ≈ `[-6.28, 6.28]`
 - 输入范围与任务匹配，无饱和问题
 
@@ -386,7 +386,7 @@ logger.log('checkpoint_saved', path='...')
 
 ## 参考文档
 
-- exp0414 工程说明文稿：`exp0414_simplexNet/report_tex/report.tex`
+- exp0414 工程说明文稿：`experiments/exp0414_simplexNet/report_tex/report.tex`
 - SMN 理论文档：`writing/w0001-simplex-theory/report.tex`
-- exp0414 代码：`exp0414_simplexNet/src/`
-- exp0420 RL 代码：`exp0420_RLforSMN/src/`
+- exp0414 代码：`experiments/exp0414_simplexNet/src/`
+- exp0420 RL 代码：`experiments/exp0420_RLforSMN/src/`
