@@ -48,12 +48,18 @@ from matplotlib.figure import Figure
 
 # Local imports
 try:
+    from ..core.SMNmodule import SMNmodule
     from ..core.SMN_RL import SMN_RL
-    from .checkpoint import CheckpointManager
+    from ..rl.mdp import GymMDP
+    from ..rl.collector import TrajectoryCollector
+    from ..tools.checkpoint import CheckpointManager
 except ImportError:
     import os
     sys.path.insert(0, str(Path(__file__).parent.parent))
+    from core.SMNmodule import SMNmodule
     from core.SMN_RL import SMN_RL
+    from rl.mdp import GymMDP
+    from rl.collector import TrajectoryCollector
     from checkpoint import CheckpointManager
 
 
@@ -89,6 +95,9 @@ class TrainingThread(QThread):
         self._paused = False
         self._stopped = False
 
+        # PPO-specific
+        self.rollout_steps = getattr(smn_rl, 'rollout_steps', 2048)
+
     @property
     def update_signal(self):
         return self.signal_emitter.update_signal
@@ -111,7 +120,10 @@ class TrainingThread(QThread):
         self._stopped = True
 
     def run(self):
-        """Training loop with pause/resume support."""
+        """Training loop with pause/resume support.
+
+        Note: Currently supports DQN and REINFORCE. PPO support pending finalization.
+        """
         try:
             start_episode = 0
             checkpoint = self.smn_rl.checkpoint_mgr.find_latest_checkpoint()
@@ -119,6 +131,7 @@ class TrainingThread(QThread):
                 ckpt = self.smn_rl.checkpoint_mgr.load_latest()
                 if ckpt is not None:
                     start_episode = ckpt.get('episode', 0)
+                    # Load checkpoint based on algorithm
                     if self.smn_rl.algorithm == 'dqn':
                         dqn_checkpoint = {
                             'q_network': ckpt['state_dict'],
@@ -127,6 +140,14 @@ class TrainingThread(QThread):
                             'epsilon': self.smn_rl.agent.epsilon,
                         }
                         self.smn_rl.agent.load_checkpoint_from_dict(dqn_checkpoint)
+                    elif self.smn_rl.algorithm == 'ppo':
+                        ppo_checkpoint = {
+                            'actor_network': ckpt['state_dict'],
+                            'critic_network': ckpt.get('critic_state_dict'),
+                            'actor_optimizer': ckpt.get('actor_optimizer_state'),
+                            'critic_optimizer': ckpt.get('critic_optimizer_state'),
+                        }
+                        self.smn_rl.agent.load_checkpoint_from_dict(ppo_checkpoint)
                     else:
                         reinforce_checkpoint = {
                             'policy_network': ckpt['state_dict'],
@@ -136,13 +157,12 @@ class TrainingThread(QThread):
 
             if self.smn_rl._mdp is None:
                 if self.smn_rl._env is not None:
-                    self.smn_rl._mdp = self.smn_rl._env  # type: ignore
+                    self.smn_rl._mdp = GymMDP(self.smn_rl._env)
                 else:
                     raise ValueError("No env provided")
 
             if self.smn_rl._collector is None:
-                from ..rl.collector import TrajectoryCollector
-                self.smn_rl._collector = TrajectoryCollector(self.smn_rl._mdp)  # type: ignore
+                self.smn_rl._collector = TrajectoryCollector(self.smn_rl._mdp)
 
             rewards_history = []
             losses_history = []
@@ -189,7 +209,7 @@ class TrainingThread(QThread):
 
                 # Save checkpoint
                 if (episode + 1) % self.checkpoint_every == 0:
-                    self.smn_rl.checkpoint_mgr.save_checkpoint(
+                    ckpt_path = self.smn_rl.checkpoint_mgr.save_checkpoint(
                         module=self.smn_rl.network,
                         optimizer=self.smn_rl.agent.optimizer,
                         episode=episode + 1,
@@ -199,7 +219,7 @@ class TrainingThread(QThread):
                             'rewards_history': rewards_history,
                             'losses_history': losses_history,
                             'algorithm': self.smn_rl.algorithm,
-                        }
+                        },
                     )
 
                 # Emit update signal
@@ -292,14 +312,19 @@ class ControlPanel(QWidget):
         self.algo_group_btn = QButtonGroup()
         self.dqn_radio = QRadioButton("DQN (value-based, discrete)")
         self.reinforce_radio = QRadioButton("REINFORCE (policy gradient)")
+        self.ppo_radio = QRadioButton("PPO (actor-critic, continuous)")
         self.algo_group_btn.addButton(self.dqn_radio)
         self.algo_group_btn.addButton(self.reinforce_radio)
+        self.algo_group_btn.addButton(self.ppo_radio)
         if self.smn_rl.algorithm == 'dqn':
             self.dqn_radio.setChecked(True)
+        elif self.smn_rl.algorithm == 'ppo':
+            self.ppo_radio.setChecked(True)
         else:
             self.reinforce_radio.setChecked(True)
         algo_layout.addWidget(self.dqn_radio)
         algo_layout.addWidget(self.reinforce_radio)
+        algo_layout.addWidget(self.ppo_radio)
         algo_group.setLayout(algo_layout)
         layout.addWidget(algo_group)
 
@@ -406,6 +431,7 @@ class ControlPanel(QWidget):
         self.m_spin.setEnabled(not training)
         self.dqn_radio.setEnabled(not training)
         self.reinforce_radio.setEnabled(not training)
+        self.ppo_radio.setEnabled(not training)
 
 
 # =============================================================================
@@ -618,18 +644,33 @@ Configuration:
 
 Algorithm: {smn_rl.algorithm}
   gamma: {smn_rl.agent.gamma}
-  lr: {smn_rl.agent.optimizer.param_groups[0]['lr']:.6f}
 """
         if smn_rl.algorithm == 'dqn':
             info += f"""
 DQN Settings:
+  lr: {smn_rl.agent.optimizer.param_groups[0]['lr']:.6f}
   epsilon: {smn_rl.agent.epsilon:.4f}
   epsilon_decay: {smn_rl.agent.epsilon_decay}
   epsilon_min: {smn_rl.agent.epsilon_min}
 """
-        else:
+        elif smn_rl.algorithm == 'ppo':
+            info += f"""
+PPO Settings:
+  actor_lr: {smn_rl.agent.actor_lr:.6f}
+  critic_lr: {smn_rl.agent.critic_lr:.6f}
+  clip_eps: {smn_rl.agent.clip_eps}
+  gae_lambda: {smn_rl.agent.gae_lambda}
+  entropy_coef: {smn_rl.agent.entropy_coef}
+"""
+            if smn_rl.value_network is not None:
+                info += f"""
+Value Network: {smn_rl.value_network.arch_str}
+  Parameters: {smn_rl.value_network.param_count:,}
+"""
+        else:  # reinforce
             info += f"""
 REINFORCE Settings:
+  lr: {smn_rl.agent.optimizer.param_groups[0]['lr']:.6f}
   entropy_coef: {smn_rl.agent.entropy_coef}
   action_type: {smn_rl.agent.action_type}
 """
