@@ -312,7 +312,7 @@ logger.log('checkpoint_saved', path='...')
 - [x] `rl/algorithms/ppo.py` — PPO 算法（连续动作，高斯策略）
 - [x] `rl/algorithms/reinforce.py` — REINFORCE 算法（policy gradient）
 - [x] `rl/mdp.py` — MDP 定义基类
-- [ ] `tools/gui.py` — PySide 交互窗口
+- [x] `tools/gui.py` — PySide 交互窗口
 - [ ] `tools/checkpoint.py` — 完整兼容性检查
 - [x] **Input normalization fix** — Auto-detect environment bounds for CartPole/etc
 

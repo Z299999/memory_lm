@@ -542,5 +542,17 @@ class SMN_RL:
         print(f"Loaded checkpoint from {path}")
 
     def launch_gui(self) -> None:
-        """Launch GUI for interactive training (Phase 2)."""
-        print("GUI not yet implemented. Coming in Phase 2.")
+        """Launch GUI for interactive training."""
+        from ..tools.gui import TrainingGUI
+        import sys
+        from PySide6.QtWidgets import QApplication
+
+        # Create QApplication if not exists
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+            app.setStyle('Fusion')
+
+        gui = TrainingGUI(self)
+        gui.show()
+        sys.exit(app.exec())
