@@ -39,6 +39,7 @@ Usage::
 
 from __future__ import annotations
 
+import copy
 from collections import deque
 from typing import Optional, TYPE_CHECKING
 
@@ -117,14 +118,9 @@ class DQN:
         self.train_start = train_start
         self.train_frequency = train_frequency
 
-        # Q-network and target network
+        # Q-network and target network (deepcopy preserves activation config)
         self.q_network = q_network
-        self.target_network = SMNmodule(
-            n=q_network.n,
-            m=q_network.m,
-            n_in=q_network.n_in,
-            n_out=q_network.n_out,
-        )
+        self.target_network = copy.deepcopy(q_network)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=lr)
@@ -152,6 +148,8 @@ class DQN:
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
+
+        self._total_steps = 0
 
     def select_action(self, state: np.ndarray, training: bool = True) -> int:
         """Select action using epsilon-greedy policy.
@@ -185,17 +183,18 @@ class DQN:
     def train(self, trajectory: 'MDPTrajectory') -> Optional[float]:
         """Train from a trajectory.
 
-        Args:
-            trajectory: MDPTrajectory containing SARSA sequence
+        Stores all transitions, then performs one SGD update per
+        ``train_frequency`` steps (standard DQN practice).  Training
+        only begins once the buffer contains at least ``train_start``
+        samples.
 
         Returns:
-            Loss value, or None if not enough samples
-
-        This method stores all transitions from the trajectory into
-        the sampler, then performs training steps.
+            Average loss over all updates, or None if no updates were made.
         """
-        # Store all transitions from trajectory
-        for i in range(len(trajectory)):
+        n_steps = len(trajectory)
+        losses: list[float] = []
+
+        for i in range(n_steps):
             self.sampler.store((
                 trajectory.states[i],
                 trajectory.actions[i],
@@ -203,9 +202,15 @@ class DQN:
                 trajectory.next_states[i],
                 trajectory.dones[i],
             ))
+            self._total_steps += 1
 
-        # Train from sampler
-        return self.train_step_from_buffer()
+            if (self._total_steps >= self.train_start
+                    and self._total_steps % self.train_frequency == 0):
+                loss = self.train_step_from_buffer()
+                if loss is not None:
+                    losses.append(loss)
+
+        return float(np.mean(losses)) if losses else None
 
     def train_step(self, batch_size: int = 64, step: int = 0) -> Optional[float]:
         """Perform one training step (alias for train_step_from_buffer).
@@ -245,9 +250,12 @@ class DQN:
         # Current Q-values for taken actions
         current_q = self.q_network(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        # Target Q-values (Double DQN style)
+        # Double DQN: online net selects action, target net evaluates
         with torch.no_grad():
-            next_q = self.target_network(next_states).max(dim=1)[0]
+            best_actions = self.q_network(next_states).argmax(dim=1)
+            next_q = self.target_network(next_states).gather(
+                1, best_actions.unsqueeze(1)
+            ).squeeze(1)
         target_q = rewards + (1 - dones) * self.gamma * next_q
 
         # MSE loss
@@ -279,30 +287,22 @@ class DQN:
             'target_network': self.target_network.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'epsilon': self.epsilon,
+            'total_steps': self._total_steps,
         }, path)
 
     def load_checkpoint(self, path: str) -> None:
         """Load agent checkpoint."""
         checkpoint = torch.load(path, weights_only=False)
-        self.q_network.load_state_dict(checkpoint['q_network'])
-        self.target_network.load_state_dict(checkpoint['target_network'])
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
-        self.epsilon = checkpoint['epsilon']
+        self.load_checkpoint_from_dict(checkpoint)
 
     def load_checkpoint_from_dict(self, checkpoint: dict) -> None:
-        """Load agent checkpoint from dictionary.
-
-        Args:
-            checkpoint: Checkpoint dictionary with keys:
-                - q_network: Q-network state dict
-                - target_network: Target network state dict
-                - optimizer: Optimizer state dict
-                - epsilon: Exploration rate
-        """
+        """Load agent checkpoint from dictionary."""
         self.q_network.load_state_dict(checkpoint['q_network'])
         self.target_network.load_state_dict(checkpoint['target_network'])
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
-        self.epsilon = checkpoint['epsilon']
+        if checkpoint.get('optimizer') is not None:
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+        self.epsilon = checkpoint.get('epsilon', self.epsilon)
+        self._total_steps = checkpoint.get('total_steps', 0)
 
 
 # Quick test

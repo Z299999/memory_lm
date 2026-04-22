@@ -99,7 +99,9 @@ class SMN_RL:
 
         if algorithm == 'dqn':
             self.network = SMNmodule(
-                n=n, m=m, n_in=n_in, n_out=n_out, activation='tanh', x_bounds=x_bounds
+                n=n, m=m, n_in=n_in, n_out=n_out,
+                activation='tanh', output_activation='identity',
+                x_bounds=x_bounds,
             )
             self.agent = DQN(
                 q_network=self.network,
@@ -269,7 +271,7 @@ class SMN_RL:
         self,
         num_episodes: int = 500,
         max_steps: int = 500,
-        update_target_every: int = 100,
+        update_target_every: int = 500,
         checkpoint_every: int = 50,
         verbose: bool = True,
         render: bool = False,
@@ -373,6 +375,8 @@ class SMN_RL:
 
             return rewards_history
 
+        _step_count = getattr(self, '_dqn_step_count', 0)
+
         for episode in range(start_episode, num_episodes):
             trajectory = self._collector.collect_episode(
                 self.agent, max_steps=max_steps, training=True
@@ -380,11 +384,15 @@ class SMN_RL:
             loss = self.agent.train(trajectory)
 
             if self.algorithm == 'dqn':
-                if (episode + 1) % update_target_every == 0:
+                prev = _step_count
+                _step_count += len(trajectory)
+                # Sync target network by env step count
+                if prev // update_target_every != _step_count // update_target_every:
                     self.agent.update_target_network()
                     if verbose:
-                        print(f"Episode {episode + 1}: Updated target network")
+                        print(f"Episode {episode + 1}: Updated target network (step {_step_count})")
                 self.agent.decay_epsilon()
+                self._dqn_step_count = _step_count
 
             episode_reward = sum(trajectory.rewards)
             avg_loss = float(loss) if loss is not None else 0.0
