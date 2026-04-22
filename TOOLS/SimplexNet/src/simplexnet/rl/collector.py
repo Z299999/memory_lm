@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .mdp import MDPTrajectory
+from .mdp import MDPTrajectory, RolloutBatch
 
 if TYPE_CHECKING:
     from .algorithms.dqn import DQN
@@ -47,6 +47,15 @@ class TrajectoryCollector:
             mdp: MDP instance (must have reset() and step() methods)
         """
         self.mdp = mdp
+
+    @staticmethod
+    def _normalize_action(action):
+        """Store scalars as ints when possible, arrays as float vectors."""
+        if np.isscalar(action):
+            if isinstance(action, (int, np.integer)):
+                return int(action)
+            return float(action)
+        return np.array(action, dtype=np.float32)
 
     def collect_episode(self, agent, max_steps: int = 500, training: bool = True) -> MDPTrajectory:
         """Collect one episode of interaction data.
@@ -80,7 +89,7 @@ class TrajectoryCollector:
 
             # Store transition
             trajectory.states.append(np.array(state, dtype=np.float32))
-            trajectory.actions.append(int(action))
+            trajectory.actions.append(self._normalize_action(action))
             trajectory.rewards.append(float(reward))
             trajectory.next_states.append(np.array(next_state, dtype=np.float32))
             trajectory.dones.append(bool(done))
@@ -112,3 +121,47 @@ class TrajectoryCollector:
             traj = self.collect_episode(agent, max_steps=max_steps, training=training)
             trajectories.append(traj)
         return trajectories
+
+    def collect_rollout(
+        self,
+        agent,
+        rollout_steps: int,
+        max_episode_steps: int = 500,
+        training: bool = True,
+    ) -> RolloutBatch:
+        """Collect a fixed-step rollout batch, potentially spanning multiple episodes."""
+        rollout = RolloutBatch()
+        total_steps = 0
+
+        while total_steps < rollout_steps:
+            state = self.mdp.reset()
+            episode_return = 0.0
+            episode_length = 0
+
+            for _ in range(max_episode_steps):
+                action = agent.select_action(state, training=training)
+                aux = {}
+                if hasattr(agent, 'get_last_transition_info'):
+                    aux = agent.get_last_transition_info() or {}
+
+                next_state, reward, done = self.mdp.step(action)
+
+                rollout.states.append(np.array(state, dtype=np.float32))
+                rollout.actions.append(np.array(action, dtype=np.float32))
+                rollout.rewards.append(float(reward))
+                rollout.next_states.append(np.array(next_state, dtype=np.float32))
+                rollout.dones.append(bool(done))
+                rollout.old_log_probs.append(float(aux.get('old_log_prob', 0.0)))
+                rollout.values.append(float(aux.get('value', 0.0)))
+
+                total_steps += 1
+                episode_return += float(reward)
+                episode_length += 1
+                state = next_state
+
+                if done or total_steps >= rollout_steps:
+                    rollout.episode_returns.append(episode_return)
+                    rollout.episode_lengths.append(episode_length)
+                    break
+
+        return rollout

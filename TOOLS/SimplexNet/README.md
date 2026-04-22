@@ -8,7 +8,7 @@ Simplex Memory Network is a geometric neural network architecture built on simpl
 
 - **SMNmodule**: Core neural network with topological forward propagation
 - **SMN_RL**: High-level RL wrapper for training and testing
-- **RL Algorithms**: DQN (with PPO and REINFORCE coming in Phase 2)
+- **RL Algorithms**: DQN, PPO, and REINFORCE
 - **Tools**: Checkpointing, logging, and visualization utilities
 
 ## Installation
@@ -47,6 +47,30 @@ print(f"Test reward: {mean:.2f} +/- {std:.2f}")
 
 # Plot results
 smn_rl.plot_results()
+```
+
+### PPO Example (Continuous Control)
+
+```python
+from simplexnet import SMN_RL
+import gymnasium as gym
+
+env = gym.make('Pendulum-v1')
+
+smn_rl = SMN_RL(
+    env=env,
+    algorithm='ppo',
+    n=2, m=4,
+    n_in=env.observation_space.shape[0],
+    n_out=env.action_space.shape[0],
+    actor_lr=3e-4,
+    critic_lr=1e-3,
+    rollout_steps=2048,
+)
+
+rewards = smn_rl.train(num_episodes=100)
+mean, std, _ = smn_rl.test(num_episodes=5)
+print(f"PPO test reward: {mean:.2f} +/- {std:.2f}")
 ```
 
 ### Low-level API
@@ -209,7 +233,9 @@ TOOLS/SimplexNet/
 │       │   ├── __init__.py
 │       │   └── algorithms/
 │       │       ├── __init__.py
-│       │       └── dqn.py        # DQN algorithm
+│       │       ├── dqn.py        # DQN algorithm
+│       │       ├── ppo.py        # PPO algorithm (continuous Gaussian policy)
+│       │       └── reinforce.py  # REINFORCE algorithm
 │       └── tools/
 │           ├── __init__.py
 │           ├── checkpoint.py     # Checkpoint management
@@ -232,6 +258,7 @@ See `examples/` directory for complete training scripts:
 ```bash
 cd TOOLS/SimplexNet
 python3 examples/train_rl.py --env CartPole-v1 --episodes 500
+python3 examples/train_rl.py --algorithm ppo --env Pendulum-v1 --episodes 100
 ```
 
 All outputs (checkpoints, logs, plots) are saved to `runs/simplexnet/` directory.
@@ -274,8 +301,8 @@ Training logs are stored in JSON Lines format (run.log):
 - [x] High-level SMN_RL wrapper
 
 ### Phase 2 (Next)
-- [ ] PPO algorithm
-- [ ] REINFORCE algorithm
+- [x] PPO algorithm
+- [x] REINFORCE algorithm
 - [ ] PySide-based GUI
 - [ ] Multi-environment support
 

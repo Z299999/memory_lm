@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import numpy as np
 import gymnasium as gym
@@ -49,7 +49,7 @@ class MDPTrajectory:
         dones: List of done flags
     """
     states: List[np.ndarray] = field(default_factory=list)
-    actions: List[int] = field(default_factory=list)
+    actions: List[np.ndarray | int | float] = field(default_factory=list)
     rewards: List[float] = field(default_factory=list)
     next_states: List[np.ndarray] = field(default_factory=list)
     dones: List[bool] = field(default_factory=list)
@@ -62,11 +62,29 @@ class MDPTrajectory:
         import torch
         return {
             'states': torch.FloatTensor(np.array(self.states)),
-            'actions': torch.LongTensor(self.actions),
+            'actions': torch.as_tensor(np.array(self.actions)),
             'rewards': torch.FloatTensor(self.rewards),
             'next_states': torch.FloatTensor(np.array(self.next_states)),
             'dones': torch.FloatTensor(self.dones),
         }
+
+
+@dataclass
+class RolloutBatch:
+    """Rollout data for on-policy algorithms such as PPO."""
+
+    states: List[np.ndarray] = field(default_factory=list)
+    actions: List[np.ndarray] = field(default_factory=list)
+    rewards: List[float] = field(default_factory=list)
+    next_states: List[np.ndarray] = field(default_factory=list)
+    dones: List[bool] = field(default_factory=list)
+    old_log_probs: List[float] = field(default_factory=list)
+    values: List[float] = field(default_factory=list)
+    episode_returns: List[float] = field(default_factory=list)
+    episode_lengths: List[int] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.states)
 
 
 class MDP(ABC):
@@ -90,7 +108,7 @@ class MDP(ABC):
         """Action space definition."""
 
     @abstractmethod
-    def state_transition(self, state: np.ndarray, action: int) -> np.ndarray:
+    def state_transition(self, state: np.ndarray, action: Any) -> np.ndarray:
         """State transition function: s' = f(s, a).
 
         User defines how the state changes given an action.
@@ -103,7 +121,7 @@ class MDP(ABC):
         """
 
     @abstractmethod
-    def reward_function(self, state: np.ndarray, action: int, next_state: np.ndarray) -> float:
+    def reward_function(self, state: np.ndarray, action: Any, next_state: np.ndarray) -> float:
         """Reward function: r = g(s, a, s').
 
         User defines the task objective.
@@ -127,7 +145,7 @@ class MDP(ABC):
         """Check if state is terminal. Override for custom termination."""
         return False
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool]:
+    def step(self, action: Any) -> Tuple[np.ndarray, float, bool]:
         """Standard step interface.
 
         Args:
@@ -219,14 +237,14 @@ class GymMDP(MDP):
         self._env_state, _ = self.env.reset()
         return np.array(self._env_state, dtype=np.float32)
 
-    def state_transition(self, state: np.ndarray, action: int) -> np.ndarray:
+    def state_transition(self, state: np.ndarray, action: Any) -> np.ndarray:
         """State transition handled by Gym environment."""
         # Gym's step() actually does the transition
         # This is called after step() has been called
         # We return the state that was already computed
         return self._next_state
 
-    def reward_function(self, state: np.ndarray, action: int, next_state: np.ndarray) -> float:
+    def reward_function(self, state: np.ndarray, action: Any, next_state: np.ndarray) -> float:
         """Reward handled by Gym environment."""
         # Return the reward that was already computed
         return self._reward
@@ -235,7 +253,7 @@ class GymMDP(MDP):
         """Check termination from Gym environment."""
         return self._done
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool]:
+    def step(self, action: Any) -> Tuple[np.ndarray, float, bool]:
         """Step through Gym environment.
 
         Overrides base class to use Gym's native step().

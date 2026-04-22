@@ -309,7 +309,7 @@ logger.log('checkpoint_saved', path='...')
 
 ### Phase 2 (中优先级) — 增强功能
 
-- [ ] `rl/algorithms/ppo.py` — PPO 算法
+- [x] `rl/algorithms/ppo.py` — PPO 算法（连续动作，高斯策略）
 - [x] `rl/algorithms/reinforce.py` — REINFORCE 算法（policy gradient）
 - [x] `rl/mdp.py` — MDP 定义基类
 - [ ] `tools/gui.py` — PySide 交互窗口

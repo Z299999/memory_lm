@@ -1,126 +1,48 @@
-"""SMN_RL: High-level RL wrapper for Simplex Memory Networks.
-
-This module provides a unified interface for training and testing SMN-based
-RL agents. It integrates:
-- SMNmodule for neural network architecture
-- DQN algorithm for reinforcement learning
-- CheckpointManager for persistence
-- TrainingLogger for experiment tracking
-- Plotting utilities for visualization
-
-Usage::
-
-    from SMN_RL import SMN_RL
-    import gymnasium as gym
-
-    # Create environment
-    env = gym.make('CartPole-v1')
-
-    # Create SMN_RL wrapper
-    smn_rl = SMN_RL(
-        env=env,
-        n=2, m=4,           # Simplex parameters
-        n_in=4, n_out=2,    # Network I/O dimensions
-        gamma=0.99,
-        lr=1e-3,
-        checkpoint_dir='./checkpoints',
-        log_dir='./logs',
-        plot_dir='./plots'
-    )
-
-    # Train
-    rewards = smn_rl.train(num_episodes=500)
-
-    # Test
-    test_reward = smn_rl.test(num_episodes=10)
-
-    # Plot results
-    smn_rl.plot_results()
-"""
+"""SMN_RL: High-level RL wrapper for Simplex Memory Networks."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Optional, Callable, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 import numpy as np
+
+try:
+    import gymnasium as gym
+except ImportError:  # pragma: no cover - gymnasium is a runtime dependency
+    gym = None  # type: ignore
 
 # Support both package mode (import as module) and script mode (direct run)
 try:
     from .SMNmodule import SMNmodule
     from ..rl.algorithms.dqn import DQN
+    from ..rl.algorithms.ppo import PPO
     from ..rl.algorithms.reinforce import REINFORCE
-    from ..rl.mdp import GymMDP, MDPTrajectory
     from ..rl.collector import TrajectoryCollector
+    from ..rl.mdp import GymMDP
     from ..tools.checkpoint import CheckpointManager
     from ..tools.logger import TrainingLogger
-    from ..tools.plot import plot_training_curves, plot_reward_curve
+    from ..tools.plot import plot_reward_curve, plot_training_curves
 except ImportError:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     from .SMNmodule import SMNmodule
     from rl.algorithms.dqn import DQN
+    from rl.algorithms.ppo import PPO
     from rl.algorithms.reinforce import REINFORCE
-    from rl.mdp import GymMDP, MDPTrajectory
     from rl.collector import TrajectoryCollector
+    from rl.mdp import GymMDP
     from tools.checkpoint import CheckpointManager
     from tools.logger import TrainingLogger
-    from tools.plot import plot_training_curves, plot_reward_curve
+    from tools.plot import plot_reward_curve, plot_training_curves
 
 if TYPE_CHECKING:
     import gymnasium as gym
 
 
 class SMN_RL:
-    """High-level RL wrapper for SMN.
-
-    This class provides a simple interface for training and testing SMN-based
-    RL agents, with built-in checkpointing, logging, and visualization.
-
-    Args:
-        env: Gymnasium-style environment with observation_space and action_space
-        algorithm: 'dqn' or 'reinforce'
-        n: Simplex dimension (order of simplices)
-        m: Lattice parameter (size in each dimension)
-        n_in: Input dimension (observation space)
-        n_out: Output dimension (action space)
-        gamma: Discount factor for RL
-        lr: Learning rate
-        epsilon: Initial exploration rate (DQN only)
-        epsilon_decay: Epsilon decay per episode (DQN only)
-        epsilon_min: Minimum exploration rate (DQN only)
-        buffer_size: Replay buffer capacity (DQN only)
-        train_start: Minimum samples before training (DQN only)
-        train_frequency: Train every N steps (DQN only)
-        sampler_type: Sampling strategy (DQN only)
-        entropy_coef: Entropy regularization coefficient (REINFORCE only)
-        action_type: 'discrete' or 'continuous' (REINFORCE only)
-        x_bounds: Per-channel input normalization bounds. If None, uses [(-1, 1)] * n_in
-        checkpoint_dir: Directory for checkpoints
-        log_dir: Directory for logs
-        plot_dir: Directory for plots
-
-    Example::
-
-        # DQN (value-based, discrete actions)
-        smn_rl = SMN_RL(
-            env=gym.make('CartPole-v1'),
-            algorithm='dqn',
-            n=2, m=4,
-            n_in=4, n_out=2
-        )
-
-        # REINFORCE (policy-based, discrete or continuous)
-        smn_rl = SMN_RL(
-            env=gym.make('CartPole-v1'),
-            algorithm='reinforce',
-            n=2, m=4,
-            n_in=4, n_out=2,
-            entropy_coef=0.01
-        )
-    """
+    """High-level RL wrapper for SMN."""
 
     def __init__(
         self,
@@ -132,7 +54,7 @@ class SMN_RL:
         n_out: int = 2,
         gamma: float = 0.99,
         lr: float = 1e-3,
-        # DQN-specific parameters
+        # DQN-specific
         epsilon: float = 1.0,
         epsilon_decay: float = 0.995,
         epsilon_min: float = 0.01,
@@ -140,11 +62,21 @@ class SMN_RL:
         train_start: int = 100,
         train_frequency: int = 4,
         sampler_type: str = 'replay',
-        # REINFORCE-specific parameters
+        # REINFORCE-specific
         entropy_coef: float = 0.0,
         action_type: str = 'discrete',
         action_bounds: tuple[float, float] = (-1.0, 1.0),
         max_grad_norm: float = 0.5,
+        # PPO-specific
+        actor_lr: float = 3e-4,
+        critic_lr: float = 1e-3,
+        clip_eps: float = 0.2,
+        gae_lambda: float = 0.95,
+        update_epochs: int = 10,
+        minibatch_size: int = 64,
+        rollout_steps: int = 2048,
+        log_std_min: float = -5.0,
+        log_std_max: float = 2.0,
         # Input normalization
         x_bounds: list[tuple[float, float]] | None = None,
         # Directories
@@ -152,24 +84,23 @@ class SMN_RL:
         log_dir: str | Path = './runs/simplexnet/logs',
         plot_dir: str | Path = './runs/simplexnet/plots',
     ):
-        # Store either env or mdp
         self._env = env
         self._mdp = None
+        self._collector = None
         self.algorithm = algorithm
 
         self.n = n
         self.m = m
         self.n_in = n_in
         self.n_out = n_out
+        self.rollout_steps = rollout_steps
 
-        # Create policy/Q-network with input normalization
-        # Use tanh for better output balance (relu causes systematic bias)
-        self.network = SMNmodule(
-            n=n, m=m, n_in=n_in, n_out=n_out, activation='tanh', x_bounds=x_bounds
-        )
+        self.value_network: SMNmodule | None = None
 
-        # Create agent based on algorithm
         if algorithm == 'dqn':
+            self.network = SMNmodule(
+                n=n, m=m, n_in=n_in, n_out=n_out, activation='tanh', x_bounds=x_bounds
+            )
             self.agent = DQN(
                 q_network=self.network,
                 act_dim=n_out,
@@ -184,12 +115,17 @@ class SMN_RL:
                 train_frequency=train_frequency,
             )
         elif algorithm == 'reinforce':
-            # For continuous action type, n_out should be 2 * act_dim (mean + log_std)
+            reinforce_n_out = n_out
             if action_type == 'continuous':
-                # Network output is [mean, log_std], so n_out = 2 * act_dim
-                self.network = SMNmodule(
-                    n=n, m=m, n_in=n_in, n_out=2 * n_out, activation='relu', x_bounds=x_bounds
-                )
+                reinforce_n_out = 2 * n_out
+            self.network = SMNmodule(
+                n=n,
+                m=m,
+                n_in=n_in,
+                n_out=reinforce_n_out,
+                activation='relu',
+                x_bounds=x_bounds,
+            )
             self.agent = REINFORCE(
                 policy_network=self.network,
                 act_dim=n_out,
@@ -200,18 +136,134 @@ class SMN_RL:
                 max_grad_norm=max_grad_norm,
                 action_bounds=action_bounds,
             )
-        else:
-            raise ValueError(f"Unknown algorithm: {algorithm}. Choose 'dqn' or 'reinforce'.")
+        elif algorithm == 'ppo':
+            if env is None:
+                raise ValueError("PPO requires a Gymnasium environment.")
+            if gym is None or not isinstance(env.action_space, gym.spaces.Box):
+                raise ValueError("PPO currently only supports continuous Box action spaces.")
 
-        # Initialize collectors and managers
-        self._collector = None  # Created when train() is called
+            action_low = np.asarray(env.action_space.low, dtype=np.float32)
+            action_high = np.asarray(env.action_space.high, dtype=np.float32)
+            act_dim = int(np.prod(env.action_space.shape))
+
+            self.network = SMNmodule(
+                n=n,
+                m=m,
+                n_in=n_in,
+                n_out=2 * act_dim,
+                activation='tanh',
+                output_activation='identity',
+                x_bounds=x_bounds,
+            )
+            self.value_network = SMNmodule(
+                n=n,
+                m=m,
+                n_in=n_in,
+                n_out=1,
+                activation='tanh',
+                output_activation='identity',
+                x_bounds=x_bounds,
+            )
+            self.agent = PPO(
+                actor_network=self.network,
+                critic_network=self.value_network,
+                act_dim=act_dim,
+                actor_lr=actor_lr,
+                critic_lr=critic_lr,
+                gamma=gamma,
+                clip_eps=clip_eps,
+                gae_lambda=gae_lambda,
+                entropy_coef=entropy_coef,
+                update_epochs=update_epochs,
+                minibatch_size=minibatch_size,
+                max_grad_norm=max_grad_norm,
+                action_low=action_low,
+                action_high=action_high,
+                log_std_min=log_std_min,
+                log_std_max=log_std_max,
+            )
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}. Choose 'dqn', 'reinforce', or 'ppo'.")
+
         self.checkpoint_mgr = CheckpointManager(checkpoint_dir)
         self.logger = TrainingLogger(log_dir)
         self.plot_dir = Path(plot_dir)
         self.plot_dir.mkdir(parents=True, exist_ok=True)
 
-        # Training state
         self.training_history: list[dict] = []
+
+    def _ensure_mdp(self) -> None:
+        if self._mdp is None:
+            if self._env is None:
+                raise ValueError("No env provided.")
+            self._mdp = GymMDP(self._env)
+        if self._collector is None:
+            self._collector = TrajectoryCollector(self._mdp)
+
+    def _checkpoint_payload(self) -> dict:
+        if self.algorithm == 'ppo':
+            return {
+                'extra_state': {
+                    'actor_state_dict': self.network.state_dict(),
+                    'critic_state_dict': self.value_network.state_dict() if self.value_network else {},
+                    'actor_optimizer_state': self.agent.actor_optimizer.state_dict(),
+                    'critic_optimizer_state': self.agent.critic_optimizer.state_dict(),
+                    'algorithm': self.algorithm,
+                },
+                'config_override': {
+                    'n': self.n,
+                    'm': self.m,
+                    'n_in': self.n_in,
+                    'n_out': self.n_out,
+                    'algorithm': self.algorithm,
+                },
+                'optimizer': None,
+            }
+
+        return {
+            'extra_state': {'algorithm': self.algorithm},
+            'config_override': {
+                'n': self.n,
+                'm': self.m,
+                'n_in': self.n_in,
+                'n_out': self.n_out,
+                'algorithm': self.algorithm,
+            },
+            'optimizer': self.agent.optimizer,
+        }
+
+    def _load_checkpoint_dict(self, checkpoint: dict) -> int:
+        self.training_history = checkpoint.get('metadata', {}).get('training_history', [])
+        episode = int(checkpoint.get('episode', 0))
+
+        if self.algorithm == 'dqn':
+            dqn_checkpoint = {
+                'q_network': checkpoint['state_dict'],
+                'target_network': checkpoint.get('target_network_state_dict', checkpoint['state_dict']),
+                'optimizer': checkpoint.get('optimizer_state'),
+                'epsilon': checkpoint.get('metadata', {}).get('epsilon', self.agent.epsilon),
+            }
+            self.agent.load_checkpoint_from_dict(dqn_checkpoint)
+        elif self.algorithm == 'reinforce':
+            reinforce_checkpoint = {
+                'policy_network': checkpoint['state_dict'],
+                'optimizer': checkpoint.get('optimizer_state'),
+                'action_type': checkpoint.get('metadata', {}).get('action_type', self.agent.action_type),
+                'act_dim': checkpoint.get('metadata', {}).get('act_dim', self.agent.act_dim),
+                'gamma': checkpoint.get('metadata', {}).get('gamma', self.agent.gamma),
+                'entropy_coef': checkpoint.get('metadata', {}).get('entropy_coef', self.agent.entropy_coef),
+            }
+            self.agent.load_checkpoint_from_dict(reinforce_checkpoint)
+        else:
+            ppo_checkpoint = {
+                'actor_state_dict': checkpoint['actor_state_dict'],
+                'critic_state_dict': checkpoint['critic_state_dict'],
+                'actor_optimizer_state': checkpoint.get('actor_optimizer_state'),
+                'critic_optimizer_state': checkpoint.get('critic_optimizer_state'),
+            }
+            self.agent.load_checkpoint_from_dict(ppo_checkpoint)
+
+        return episode
 
     def train(
         self,
@@ -223,61 +275,27 @@ class SMN_RL:
         render: bool = False,
         reset: bool = False,
     ) -> list[float]:
-        """Train the agent.
+        """Train the agent."""
+        del render
 
-        Args:
-            num_episodes: Number of training episodes
-            max_steps: Maximum steps per episode
-            update_target_every: Update target network every N episodes (DQN only)
-            checkpoint_every: Save checkpoint every N episodes
-            verbose: Print progress
-            render: Render environment (requires gym to support it)
-            reset: Reset training state (ignore existing checkpoint)
-
-        Returns:
-            List of episode rewards
-
-        Example::
-
-            rewards = smn_rl.train(num_episodes=500)
-        """
-        # Try to load checkpoint
-        checkpoint = None
+        self._ensure_mdp()
         start_episode = 0
 
         if not reset:
             checkpoint = self.checkpoint_mgr.load_latest()
             if checkpoint is not None:
-                start_episode = checkpoint.get('episode', 0)
-                # Load checkpoint based on algorithm
-                if self.algorithm == 'dqn':
-                    dqn_checkpoint = {
-                        'q_network': checkpoint['state_dict'],
-                        'target_network': checkpoint['state_dict'],
-                        'optimizer': checkpoint.get('optimizer_state'),
-                        'epsilon': self.agent.epsilon,
-                    }
-                    self.agent.load_checkpoint_from_dict(dqn_checkpoint)
-                else:  # reinforce
-                    reinforce_checkpoint = {
-                        'policy_network': checkpoint['state_dict'],
-                        'optimizer': checkpoint.get('optimizer_state'),
-                    }
-                    self.agent.load_checkpoint_from_dict(reinforce_checkpoint)
-                if verbose:
-                    print(f"Loaded checkpoint from episode {start_episode}")
+                checkpoint_algorithm = checkpoint.get('metadata', {}).get('algorithm', checkpoint.get('algorithm'))
+                if checkpoint_algorithm in (None, self.algorithm):
+                    start_episode = self._load_checkpoint_dict(checkpoint)
+                    self.logger.log_checkpoint_loaded("latest", start_episode)
+                    if verbose:
+                        print(f"Loaded checkpoint from episode {start_episode}")
+                elif verbose:
+                    print(
+                        f"Latest checkpoint algorithm={checkpoint_algorithm} does not match "
+                        f"current algorithm={self.algorithm}; starting fresh."
+                    )
 
-        # Create MDP and collector if not already created
-        if self._mdp is None:
-            if self._env is not None:
-                self._mdp = GymMDP(self._env)
-            else:
-                raise ValueError("No env or mdp provided")
-
-        if self._collector is None:
-            self._collector = TrajectoryCollector(self._mdp)
-
-        # Log training start
         self.logger.log_init(
             config={
                 'algorithm': self.algorithm,
@@ -286,82 +304,130 @@ class SMN_RL:
                 'n_in': self.n_in,
                 'n_out': self.n_out,
                 'gamma': self.agent.gamma,
-                'lr': self.agent.optimizer.param_groups[0]['lr'],
                 'num_episodes': num_episodes,
             }
         )
 
-        rewards_history = []
-        losses_history = []
+        rewards_history = [float(h['reward']) for h in self.training_history]
+        losses_history = [float(h.get('loss', 0.0)) for h in self.training_history]
+
+        if self.algorithm == 'ppo':
+            completed_episodes = start_episode
+            while completed_episodes < num_episodes:
+                rollout = self._collector.collect_rollout(
+                    self.agent,
+                    rollout_steps=self.rollout_steps,
+                    max_episode_steps=max_steps,
+                    training=True,
+                )
+                metrics = self.agent.train(rollout)
+                if metrics is None:
+                    break
+
+                for reward in rollout.episode_returns:
+                    if completed_episodes >= num_episodes:
+                        break
+                    completed_episodes += 1
+                    entry = {
+                        'episode': completed_episodes,
+                        'reward': reward,
+                        'loss': metrics['loss'],
+                        'actor_loss': metrics['actor_loss'],
+                        'critic_loss': metrics['critic_loss'],
+                        'entropy': metrics['entropy'],
+                        'approx_kl': metrics['approx_kl'],
+                        'clip_fraction': metrics['clip_fraction'],
+                        'value_mean': metrics['value_mean'],
+                        'advantage_mean': metrics['advantage_mean'],
+                    }
+                    self.training_history.append(entry)
+                    rewards_history.append(float(reward))
+                    losses_history.append(float(metrics['loss']))
+                    self.logger.log_epoch(**entry)
+
+                    if completed_episodes % checkpoint_every == 0:
+                        ckpt_args = self._checkpoint_payload()
+                        ckpt_path = self.checkpoint_mgr.save_checkpoint(
+                            module=self.network,
+                            optimizer=ckpt_args['optimizer'],
+                            episode=completed_episodes,
+                            reward=float(reward),
+                            loss=float(metrics['loss']),
+                            metadata={
+                                'training_history': self.training_history,
+                                'algorithm': self.algorithm,
+                            },
+                            extra_state=ckpt_args['extra_state'],
+                            config_override=ckpt_args['config_override'],
+                        )
+                        self.logger.log_checkpoint_saved(str(ckpt_path), completed_episodes, float(reward))
+
+                    if verbose and completed_episodes % 10 == 0:
+                        print(
+                            f"Episode {completed_episodes}/{num_episodes} | "
+                            f"Reward: {reward:.2f} | "
+                            f"Actor: {metrics['actor_loss']:.4f} | "
+                            f"Critic: {metrics['critic_loss']:.4f} | "
+                            f"KL: {metrics['approx_kl']:.4f}"
+                        )
+
+            return rewards_history
 
         for episode in range(start_episode, num_episodes):
-            # Collect trajectory using new collector
             trajectory = self._collector.collect_episode(
                 self.agent, max_steps=max_steps, training=True
             )
-
-            # Train from trajectory
             loss = self.agent.train(trajectory)
 
-            # DQN-specific: Update target network
             if self.algorithm == 'dqn':
                 if (episode + 1) % update_target_every == 0:
                     self.agent.update_target_network()
                     if verbose:
                         print(f"Episode {episode + 1}: Updated target network")
-
-                # DQN-specific: Decay epsilon
                 self.agent.decay_epsilon()
 
-            # Record history
             episode_reward = sum(trajectory.rewards)
-            avg_loss = loss if loss is not None else 0.0
-
+            avg_loss = float(loss) if loss is not None else 0.0
             rewards_history.append(episode_reward)
             losses_history.append(avg_loss)
 
-            # Log epsilon for DQN, entropy_coef for REINFORCE
             if self.algorithm == 'dqn':
                 log_extra = {'epsilon': self.agent.epsilon}
             else:
                 log_extra = {'entropy_coef': self.agent.entropy_coef}
 
-            self.training_history.append({
+            entry = {
                 'episode': episode + 1,
                 'reward': episode_reward,
                 'loss': avg_loss,
                 **log_extra,
-            })
+            }
+            self.training_history.append(entry)
+            self.logger.log_epoch(**entry)
 
-            # Log epoch
-            self.logger.log_epoch(
-                episode=episode + 1,
-                reward=episode_reward,
-                loss=avg_loss,
-                **log_extra,
-            )
-
-            # Save checkpoint
             if (episode + 1) % checkpoint_every == 0:
+                ckpt_args = self._checkpoint_payload()
+                extra_state = dict(ckpt_args['extra_state'])
+                if self.algorithm == 'dqn':
+                    extra_state['target_network_state_dict'] = self.agent.target_network.state_dict()
                 ckpt_path = self.checkpoint_mgr.save_checkpoint(
                     module=self.network,
-                    optimizer=self.agent.optimizer,
+                    optimizer=ckpt_args['optimizer'],
                     episode=episode + 1,
                     reward=episode_reward,
                     loss=avg_loss,
                     metadata={
-                        'rewards_history': rewards_history,
-                        'losses_history': losses_history,
+                        'training_history': self.training_history,
                         'algorithm': self.algorithm,
-                    }
+                        **log_extra,
+                    },
+                    extra_state=extra_state,
+                    config_override=ckpt_args['config_override'],
                 )
-                self.logger.log_checkpoint_saved(
-                    str(ckpt_path), episode + 1, episode_reward
-                )
+                self.logger.log_checkpoint_saved(str(ckpt_path), episode + 1, episode_reward)
                 if verbose:
                     print(f"Episode {episode + 1}: Saved checkpoint")
 
-            # Print progress
             if verbose and (episode + 1) % 10 == 0:
                 if self.algorithm == 'dqn':
                     print(
@@ -386,54 +452,25 @@ class SMN_RL:
         render: bool = False,
         deterministic: bool = True,
     ) -> tuple[float, float, list[float]]:
-        """Test the agent.
-
-        Args:
-            num_episodes: Number of test episodes
-            max_steps: Maximum steps per episode
-            render: Render environment
-            deterministic: Use deterministic (greedy) actions
-
-        Returns:
-            Tuple of (mean_reward, std_reward, list_of_rewards)
-
-        Example::
-
-            mean, std, rewards = smn_rl.test(num_episodes=10)
-            print(f"Test reward: {mean:.2f} +/- {std:.2f}")
-        """
-        # Create MDP if not already created
-        if self._mdp is None:
-            if self._env is not None:
-                self._mdp = GymMDP(self._env)
-            else:
-                raise ValueError("No env or mdp provided")
+        """Test the agent."""
+        del render
+        self._ensure_mdp()
 
         rewards = []
-
-        for episode in range(num_episodes):
+        for _ in range(num_episodes):
             state = self._mdp.reset()
-            episode_reward = 0
-
-            for step in range(max_steps):
-                # Select action (greedy for deterministic mode)
-                action = self.agent.select_action(
-                    state, training=not deterministic
-                )
-
-                # Take step
+            episode_reward = 0.0
+            for _ in range(max_steps):
+                action = self.agent.select_action(state, training=not deterministic)
                 next_state, reward, done = self._mdp.step(action)
                 state = next_state
                 episode_reward += reward
-
                 if done:
                     break
-
-            rewards.append(episode_reward)
+            rewards.append(float(episode_reward))
 
         mean_reward = np.mean(rewards)
         std_reward = np.std(rewards)
-
         return float(mean_reward), float(std_reward), rewards
 
     def plot_results(
@@ -442,23 +479,13 @@ class SMN_RL:
         save_path: str | Path | None = None,
         show: bool = False,
     ) -> None:
-        """Plot training results.
-
-        Args:
-            window: Window size for moving average
-            save_path: Path to save figure
-            show: Display figure
-
-        Example::
-
-            smn_rl.plot_results(window=50)
-        """
+        """Plot training results."""
         if not self.training_history:
             print("No training history available. Run train() first.")
             return
 
         rewards = [h['reward'] for h in self.training_history]
-        losses = [h['loss'] for h in self.training_history]
+        losses = [h.get('loss', 0.0) for h in self.training_history]
 
         if save_path is None:
             save_path = self.plot_dir / "training_curves.png"
@@ -470,72 +497,50 @@ class SMN_RL:
             show=show,
         )
 
-        # Also plot reward curve with moving average
         reward_plot_path = self.plot_dir / "reward_curve.png"
         plot_reward_curve(
-            rewards, window=window,
+            rewards,
+            window=window,
             save_path=reward_plot_path,
             title="SMN Reward Curve",
             show=show,
         )
 
     def save_checkpoint(self, path: str | Path) -> None:
-        """Save agent checkpoint manually.
-
-        Args:
-            path: Path to save checkpoint
-        """
+        """Save checkpoint manually."""
+        del path
         if self.training_history:
             last = self.training_history[-1]
             episode = last['episode']
             reward = last['reward']
+            loss = last.get('loss')
         else:
             episode = 0
             reward = 0.0
+            loss = None
 
+        ckpt_args = self._checkpoint_payload()
         ckpt_path = self.checkpoint_mgr.save_checkpoint(
             module=self.network,
-            optimizer=self.agent.optimizer,
+            optimizer=ckpt_args['optimizer'],
             episode=episode,
             reward=reward,
+            loss=loss,
             metadata={
                 'training_history': self.training_history,
                 'algorithm': self.algorithm,
-            }
+            },
+            extra_state=ckpt_args['extra_state'],
+            config_override=ckpt_args['config_override'],
         )
         print(f"Saved checkpoint to {ckpt_path}")
 
     def load_checkpoint(self, path: str | Path) -> None:
-        """Load agent checkpoint manually.
-
-        Args:
-            path: Path to checkpoint file
-        """
-        checkpoint = self.checkpoint_mgr.load_checkpoint(Path(path))
-        if checkpoint is not None:
-            if self.algorithm == 'dqn':
-                dqn_checkpoint = {
-                    'q_network': checkpoint['state_dict'],
-                    'target_network': checkpoint['state_dict'],
-                    'optimizer': checkpoint.get('optimizer_state'),
-                    'epsilon': self.agent.epsilon,
-                }
-                self.agent.load_checkpoint_from_dict(dqn_checkpoint)
-            else:  # reinforce
-                reinforce_checkpoint = {
-                    'policy_network': checkpoint['state_dict'],
-                    'optimizer': checkpoint.get('optimizer_state'),
-                }
-                self.agent.load_checkpoint_from_dict(reinforce_checkpoint)
-            print(f"Loaded checkpoint from {path}")
+        """Load checkpoint manually."""
+        checkpoint = self.checkpoint_mgr.load_full_checkpoint(Path(path))
+        self._load_checkpoint_dict(checkpoint)
+        print(f"Loaded checkpoint from {path}")
 
     def launch_gui(self) -> None:
-        """Launch GUI for interactive training (Phase 2).
-
-        This is a stub for Phase 2 implementation.
-        """
+        """Launch GUI for interactive training (Phase 2)."""
         print("GUI not yet implemented. Coming in Phase 2.")
-        # TODO: Implement PySide-based GUI in tools/gui.py
-        # from tools.gui import TrainingGUI
-        # gui = TrainingGUI(self)
-        # gui.run()

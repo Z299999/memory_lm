@@ -8,9 +8,10 @@ Usage::
     python3 examples/train_rl.py --env CartPole-v1 --episodes 1000
     python3 examples/train_rl.py --env Acrobot-v1 --episodes 1500 --n 6 --m 5
     python3 examples/train_rl.py --env CartPole-v1 --algorithm reinforce --entropy-coef 0.01
+    python3 examples/train_rl.py --algorithm ppo --env Pendulum-v1
 
 Options:
-    --env: Gymnasium environment name (default: CartPole-v1)
+    --env: Gymnasium environment name (default: CartPole-v1, PPO uses Pendulum-v1)
     --episodes: Number of training episodes (default: 1000)
     --n: Simplex dimension (default: 6)
     --m: Lattice parameter (default: 5)
@@ -93,7 +94,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train SMN RL agent')
 
     # Environment
-    parser.add_argument('--env', type=str, default='CartPole-v1',
+    parser.add_argument('--env', type=str, default=None,
                         help='Gymnasium environment name')
 
     # Training parameters
@@ -110,8 +111,8 @@ def parse_args():
 
     # Algorithm selection
     parser.add_argument('--algorithm', type=str, default='dqn',
-                        choices=['dqn', 'reinforce'],
-                        help='RL algorithm: dqn (value-based) or reinforce (policy gradient)')
+                        choices=['dqn', 'reinforce', 'ppo'],
+                        help='RL algorithm: dqn, reinforce, or ppo')
 
     # Sampler type (DQN only)
     parser.add_argument('--sampler-type', type=str, default='replay',
@@ -134,10 +135,28 @@ def parse_args():
 
     # REINFORCE-specific parameters
     parser.add_argument('--entropy-coef', type=float, default=0.0,
-                        help='Entropy regularization coefficient (REINFORCE only)')
+                        help='Entropy regularization coefficient (REINFORCE/PPO)')
     parser.add_argument('--action-type', type=str, default='discrete',
                         choices=['discrete', 'continuous'],
                         help='Action type for REINFORCE: discrete or continuous')
+    parser.add_argument('--actor-lr', type=float, default=3e-4,
+                        help='Actor learning rate (PPO only)')
+    parser.add_argument('--critic-lr', type=float, default=1e-3,
+                        help='Critic learning rate (PPO only)')
+    parser.add_argument('--clip-eps', type=float, default=0.2,
+                        help='PPO clipping epsilon')
+    parser.add_argument('--gae-lambda', type=float, default=0.95,
+                        help='GAE lambda (PPO only)')
+    parser.add_argument('--update-epochs', type=int, default=10,
+                        help='PPO update epochs')
+    parser.add_argument('--minibatch-size', type=int, default=64,
+                        help='PPO minibatch size')
+    parser.add_argument('--rollout-steps', type=int, default=2048,
+                        help='PPO rollout steps')
+    parser.add_argument('--log-std-min', type=float, default=-5.0,
+                        help='Minimum log std clamp (PPO only)')
+    parser.add_argument('--log-std-max', type=float, default=2.0,
+                        help='Maximum log std clamp (PPO only)')
 
     # Directories (relative to script location)
     script_dir = Path(__file__).parent
@@ -169,14 +188,18 @@ def parse_args():
 
 def main():
     args = parse_args()
+    env_name = args.env or ('Pendulum-v1' if args.algorithm == 'ppo' else 'CartPole-v1')
 
     # Create environment
-    print(f"Creating environment: {args.env}")
-    env = gym.make(args.env)
+    print(f"Creating environment: {env_name}")
+    env = gym.make(env_name)
 
     # Infer observation and action dimensions
     obs_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.n
+    if isinstance(env.action_space, gym.spaces.Box):
+        act_dim = int(np.prod(env.action_space.shape))
+    else:
+        act_dim = env.action_space.n
 
     # Infer observation bounds for input normalization
     obs_bounds = get_env_obs_bounds(env)
@@ -202,6 +225,16 @@ def main():
         # REINFORCE-specific
         entropy_coef=args.entropy_coef,
         action_type=args.action_type,
+        # PPO-specific
+        actor_lr=args.actor_lr,
+        critic_lr=args.critic_lr,
+        clip_eps=args.clip_eps,
+        gae_lambda=args.gae_lambda,
+        update_epochs=args.update_epochs,
+        minibatch_size=args.minibatch_size,
+        rollout_steps=args.rollout_steps,
+        log_std_min=args.log_std_min,
+        log_std_max=args.log_std_max,
         # Input normalization
         x_bounds=obs_bounds,
         checkpoint_dir=args.checkpoint_dir,
@@ -213,9 +246,13 @@ def main():
     print(f"SMN architecture: n={args.n}, m={args.m}")
     if args.algorithm == 'dqn':
         print(f"Sampler type: {args.sampler_type}")
+    elif args.algorithm == 'ppo':
+        print(f"Actor lr: {args.actor_lr}, Critic lr: {args.critic_lr}, Rollout steps: {args.rollout_steps}")
     else:
         print(f"Action type: {args.action_type}, Entropy coef: {args.entropy_coef}")
     print(f"Network: {smn_rl.network.arch_str}")
+    if args.algorithm == 'ppo' and smn_rl.value_network is not None:
+        print(f"Value network: {smn_rl.value_network.arch_str}")
 
     if args.test_only:
         # Test only (no training)

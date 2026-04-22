@@ -40,6 +40,16 @@ def _make_activation(name: str):
     raise ValueError(f"Unsupported activation: {name!r}. Choose relu/leaky_relu/gelu/tanh.")
 
 
+def _make_output_activation(name: str):
+    """Return output activation function by name."""
+    name = name.lower()
+    if name == "tanh":
+        return lambda x: torch.tanh(x)
+    elif name == "identity":
+        return lambda x: x
+    raise ValueError(f"Unsupported output_activation: {name!r}. Choose tanh/identity.")
+
+
 class SMNmodule(nn.Module):
     """Simplex Memory Network as a pure PyTorch module.
 
@@ -71,6 +81,7 @@ class SMNmodule(nn.Module):
         n_in: int = 1,
         n_out: int = 1,
         activation: str = "relu",
+        output_activation: str = "tanh",
         x_bounds: list[tuple[float, float]] | None = None,
     ) -> None:
         super().__init__()
@@ -85,6 +96,7 @@ class SMNmodule(nn.Module):
         self.m = m
         self.n_in = n_in
         self.n_out = n_out
+        self.output_activation = output_activation
 
         # Resolve x_bounds and register as buffers so they move with the module
         # (device transfers, state_dict), avoiding torch.tensor() every forward.
@@ -101,6 +113,7 @@ class SMNmodule(nn.Module):
 
         self.graph = SimplexMemoryGraph(n=n, m=m, n_in=n_in, n_out=n_out)
         self.activation_fn = _make_activation(activation)
+        self.output_activation_fn = _make_output_activation(output_activation)
 
         n_edges = len(self.graph.edges)
         n_core = len(self.graph.core_nodes)
@@ -221,13 +234,13 @@ class SMNmodule(nn.Module):
             out = self.activation_fn(agg + self.nb[bias_t])          # (B, n_level)
             hist[:, write_start:write_start + n_level] = out
 
-        # Output nodes (variance-preserving aggregation + tanh)
+        # Output nodes (variance-preserving aggregation + configurable output activation)
         outputs = []
         for i, (out_src_t, out_ew_t) in enumerate(self._output_mappings):
             val = (hist[:, out_src_t] * self.ew[out_ew_t]).sum(1, keepdim=True)
             outputs.append(val * self._output_norm_scales[i])
 
-        return torch.tanh(torch.cat(outputs, dim=1) + self.output_bias)
+        return self.output_activation_fn(torch.cat(outputs, dim=1) + self.output_bias)
 
     # ------------------------------------------------------------------
     # Properties

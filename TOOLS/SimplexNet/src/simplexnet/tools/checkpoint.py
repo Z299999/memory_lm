@@ -115,15 +115,28 @@ class CheckpointManager:
             raise FileNotFoundError(f"Checkpoint not found: {path}")
 
         checkpoint = torch.load(path, weights_only=False)
+        state_dict_keys = []
+        if 'state_dict' in checkpoint:
+            state_dict_keys = list(checkpoint['state_dict'].keys())
+        elif 'actor_state_dict' in checkpoint:
+            state_dict_keys = list(checkpoint['actor_state_dict'].keys())
+
         info = CheckpointInfo(
             timestamp=checkpoint['timestamp'],
             config=checkpoint['config'],
             episode=checkpoint['episode'],
             reward=checkpoint['reward'],
             loss=checkpoint.get('loss'),
-            state_dict_keys=list(checkpoint['state_dict'].keys()),
+            state_dict_keys=state_dict_keys,
         )
-        return checkpoint['state_dict'], info
+        state_dict = checkpoint.get('state_dict', checkpoint.get('actor_state_dict', {}))
+        return state_dict, info
+
+    def load_full_checkpoint(self, path: Path) -> dict:
+        """Load the full raw checkpoint dictionary from disk."""
+        if not path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {path}")
+        return torch.load(path, weights_only=False)
 
     def load_latest(self) -> dict | None:
         """Load the latest checkpoint.
@@ -145,6 +158,8 @@ class CheckpointManager:
         reward: float = 0.0,
         loss: float | None = None,
         metadata: dict | None = None,
+        extra_state: dict | None = None,
+        config_override: dict | None = None,
     ) -> Path:
         """Save checkpoint to disk.
 
@@ -177,7 +192,7 @@ class CheckpointManager:
 
         checkpoint = {
             'timestamp': timestamp,
-            'config': config,
+            'config': config_override or config,
             'episode': episode,
             'reward': reward,
             'loss': loss,
@@ -187,6 +202,9 @@ class CheckpointManager:
 
         if optimizer is not None:
             checkpoint['optimizer_state'] = optimizer.state_dict()
+
+        if extra_state:
+            checkpoint.update(extra_state)
 
         torch.save(checkpoint, checkpoint_path)
         return checkpoint_path
@@ -201,13 +219,19 @@ class CheckpointManager:
             CheckpointInfo object
         """
         checkpoint = torch.load(path, weights_only=False, map_location='cpu')
+        state_dict_keys = []
+        if 'state_dict' in checkpoint:
+            state_dict_keys = list(checkpoint['state_dict'].keys())
+        elif 'actor_state_dict' in checkpoint:
+            state_dict_keys = list(checkpoint['actor_state_dict'].keys())
+
         return CheckpointInfo(
             timestamp=checkpoint['timestamp'],
             config=checkpoint['config'],
             episode=checkpoint['episode'],
             reward=checkpoint['reward'],
             loss=checkpoint.get('loss'),
-            state_dict_keys=list(checkpoint['state_dict'].keys()),
+            state_dict_keys=state_dict_keys,
         )
 
     def delete_checkpoint(self, path: Path) -> bool:
