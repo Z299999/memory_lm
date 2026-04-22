@@ -100,8 +100,8 @@ class SMN_RL:
         if algorithm == 'dqn':
             self.network = SMNmodule(
                 n=n, m=m, n_in=n_in, n_out=n_out,
-                activation='tanh', output_activation='identity',
-                x_bounds=x_bounds,
+                activation='relu', output_activation='identity',
+                normalize_input=False, scale_output=False,
             )
             self.agent = DQN(
                 q_network=self.network,

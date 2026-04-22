@@ -83,6 +83,8 @@ class SMNmodule(nn.Module):
         activation: str = "relu",
         output_activation: str = "tanh",
         x_bounds: list[tuple[float, float]] | None = None,
+        normalize_input: bool = True,
+        scale_output: bool = True,
     ) -> None:
         super().__init__()
         if n < 2:
@@ -97,19 +99,25 @@ class SMNmodule(nn.Module):
         self.n_in = n_in
         self.n_out = n_out
         self.output_activation = output_activation
+        self.normalize_input = normalize_input
+        self.scale_output = scale_output
 
-        # Resolve x_bounds and register as buffers so they move with the module
-        # (device transfers, state_dict), avoiding torch.tensor() every forward.
-        if x_bounds is None:
-            x_bounds = [(-1.0, 1.0)] * n_in
-        if len(x_bounds) != n_in:
-            raise ValueError(f"x_bounds has {len(x_bounds)} entries but n_in={n_in}")
-        self.register_buffer(
-            "_x_min", torch.tensor([b[0] for b in x_bounds], dtype=torch.float32)
-        )
-        self.register_buffer(
-            "_x_max", torch.tensor([b[1] for b in x_bounds], dtype=torch.float32)
-        )
+        # Input normalisation buffers (used only when normalize_input=True).
+        if normalize_input:
+            if x_bounds is None:
+                x_bounds = [(-1.0, 1.0)] * n_in
+            if len(x_bounds) != n_in:
+                raise ValueError(f"x_bounds has {len(x_bounds)} entries but n_in={n_in}")
+            self.register_buffer(
+                "_x_min", torch.tensor([b[0] for b in x_bounds], dtype=torch.float32)
+            )
+            self.register_buffer(
+                "_x_max", torch.tensor([b[1] for b in x_bounds], dtype=torch.float32)
+            )
+        else:
+            # Register dummy buffers so state_dict is consistent regardless of mode.
+            self.register_buffer("_x_min", torch.zeros(n_in))
+            self.register_buffer("_x_max", torch.ones(n_in))
 
         self.graph = SimplexMemoryGraph(n=n, m=m, n_in=n_in, n_out=n_out)
         self.activation_fn = _make_activation(activation)
@@ -191,7 +199,7 @@ class SMNmodule(nn.Module):
                 torch.tensor([hist_idx[node_to_idx[p]] for p in preds], dtype=torch.long),
                 torch.tensor([edge_to_idx[(p, out_node)] for p in preds], dtype=torch.long),
             ))
-            output_norm_scales.append(1.0 / (len(preds) ** 0.5))
+            output_norm_scales.append(1.0 / (len(preds) ** 0.5) if self.scale_output else 1.0)
 
         input_node_indices = [node_to_idx[n] for n in self.graph.input_nodes]
         return level_schedule, output_mappings, output_norm_scales, input_node_indices
@@ -214,10 +222,11 @@ class SMNmodule(nn.Module):
             x = x.unsqueeze(-1)
         batch = x.shape[0]
 
-        # Per-channel normalisation to [-1, 1] using registered buffers
-        x_min = self._x_min.to(dtype=x.dtype)
-        x_max = self._x_max.to(dtype=x.dtype)
-        x = 2.0 * (x - x_min) / (x_max - x_min) - 1.0
+        # Per-channel normalisation to [-1, 1] (skipped when normalize_input=False)
+        if self.normalize_input:
+            x_min = self._x_min.to(dtype=x.dtype)
+            x_max = self._x_max.to(dtype=x.dtype)
+            x = 2.0 * (x - x_min) / (x_max - x_min) - 1.0
 
         # Pre-allocated history buffer: [input cols | core cols]
         hist = x.new_zeros(batch, self.n_in + len(self.graph.core_nodes))
