@@ -279,25 +279,49 @@ plt.savefig(plot_path, dpi=150)
 print(f"\n图表已保存：{plot_path}")
 
 # =============================================================================
-# 9. 演示（render_mode="human"）
+# 9. 演示（render_mode="human" + 保存 GIF）
 # =============================================================================
 
 
 def run_demo(q_net, n_episodes: int = 3) -> None:
-    print(f"\n演示模式（{n_episodes} 集）... 按 Ctrl+C 可提前退出")
-    demo_env = gym.make(config["env_name"], render_mode="human")
+    import imageio
+
+    # 录制 rgb_array 帧用于保存 GIF
+    gif_env = gym.make(config["env_name"], render_mode="rgb_array")
+    frames = []
     for ep in range(n_episodes):
-        s, _ = demo_env.reset()
+        s, _ = gif_env.reset()
         total = 0
         for _ in range(config["max_steps"]):
+            frames.append(gif_env.render())
             with torch.no_grad():
                 a = q_net(torch.FloatTensor(s)).argmax().item()
-            s, r, terminated, truncated, _ = demo_env.step(a)
+            s, r, terminated, truncated, _ = gif_env.step(a)
             total += r
             if terminated or truncated:
                 break
         print(f"  Demo episode {ep + 1}: reward = {total:.0f}")
-    demo_env.close()
+    gif_env.close()
+
+    gif_path = run_dir / "demo.gif"
+    imageio.mimsave(gif_path, frames, fps=30)
+    print(f"  GIF 已保存：{gif_path}")
+
+    # 弹出实时窗口
+    print(f"\n演示模式（{n_episodes} 集）... 按 Ctrl+C 可提前退出")
+    live_env = gym.make(config["env_name"], render_mode="human")
+    for ep in range(n_episodes):
+        s, _ = live_env.reset()
+        total = 0
+        for _ in range(config["max_steps"]):
+            with torch.no_grad():
+                a = q_net(torch.FloatTensor(s)).argmax().item()
+            s, r, terminated, truncated, _ = live_env.step(a)
+            total += r
+            if terminated or truncated:
+                break
+        print(f"  Live episode {ep + 1}: reward = {total:.0f}")
+    live_env.close()
 
 
 if config.get("render", True):
