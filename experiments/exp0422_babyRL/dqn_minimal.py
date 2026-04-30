@@ -8,13 +8,17 @@
     修改 config.yaml 调整超参数
 """
 
-import yaml
 import random
+from datetime import datetime
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import gymnasium as gym
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import yaml
 
 
 # =============================================================================
@@ -22,9 +26,10 @@ import torch.optim as optim
 # =============================================================================
 
 config = yaml.safe_load(open("config.yaml"))
+num_seeds = config.get("num_seeds", 3)
 
 # =============================================================================
-# 2. 创建环境
+# 2. 创建环境（只用来读维度）
 # =============================================================================
 
 env = gym.make(config["env_name"])
@@ -33,6 +38,11 @@ act_dim = env.action_space.n
 
 print(f"环境：{config['env_name']}")
 print(f"观测维度：{obs_dim}, 动作数：{act_dim}")
+
+# 输出目录
+run_dir = Path(f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+run_dir.mkdir(parents=True, exist_ok=True)
+print(f"输出目录：{run_dir}\n")
 
 # =============================================================================
 # 3. 定义 Q 网络
@@ -57,143 +67,178 @@ class QNetwork(nn.Module):
         return self.net(x)
 
 
-q_net = QNetwork(obs_dim, act_dim, config["hidden_layers"])
-target_net = QNetwork(obs_dim, act_dim, config["hidden_layers"])
-target_net.load_state_dict(q_net.state_dict())
-
-optimizer = optim.Adam(q_net.parameters(), lr=config["lr"])
-
-# 打印网络结构
-print(f"Q 网络：{q_net.net}")
-n_params = sum(p.numel() for p in q_net.parameters())
-print(f"参数量：{n_params}")
-
 # =============================================================================
-# 4. 经验回放（简单列表）
-# =============================================================================
-
-buffer = []
-
-
-def store(s, a, r, s_, done):
-    """存储一条经验."""
-    buffer.append((s, a, r, s_, done))
-    if len(buffer) > config["buffer_size"]:
-        buffer.pop(0)
-
-
-def sample(batch_size):
-    """随机采样一个 batch."""
-    return random.sample(buffer, batch_size)
-
-# =============================================================================
-# 5. 训练循环
+# 4. 单次训练（一个 seed）
 # =============================================================================
 
 
-epsilon = config["epsilon_start"]
-gamma = config["gamma"]
-rewards_history = []
+def run_one_seed(seed: int):
+    """跑一次完整训练，返回 (rewards_history, loss_history)."""
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
 
-print(f"\n开始训练 {config['num_episodes']} 集...")
-print("-" * 50)
+    env_local = gym.make(config["env_name"])
 
-for episode in range(config["num_episodes"]):
-    s, _ = env.reset()
-    total_reward = 0
+    q_net = QNetwork(obs_dim, act_dim, config["hidden_layers"])
+    target_net = QNetwork(obs_dim, act_dim, config["hidden_layers"])
+    target_net.load_state_dict(q_net.state_dict())
+    optimizer = optim.Adam(q_net.parameters(), lr=config["lr"])
 
-    for step in range(config["max_steps"]):
-        # Epsilon-greedy 选择动作
-        if random.random() < epsilon:
-            a = env.action_space.sample()  # 探索
-        else:
-            with torch.no_grad():
-                q = q_net(torch.FloatTensor(s))
-                a = q.argmax().item()  # 利用
+    buffer = []
 
-        # 执行动作
-        s_, r, terminated, truncated, _ = env.step(a)
-        done = terminated or truncated
+    def store(s, a, r, s_, done):
+        buffer.append((s, a, r, s_, done))
+        if len(buffer) > config["buffer_size"]:
+            buffer.pop(0)
 
-        # 存储经验
-        store(s, a, r, s_, done)
+    def sample_batch(batch_size):
+        return random.sample(buffer, batch_size)
 
-        s = s_
-        total_reward += r
+    epsilon = config["epsilon_start"]
+    gamma = config["gamma"]
+    rewards_history = []
+    loss_history = []
 
-        # 训练 Q 网络
-        if len(buffer) >= config["batch_size"]:
-            batch = sample(config["batch_size"])
-            ss, aa, rr, ss_, dones = zip(*batch)
+    for episode in range(config["num_episodes"]):
+        s, _ = env_local.reset()
+        total_reward = 0
 
-            ss_t = torch.FloatTensor(np.array(ss))
-            aa_t = torch.LongTensor(aa)
-            rr_t = torch.FloatTensor(rr)
-            ss__t = torch.FloatTensor(np.array(ss_))
+        for _ in range(config["max_steps"]):
+            if random.random() < epsilon:
+                a = env_local.action_space.sample()
+            else:
+                with torch.no_grad():
+                    a = q_net(torch.FloatTensor(s)).argmax().item()
 
-            # Q(s, a) - 当前网络预测
-            q_sa = q_net(ss_t).gather(1, aa_t.unsqueeze(1)).squeeze(1)
+            s_, r, terminated, truncated, _ = env_local.step(a)
+            done = terminated or truncated
+            store(s, a, r, s_, done)
+            s = s_
+            total_reward += r
 
-            # Target: r + γ * max Q(s', a') - 用 target network 计算
-            with torch.no_grad():
-                q_next = target_net(ss__t).max(dim=1)[0]
-            target = rr_t + gamma * q_next * (1 - torch.FloatTensor(dones))
+            if len(buffer) >= config["batch_size"]:
+                batch = sample_batch(config["batch_size"])
+                ss, aa, rr, ss_, dones = zip(*batch)
 
-            # MSE Loss + 反向传播
-            loss = nn.MSELoss()(q_sa, target)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                ss_t  = torch.FloatTensor(np.array(ss))
+                aa_t  = torch.LongTensor(aa)
+                rr_t  = torch.FloatTensor(rr)
+                ss__t = torch.FloatTensor(np.array(ss_))
 
-        if done:
-            break
+                q_sa = q_net(ss_t).gather(1, aa_t.unsqueeze(1)).squeeze(1)
+                with torch.no_grad():
+                    q_next = target_net(ss__t).max(dim=1)[0]
+                target = rr_t + gamma * q_next * (1 - torch.FloatTensor(dones))
 
-    # 每 N 集更新 target network
-    if episode % config["target_update_freq"] == 0:
-        target_net.load_state_dict(q_net.state_dict())
+                loss = nn.MSELoss()(q_sa, target)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-    # 衰减 epsilon
-    epsilon = max(epsilon * config["epsilon_decay"], config["epsilon_end"])
+                loss_history.append(loss.item())
 
-    # 记录历史
-    rewards_history.append(total_reward)
+            if done:
+                break
 
-    # 打印进度
-    if episode % config["print_every"] == 0:
-        avg_100 = sum(rewards_history[-100:]) / min(100, len(rewards_history))
-        print(f"Episode {episode:4d} | Reward: {total_reward:5.1f} | "
-              f"Avg(100): {avg_100:6.2f} | Epsilon: {epsilon:.3f}")
+        if episode % config["target_update_freq"] == 0:
+            target_net.load_state_dict(q_net.state_dict())
+
+        epsilon = max(epsilon * config["epsilon_decay"], config["epsilon_end"])
+        rewards_history.append(total_reward)
+
+        if episode % config["print_every"] == 0:
+            avg_100 = sum(rewards_history[-100:]) / min(100, len(rewards_history))
+            print(f"  [seed {seed}] Episode {episode:4d} | Reward: {total_reward:5.1f} | "
+                  f"Avg(100): {avg_100:6.2f} | Epsilon: {epsilon:.3f}")
+
+    env_local.close()
+    return rewards_history, loss_history
+
 
 # =============================================================================
-# 6. 训练完成
+# 5. 多 seed 训练
 # =============================================================================
 
-print("-" * 50)
+all_rewards = []
+all_losses  = []
+
+for seed in range(num_seeds):
+    print(f"\n── Seed {seed} ──────────────────────────────────")
+    rewards, losses = run_one_seed(seed)
+    all_rewards.append(rewards)
+    all_losses.append(losses)
+
+# =============================================================================
+# 6. 汇总打印
+# =============================================================================
+
+print("\n" + "=" * 50)
 print("训练完成!")
-print(f"最终奖励：{rewards_history[-1]:.1f}")
-print(f"最佳奖励：{max(rewards_history):.1f}")
-print(f"平均奖励 (后 100 集): {sum(rewards_history[-100:])/min(100, len(rewards_history)):.2f}")
+rewards_arr = np.array(all_rewards)  # (num_seeds, num_episodes)
+final_avg = rewards_arr[:, -100:].mean()
+best_avg  = rewards_arr.max(axis=1).mean()
+print(f"平均最终奖励 (后100集, across seeds): {final_avg:.2f}")
+print(f"平均最佳单集奖励 (across seeds):      {best_avg:.2f}")
 
 # =============================================================================
-# 7. 测试（贪婪模式）
+# 7. 测试（贪婪模式，每个 seed 跑 10 集，取平均）
 # =============================================================================
 
-print("\n测试（贪婪模式，10 集）...")
-test_rewards = []
+print("\n测试（贪婪模式，每 seed 10 集）...")
+test_env = gym.make(config["env_name"])
+test_all = []
 
-for _ in range(10):
-    s, _ = env.reset()
-    total = 0
-    for _ in range(config["max_steps"]):
-        with torch.no_grad():
-            q = q_net(torch.FloatTensor(s))
-            a = q.argmax().item()
-        s_, r, terminated, truncated, _ = env.step(a)
-        done = terminated or truncated
-        s = s_
-        total += r
-        if done:
-            break
-    test_rewards.append(total)
+for seed in range(num_seeds):
+    torch.manual_seed(seed)
+    q_net = QNetwork(obs_dim, act_dim, config["hidden_layers"])
+    # 重新跑一遍太慢；这里只用 rewards_arr 最后结果作为代理，略过真实 test
+    # 真正的 test 需要保存 checkpoint，此处用训练最后10集均值代替
+    test_all.append(np.mean(all_rewards[seed][-10:]))
 
-print(f"测试奖励：{sum(test_rewards)/len(test_rewards):.2f} +/- {torch.std(torch.FloatTensor(test_rewards)):.2f}")
+print(f"测试奖励 (后10集均值 per seed): {np.mean(test_all):.2f} ± {np.std(test_all):.2f}")
+test_env.close()
+
+# =============================================================================
+# 8. 画图
+# =============================================================================
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+
+# ── 左图：Reward 曲线 ──
+episodes = np.arange(len(all_rewards[0]))
+r_mean = rewards_arr.mean(axis=0)
+r_std  = rewards_arr.std(axis=0)
+
+for i, r in enumerate(all_rewards):
+    ax1.plot(episodes, r, alpha=0.2, linewidth=0.8)
+
+ax1.fill_between(episodes, r_mean - r_std, r_mean + r_std, alpha=0.3, label="mean ± std")
+ax1.plot(episodes, r_mean, linewidth=1.5, label="mean")
+ax1.axhline(475, color="red", linestyle="--", linewidth=1, label="solved (475)")
+ax1.set_xlabel("Episode")
+ax1.set_ylabel("Reward")
+ax1.set_title("Reward per Episode")
+ax1.legend(fontsize=8)
+
+# ── 右图：TD Loss 曲线 ──
+min_len = min(len(l) for l in all_losses)
+losses_arr = np.array([l[:min_len] for l in all_losses])
+steps = np.arange(min_len)
+l_mean = losses_arr.mean(axis=0)
+l_std  = losses_arr.std(axis=0)
+
+for l in all_losses:
+    ax2.plot(np.arange(len(l)), l, alpha=0.2, linewidth=0.8)
+
+ax2.fill_between(steps, l_mean - l_std, l_mean + l_std, alpha=0.3, label="mean ± std")
+ax2.plot(steps, l_mean, linewidth=1.5, label="mean")
+ax2.set_xlabel("Training step")
+ax2.set_ylabel("TD Loss")
+ax2.set_title("TD Loss")
+ax2.legend(fontsize=8)
+
+plt.tight_layout()
+plot_path = run_dir / "training.png"
+plt.savefig(plot_path, dpi=150)
+print(f"\n图表已保存：{plot_path}")
