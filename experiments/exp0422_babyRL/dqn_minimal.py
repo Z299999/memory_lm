@@ -15,6 +15,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import gymnasium as gym
+from cartpole_custom import CustomCartPole
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -33,7 +34,19 @@ num_seeds = config.get("num_seeds", 3)
 # 2. 创建环境（只用来读维度）
 # =============================================================================
 
-env = gym.make(config["env_name"])
+
+def make_env(render_mode=None):
+    if config.get("use_custom_env", False):
+        return CustomCartPole(
+            render_mode=render_mode,
+            pos_weight=config.get("pos_weight", 0.1),
+            vel_weight=config.get("vel_weight", 0.0),
+        )
+    kwargs = {"render_mode": render_mode} if render_mode else {}
+    return gym.make(config["env_name"], **kwargs)
+
+
+env = make_env()
 obs_dim = env.observation_space.shape[0]
 act_dim = env.action_space.n
 
@@ -79,7 +92,7 @@ def run_one_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
 
-    env_local = gym.make(config["env_name"])
+    env_local = make_env()
 
     q_net = QNetwork(obs_dim, act_dim, config["hidden_layers"])
     target_net = QNetwork(obs_dim, act_dim, config["hidden_layers"])
@@ -219,7 +232,7 @@ print(f"平均最佳单集奖励 (across seeds):      {best_avg:.2f}")
 
 print("\n测试（贪婪模式，10 集）...")
 test_rewards = []
-test_env = gym.make(config["env_name"])
+test_env = make_env()
 for _ in range(10):
     s, _ = test_env.reset()
     total = 0
@@ -287,7 +300,7 @@ def run_demo(q_net, n_episodes: int = 3) -> None:
     import imageio
 
     # 录制 rgb_array 帧用于保存 GIF
-    gif_env = gym.make(config["env_name"], render_mode="rgb_array")
+    gif_env = make_env("rgb_array")
     frames = []
     for ep in range(n_episodes):
         s, _ = gif_env.reset()
@@ -309,7 +322,7 @@ def run_demo(q_net, n_episodes: int = 3) -> None:
 
     # 弹出实时窗口
     print(f"\n演示模式（{n_episodes} 集）... 按 Ctrl+C 可提前退出")
-    live_env = gym.make(config["env_name"], render_mode="human")
+    live_env = make_env("human")
     for ep in range(n_episodes):
         s, _ = live_env.reset()
         total = 0
