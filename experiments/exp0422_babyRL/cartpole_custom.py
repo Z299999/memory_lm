@@ -29,11 +29,15 @@ class CustomCartPole(gym.Env):
     x_threshold     = 2.4
     theta_threshold = 12 * pi / 180   # ≈ 0.2094 rad
 
-    def __init__(self, render_mode=None, pos_weight=0.1, vel_weight=0.0):
+    def __init__(self, render_mode=None,
+                 pos_weight=0.1, vel_weight=0.0,
+                 angle_weight=0.0, angvel_weight=0.0):
         super().__init__()
-        self.render_mode = render_mode
-        self.pos_weight  = pos_weight
-        self.vel_weight  = vel_weight
+        self.render_mode    = render_mode
+        self.pos_weight     = pos_weight
+        self.vel_weight     = vel_weight
+        self.angle_weight   = angle_weight
+        self.angvel_weight  = angvel_weight
 
         # Observation: [x, xdot, theta, thetadot]
         high = np.array([4.8, np.finfo(np.float32).max,
@@ -82,7 +86,11 @@ class CustomCartPole(gym.Env):
         )
 
         # ── Shaped reward ─────────────────────────────────────────────────────
-        reward = 1.0 - self.pos_weight * x ** 2 - self.vel_weight * xdot ** 2
+        reward = (1.0
+                  - self.pos_weight   * x        ** 2
+                  - self.vel_weight   * xdot     ** 2
+                  - self.angle_weight * theta     ** 2
+                  - self.angvel_weight * thetadot ** 2)
 
         if self.render_mode == "human":
             self.render()

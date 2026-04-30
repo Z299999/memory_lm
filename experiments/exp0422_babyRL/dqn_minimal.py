@@ -39,8 +39,10 @@ def make_env(render_mode=None):
     if config.get("use_custom_env", False):
         return CustomCartPole(
             render_mode=render_mode,
-            pos_weight=config.get("pos_weight", 0.1),
-            vel_weight=config.get("vel_weight", 0.0),
+            pos_weight    = config.get("pos_weight",    0.1),
+            vel_weight    = config.get("vel_weight",    0.0),
+            angle_weight  = config.get("angle_weight",  0.0),
+            angvel_weight = config.get("angvel_weight", 0.0),
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     return gym.make(config["env_name"], **kwargs)

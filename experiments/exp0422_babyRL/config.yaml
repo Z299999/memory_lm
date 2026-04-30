@@ -28,5 +28,7 @@ num_seeds: 1              # 重复跑几个 seed（多 seed 统计）
 resume: false             # true = 从 models/latest.pt 继续训练
 render: true              # true = 训练后弹窗演示
 use_custom_env: true      # true = CustomCartPole（自实现物理）
-pos_weight: 0.1           # 小车位置惩罚系数
-vel_weight: 0.05          # 小车速度惩罚系数
+pos_weight: 0.1           # 小车位置惩罚系数   (x)
+vel_weight: 0.05          # 小车速度惩罚系数   (ẋ)
+angle_weight: 0.0         # 杆角度惩罚系数     (θ)
+angvel_weight: 0.0        # 杆角速度惩罚系数   (θ̇)
