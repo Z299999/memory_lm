@@ -24,4 +24,6 @@ target_update_freq: 100   # 每 N 集更新 target network
 # === 训练配置 ===
 num_episodes: 2000        # 训练集数
 print_every: 50           # 每 N 集打印一次
-num_seeds: 3              # 重复跑几个 seed（多 seed 统计）
+num_seeds: 1              # 重复跑几个 seed（多 seed 统计）
+resume: false             # true = 从 models/latest.pt 继续训练
+render: true              # true = 训练后弹窗演示

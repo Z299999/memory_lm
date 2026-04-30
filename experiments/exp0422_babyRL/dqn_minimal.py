@@ -74,7 +74,7 @@ class QNetwork(nn.Module):
 
 
 def run_one_seed(seed: int):
-    """跑一次完整训练，返回 (rewards_history, loss_history)."""
+    """跑一次完整训练，返回 (rewards_history, loss_history, q_net)."""
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
@@ -101,7 +101,22 @@ def run_one_seed(seed: int):
     rewards_history = []
     loss_history = []
 
-    for episode in range(config["num_episodes"]):
+    # Resume from checkpoint if requested
+    models_dir = _here / "models"
+    ckpt_path  = models_dir / "latest.pt"
+    start_episode = 0
+    if config.get("resume", False) and ckpt_path.exists():
+        ckpt = torch.load(ckpt_path, weights_only=False)
+        q_net.load_state_dict(ckpt["q_net"])
+        target_net.load_state_dict(ckpt["target_net"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        epsilon         = ckpt["epsilon"]
+        start_episode   = ckpt["episode"] + 1
+        rewards_history = ckpt["rewards_history"]
+        loss_history    = ckpt["loss_history"]
+        print(f"  [seed {seed}] Resumed from episode {start_episode}")
+
+    for episode in range(start_episode, config["num_episodes"]):
         s, _ = env_local.reset()
         total_reward = 0
 
@@ -154,7 +169,21 @@ def run_one_seed(seed: int):
                   f"Avg(100): {avg_100:6.2f} | Epsilon: {epsilon:.3f}")
 
     env_local.close()
-    return rewards_history, loss_history
+
+    # Save checkpoint
+    models_dir.mkdir(exist_ok=True)
+    torch.save({
+        "q_net":           q_net.state_dict(),
+        "target_net":      target_net.state_dict(),
+        "optimizer":       optimizer.state_dict(),
+        "epsilon":         epsilon,
+        "episode":         config["num_episodes"] - 1,
+        "rewards_history": rewards_history,
+        "loss_history":    loss_history,
+    }, ckpt_path)
+    print(f"  [seed {seed}] Checkpoint saved → {ckpt_path}")
+
+    return rewards_history, loss_history, q_net
 
 
 # =============================================================================
@@ -164,9 +193,10 @@ def run_one_seed(seed: int):
 all_rewards = []
 all_losses  = []
 
+q_net_last = None
 for seed in range(num_seeds):
     print(f"\n── Seed {seed} ──────────────────────────────────")
-    rewards, losses = run_one_seed(seed)
+    rewards, losses, q_net_last = run_one_seed(seed)
     all_rewards.append(rewards)
     all_losses.append(losses)
 
@@ -183,22 +213,25 @@ print(f"平均最终奖励 (后100集, across seeds): {final_avg:.2f}")
 print(f"平均最佳单集奖励 (across seeds):      {best_avg:.2f}")
 
 # =============================================================================
-# 7. 测试（贪婪模式，每个 seed 跑 10 集，取平均）
+# 7. 测试（贪婪模式，用最后一个 seed 的训练好的 q_net）
 # =============================================================================
 
-print("\n测试（贪婪模式，每 seed 10 集）...")
+print("\n测试（贪婪模式，10 集）...")
+test_rewards = []
 test_env = gym.make(config["env_name"])
-test_all = []
-
-for seed in range(num_seeds):
-    torch.manual_seed(seed)
-    q_net = QNetwork(obs_dim, act_dim, config["hidden_layers"])
-    # 重新跑一遍太慢；这里只用 rewards_arr 最后结果作为代理，略过真实 test
-    # 真正的 test 需要保存 checkpoint，此处用训练最后10集均值代替
-    test_all.append(np.mean(all_rewards[seed][-10:]))
-
-print(f"测试奖励 (后10集均值 per seed): {np.mean(test_all):.2f} ± {np.std(test_all):.2f}")
+for _ in range(10):
+    s, _ = test_env.reset()
+    total = 0
+    for _ in range(config["max_steps"]):
+        with torch.no_grad():
+            a = q_net_last(torch.FloatTensor(s)).argmax().item()
+        s, r, terminated, truncated, _ = test_env.step(a)
+        total += r
+        if terminated or truncated:
+            break
+    test_rewards.append(total)
 test_env.close()
+print(f"测试奖励 (10集贪婪): {np.mean(test_rewards):.2f} ± {np.std(test_rewards):.2f}")
 
 # =============================================================================
 # 8. 画图
@@ -243,3 +276,28 @@ plt.tight_layout()
 plot_path = run_dir / "training.png"
 plt.savefig(plot_path, dpi=150)
 print(f"\n图表已保存：{plot_path}")
+
+# =============================================================================
+# 9. 演示（render_mode="human"）
+# =============================================================================
+
+
+def run_demo(q_net, n_episodes: int = 3) -> None:
+    print(f"\n演示模式（{n_episodes} 集）... 按 Ctrl+C 可提前退出")
+    demo_env = gym.make(config["env_name"], render_mode="human")
+    for ep in range(n_episodes):
+        s, _ = demo_env.reset()
+        total = 0
+        for _ in range(config["max_steps"]):
+            with torch.no_grad():
+                a = q_net(torch.FloatTensor(s)).argmax().item()
+            s, r, terminated, truncated, _ = demo_env.step(a)
+            total += r
+            if terminated or truncated:
+                break
+        print(f"  Demo episode {ep + 1}: reward = {total:.0f}")
+    demo_env.close()
+
+
+if config.get("render", True):
+    run_demo(q_net_last)
