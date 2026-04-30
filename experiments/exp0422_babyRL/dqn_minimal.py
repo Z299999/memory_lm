@@ -116,7 +116,8 @@ def run_one_seed(seed: int):
         loss_history    = ckpt["loss_history"]
         print(f"  [seed {seed}] Resumed from episode {start_episode}")
 
-    for episode in range(start_episode, config["num_episodes"]):
+    end_episode = start_episode + config["num_episodes"]
+    for episode in range(start_episode, end_episode):
         s, _ = env_local.reset()
         total_reward = 0
 
@@ -177,7 +178,7 @@ def run_one_seed(seed: int):
         "target_net":      target_net.state_dict(),
         "optimizer":       optimizer.state_dict(),
         "epsilon":         epsilon,
-        "episode":         config["num_episodes"] - 1,
+        "episode":         end_episode - 1,
         "rewards_history": rewards_history,
         "loss_history":    loss_history,
     }, ckpt_path)
