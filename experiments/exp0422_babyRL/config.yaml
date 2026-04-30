@@ -16,12 +16,12 @@ gamma: 0.99               # 折扣因子
 lr: 0.001                 # 学习率
 epsilon_start: 1.0        # 初始探索率
 epsilon_end: 0.01         # 最小探索率
-epsilon_decay: 0.995      # 每集衰减
+epsilon_decay: 0.9975     # 每集衰减（在约第1840集到底）
 buffer_size: 10000        # 经验回放容量
 batch_size: 32            # 批次大小
 target_update_freq: 100   # 每 N 集更新 target network
 
 # === 训练配置 ===
-num_episodes: 1000        # 训练集数
+num_episodes: 2000        # 训练集数
 print_every: 50           # 每 N 集打印一次
 num_seeds: 3              # 重复跑几个 seed（多 seed 统计）

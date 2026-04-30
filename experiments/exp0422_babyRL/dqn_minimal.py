@@ -25,7 +25,8 @@ import yaml
 # 1. 加载配置
 # =============================================================================
 
-config = yaml.safe_load(open("config.yaml"))
+_here = Path(__file__).parent
+config = yaml.safe_load(open(_here / "config.yaml"))
 num_seeds = config.get("num_seeds", 3)
 
 # =============================================================================
@@ -40,7 +41,7 @@ print(f"环境：{config['env_name']}")
 print(f"观测维度：{obs_dim}, 动作数：{act_dim}")
 
 # 输出目录
-run_dir = Path(f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 run_dir.mkdir(parents=True, exist_ok=True)
 print(f"输出目录：{run_dir}\n")
 
