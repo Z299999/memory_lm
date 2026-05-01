@@ -13,8 +13,9 @@ exp0408_memory_backprop/models/student/
 # Exp0408 - ignore generated plots (reproducible from model + runs)
 exp0408_memory_backprop/plots/
 
-# Ignore all runs/ directories across all experiments
+# Ignore all runs/ and models/ directories across all experiments
 **/runs/
+**/models/
 
 # Exp0414 - ignore LaTeX auxiliary files (keep .tex, .bib, and .pdf)
 *.aux
