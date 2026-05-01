@@ -2,6 +2,7 @@
 runs/
 *.pt
 *.log
+examples/output/
 
 # Python
 __pycache__/

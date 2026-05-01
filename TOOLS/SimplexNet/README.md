@@ -18,7 +18,7 @@ This package does **not** include reinforcement learning algorithms, training wr
 Requirements:
 
 ```bash
-pip install torch
+pip install torch matplotlib
 ```
 
 ## Model API
@@ -99,6 +99,12 @@ loss.backward()
 optimizer.step()
 ```
 
+Running `examples/minimal_train.py` now trains on a toy regression task and
+saves:
+
+- `examples/output/minimal_train_loss_curve.png`
+- `examples/output/minimal_train_fit.png`
+
 ## Graph API
 
 ```python
@@ -127,3 +133,8 @@ Runnable non-RL examples are kept in:
 
 - `examples/minimal_forward.py`
 - `examples/minimal_train.py`
+
+These examples are intended to be user-facing demos, not just smoke tests:
+
+- `minimal_forward.py` shows the minimal import and forward-pass workflow
+- `minimal_train.py` renders both the loss curve and the final regression fit
