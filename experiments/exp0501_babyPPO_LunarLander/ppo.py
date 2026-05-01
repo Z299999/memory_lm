@@ -39,6 +39,14 @@ num_seeds = config.get("num_seeds", 1)
 
 
 def make_env(render_mode=None):
+    if config.get("use_ballistic", False):
+        from lunar_ballistic import BallisticLunarLander
+        return BallisticLunarLander(
+            render_mode=render_mode,
+            entry_speed     = config.get("entry_speed",     5.0),
+            entry_angle_deg = config.get("entry_angle_deg", 45.0),
+            random_side     = config.get("random_side",     True),
+        )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     return gym.make(config["env_name"], **kwargs)
 

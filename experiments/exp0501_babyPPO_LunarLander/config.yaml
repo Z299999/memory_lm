@@ -4,6 +4,12 @@
 env_name: "LunarLander-v3"
 max_steps: 1000              # LunarLander episodes can run up to 1000 steps
 
+# === 弹道入射（可选）===
+use_ballistic: false         # true = 飞船以弹道轨迹飞入，而非静止悬浮
+entry_speed: 5.0             # 初始速度大小（物理单位）
+entry_angle_deg: 45.0        # 速度方向与水平面的夹角（向下）
+random_side: true            # true = 随机从左/右飞入
+
 # === 网络结构 ===
 hidden_layers: [64, 64]
 
