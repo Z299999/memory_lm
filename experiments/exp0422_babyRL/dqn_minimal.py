@@ -43,6 +43,8 @@ def make_env(render_mode=None):
             vel_weight    = config.get("vel_weight",    0.0),
             angle_weight  = config.get("angle_weight",  0.0),
             angvel_weight = config.get("angvel_weight", 0.0),
+            acc_weight    = config.get("acc_weight",    0.0),
+            angacc_weight = config.get("angacc_weight", 0.0),
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     return gym.make(config["env_name"], **kwargs)
