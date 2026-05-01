@@ -28,8 +28,9 @@ n_epochs: 10              # 每批数据训练几轮
 batch_size: 64            # minibatch 大小
 
 # === 训练 ===
-continuous_action: true  # true = Gaussian policy F∈[-10,10], false = Categorical(21)
-num_updates: 200          # 总更新次数（总步数 = num_updates × n_steps = 409600）
+continuous_action: true   # true = Gaussian policy F∈[-10,10], false = Categorical(21)
+resume: false             # true = 从 models/latest.pt 继续训练
+num_updates: 200          # 总更新次数（每次续训再跑 200 updates）
 print_every: 10           # 每 N 次 update 打印一次
 num_seeds: 1
 render: true              # 训练后弹窗演示并保存 GIF

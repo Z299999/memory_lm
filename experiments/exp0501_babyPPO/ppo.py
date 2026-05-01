@@ -192,9 +192,25 @@ def run_one_seed(seed: int):
     all_actor_losses  = []
     all_critic_losses = []
 
+    # ── Resume ───────────────────────────────────────────────────────────────
+    models_dir   = _here / "models"
+    ckpt_path    = models_dir / "latest.pt"
+    start_update = 0
+    if config.get("resume", False) and ckpt_path.exists():
+        ckpt = torch.load(ckpt_path, weights_only=False)
+        actor.load_state_dict(ckpt["actor"])
+        critic.load_state_dict(ckpt["critic"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        start_update      = ckpt["update"] + 1
+        all_ep_rewards    = ckpt["ep_rewards"]
+        all_actor_losses  = ckpt["actor_losses"]
+        all_critic_losses = ckpt["critic_losses"]
+        print(f"  [seed {seed}] Resumed from update {start_update}")
+
     s, _ = env.reset()
 
-    for update in range(num_updates):
+    end_update = start_update + num_updates
+    for update in range(start_update, end_update):
         # ── Step 1: 收集 rollout ──────────────────────────────────────────────
         buf_s, buf_a, buf_logp, buf_r, buf_done, buf_v = [], [], [], [], [], []
         ep_reward = 0.0
@@ -293,6 +309,21 @@ def run_one_seed(seed: int):
                   f"Critic loss: {all_critic_losses[-1]:.4f}")
 
     env.close()
+
+    # ── Save checkpoint ───────────────────────────────────────────────────────
+    models_dir.mkdir(exist_ok=True)
+    torch.save({
+        "actor":         actor.state_dict(),
+        "critic":        critic.state_dict(),
+        "optimizer":     optimizer.state_dict(),
+        "update":        end_update - 1,
+        "ep_rewards":    all_ep_rewards,
+        "actor_losses":  all_actor_losses,
+        "critic_losses": all_critic_losses,
+        "continuous":    CONTINUOUS,
+    }, ckpt_path)
+    print(f"  [seed {seed}] Checkpoint saved → {ckpt_path}")
+
     return all_ep_rewards, all_actor_losses, all_critic_losses, actor
 
 
