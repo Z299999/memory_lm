@@ -25,7 +25,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
-from torch.distributions import Categorical
+from torch.distributions import Categorical, Normal
 
 from cartpole_custom import CustomCartPole
 
@@ -35,7 +35,8 @@ from cartpole_custom import CustomCartPole
 
 _here = Path(__file__).parent
 config = yaml.safe_load(open(_here / "config.yaml"))
-num_seeds = config.get("num_seeds", 1)
+num_seeds  = config.get("num_seeds", 1)
+CONTINUOUS = config.get("continuous_action", False)
 
 # =============================================================================
 # 2. 环境工厂
@@ -52,6 +53,7 @@ def make_env(render_mode=None):
             angvel_weight = config.get("angvel_weight", 0.0),
             acc_weight    = config.get("acc_weight",    0.0),
             angacc_weight = config.get("angacc_weight", 0.0),
+            continuous    = CONTINUOUS,
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     return gym.make(config["env_name"], **kwargs)
@@ -59,10 +61,11 @@ def make_env(render_mode=None):
 
 _probe = make_env()
 obs_dim = _probe.observation_space.shape[0]
-act_dim = _probe.action_space.n
+act_dim = _probe.action_space.shape[0] if CONTINUOUS else _probe.action_space.n
 _probe.close()
 
-print(f"环境：{config['env_name']}  obs={obs_dim}  act={act_dim}")
+mode_str = "continuous F∈[-10,10]" if CONTINUOUS else f"discrete {act_dim} actions"
+print(f"环境：{config['env_name']}  obs={obs_dim}  action={mode_str}")
 
 run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 run_dir.mkdir(parents=True, exist_ok=True)
@@ -98,6 +101,28 @@ class Actor(nn.Module):
         """给定 (s, a) 计算 log π(a|s) 和熵，用于 PPO 更新。"""
         dist = Categorical(logits=self.net(s))
         return dist.log_prob(a), dist.entropy()
+
+
+class ContinuousActor(nn.Module):
+    """Gaussian policy: outputs μ(s), learned log σ (state-independent)."""
+    def __init__(self):
+        super().__init__()
+        self.net     = _mlp(obs_dim, act_dim, config["hidden_layers"])
+        self.log_std = nn.Parameter(torch.zeros(act_dim))
+
+    def _dist(self, s):
+        mu  = torch.tanh(self.net(s)) * 10.0           # squash to [-10, 10]
+        std = self.log_std.exp().clamp(0.01, 5.0)
+        return Normal(mu, std)
+
+    def forward(self, s):
+        dist   = self._dist(s)
+        action = dist.sample().clamp(-10.0, 10.0)
+        return action, dist.log_prob(action).sum(-1), dist.entropy().sum(-1)
+
+    def log_prob_entropy(self, s, a):
+        dist = self._dist(s)
+        return dist.log_prob(a).sum(-1), dist.entropy().sum(-1)
 
 
 class Critic(nn.Module):
@@ -146,7 +171,7 @@ def run_one_seed(seed: int):
     np.random.seed(seed)
 
     env = make_env()
-    actor  = Actor()
+    actor  = ContinuousActor() if CONTINUOUS else Actor()
     critic = Critic()
     optimizer = optim.Adam(
         list(actor.parameters()) + list(critic.parameters()),
@@ -181,11 +206,13 @@ def run_one_seed(seed: int):
                 a, logp, _ = actor(s_t)
                 v = critic(s_t).item()
 
-            s2, r, terminated, truncated, _ = env.step(a.item())
+            a_env = a.numpy() if CONTINUOUS else a.item()
+            s2, r, terminated, truncated, _ = env.step(a_env)
             done = terminated or truncated
 
             buf_s.append(s)
-            buf_a.append(a.item())
+            a_store = a.numpy() if CONTINUOUS else a.item()
+            buf_a.append(a_store)
             buf_logp.append(logp.item())
             buf_r.append(r)
             buf_done.append(float(done))
@@ -215,7 +242,8 @@ def run_one_seed(seed: int):
 
         # 转成 tensor
         t_s    = torch.FloatTensor(np.array(buf_s))
-        t_a    = torch.LongTensor(buf_a)
+        t_a    = torch.FloatTensor(np.array(buf_a)) if CONTINUOUS \
+                 else torch.LongTensor(buf_a)
         t_logp = torch.FloatTensor(buf_logp)
         t_adv  = torch.FloatTensor(advantages)
         t_ret  = torch.FloatTensor(returns)
@@ -304,8 +332,11 @@ for _ in range(10):
     total = 0
     for _ in range(config["max_steps"]):
         with torch.no_grad():
-            logits = actor_last.net(torch.FloatTensor(s))
-            a = logits.argmax().item()
+            s_t = torch.FloatTensor(s)
+            if CONTINUOUS:
+                a = (torch.tanh(actor_last.net(s_t)) * 10.0).numpy()
+            else:
+                a = actor_last.net(s_t).argmax().item()
         s, r, terminated, truncated, _ = test_env.step(a)
         total += r
         if terminated or truncated:
@@ -366,7 +397,11 @@ def run_demo(actor, n_episodes=3):
         for _ in range(config["max_steps"]):
             frames.append(gif_env.render())
             with torch.no_grad():
-                a = actor_last.net(torch.FloatTensor(s)).argmax().item()
+                s_t = torch.FloatTensor(s)
+                if CONTINUOUS:
+                    a = (torch.tanh(actor_last.net(s_t)) * 10.0).numpy()
+                else:
+                    a = actor_last.net(s_t).argmax().item()
             s, r, terminated, truncated, _ = gif_env.step(a)
             total += r
             if terminated or truncated:
@@ -384,7 +419,11 @@ def run_demo(actor, n_episodes=3):
         total = 0
         for _ in range(config["max_steps"]):
             with torch.no_grad():
-                a = actor_last.net(torch.FloatTensor(s)).argmax().item()
+                s_t = torch.FloatTensor(s)
+                if CONTINUOUS:
+                    a = (torch.tanh(actor_last.net(s_t)) * 10.0).numpy()
+                else:
+                    a = actor_last.net(s_t).argmax().item()
             s, r, terminated, truncated, _ = live_env.step(a)
             total += r
             if terminated or truncated:

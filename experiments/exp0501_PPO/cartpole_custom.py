@@ -32,7 +32,8 @@ class CustomCartPole(gym.Env):
     def __init__(self, render_mode=None,
                  pos_weight=0.1, vel_weight=0.0,
                  angle_weight=0.0, angvel_weight=0.0,
-                 acc_weight=0.0, angacc_weight=0.0):
+                 acc_weight=0.0, angacc_weight=0.0,
+                 continuous: bool = False):
         super().__init__()
         self.render_mode    = render_mode
         self.pos_weight     = pos_weight
@@ -41,13 +42,18 @@ class CustomCartPole(gym.Env):
         self.angvel_weight  = angvel_weight
         self.acc_weight     = acc_weight
         self.angacc_weight  = angacc_weight
+        self.continuous     = continuous
 
         # Observation: [x, xdot, theta, thetadot]
         high = np.array([4.8, np.finfo(np.float32).max,
                          0.418, np.finfo(np.float32).max], dtype=np.float32)
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
-        # 21 discrete actions: 0→F=-10N, 10→F=0N, 20→F=+10N
-        self.action_space      = spaces.Discrete(21)
+        if continuous:
+            # continuous force F ∈ [-10, 10] N
+            self.action_space = spaces.Box(-10.0, 10.0, shape=(1,), dtype=np.float32)
+        else:
+            # 21 discrete actions: 0→F=-10N, 10→F=0N, 20→F=+10N
+            self.action_space = spaces.Discrete(21)
 
         self.state  = None
         self._screen = None
@@ -65,7 +71,10 @@ class CustomCartPole(gym.Env):
     def step(self, action):
         x, xdot, theta, thetadot = self.state
 
-        F = float(action - 10)   # action 0→-10N, 10→0N, 20→+10N
+        if self.continuous:
+            F = float(action[0])             # continuous: direct force value
+        else:
+            F = float(action - 10)           # discrete: 0..20 → -10..+10 N
 
         # ── Lagrangian dynamics ───────────────────────────────────────────────
         costh = cos(theta)
