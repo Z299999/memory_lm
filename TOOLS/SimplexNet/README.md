@@ -105,6 +105,9 @@ saves:
 - `examples/output/minimal_train_loss_curve.png`
 - `examples/output/minimal_train_fit.png`
 
+The training demo compares SMN against a similar-parameter MLP baseline and
+annotates the saved figures with the model settings and final losses.
+
 ## Graph API
 
 ```python
@@ -137,4 +140,5 @@ Runnable non-RL examples are kept in:
 These examples are intended to be user-facing demos, not just smoke tests:
 
 - `minimal_forward.py` shows the minimal import and forward-pass workflow
-- `minimal_train.py` renders both the loss curve and the final regression fit
+- `minimal_train.py` renders both the loss curve and the final regression fit,
+  including a similar-parameter MLP baseline for comparison
