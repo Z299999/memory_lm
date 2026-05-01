@@ -100,14 +100,20 @@ class CustomCartPole(gym.Env):
     def render(self):
         try:
             import pygame
+            from pygame import gfxdraw
         except ImportError as e:
             raise gym.error.DependencyNotInstalled(
-                'pygame is not installed, run `pip install pygame`'
+                'pygame is not installed, run `pip install "gymnasium[classic-control]"`'
             ) from e
 
         screen_w, screen_h = 600, 400
-        scale = screen_w / (2 * self.x_threshold * 2)   # pixels per meter
-        cart_y = screen_h * 0.6                          # cart vertical position
+        scale       = screen_w / (self.x_threshold * 2)
+        polewidth   = 10.0
+        polelen     = scale * (2 * self.l)
+        cartwidth   = 50.0
+        cartheight  = 30.0
+        carty       = 100                        # distance from top (pre-flip)
+        axleoffset  = cartheight / 4.0
 
         if self._screen is None:
             pygame.init()
@@ -119,34 +125,41 @@ class CustomCartPole(gym.Env):
                 self._screen = pygame.Surface((screen_w, screen_h))
             self._clock = pygame.time.Clock()
 
-        # ── Draw ──────────────────────────────────────────────────────────────
-        self._screen.fill((255, 255, 255))
+        surf = pygame.Surface((screen_w, screen_h))
+        surf.fill((255, 255, 255))
 
         x, _, theta, _ = self.state
-        cart_x = int(x * scale + screen_w / 2)
+        cartx = x * scale + screen_w / 2.0
 
-        # Cart
-        cart_w, cart_h = 80, 30
-        cart_rect = pygame.Rect(cart_x - cart_w // 2,
-                                int(cart_y) - cart_h // 2,
-                                cart_w, cart_h)
-        pygame.draw.rect(self._screen, (100, 100, 100), cart_rect)
+        # ── Cart (anti-aliased filled polygon) ────────────────────────────────
+        l, r, t, b = -cartwidth/2, cartwidth/2, cartheight/2, -cartheight/2
+        cart_coords = [(c[0] + cartx, c[1] + carty)
+                       for c in [(l, b), (l, t), (r, t), (r, b)]]
+        gfxdraw.aapolygon(surf, cart_coords, (0, 0, 0))
+        gfxdraw.filled_polygon(surf, cart_coords, (0, 0, 0))
 
-        # Pole
-        pole_len = self.l * 2 * scale   # full pole in pixels
-        pole_x2  = cart_x  + pole_len * sin(theta)
-        pole_y2  = cart_y  - pole_len * cos(theta)
-        pygame.draw.line(self._screen, (200, 80, 20),
-                         (cart_x, int(cart_y)),
-                         (int(pole_x2), int(pole_y2)), 6)
+        # ── Pole (rotated rectangle, wood colour) ─────────────────────────────
+        l, r, t, b = (-polewidth/2, polewidth/2,
+                      polelen - polewidth/2, -polewidth/2)
+        pole_coords = []
+        for coord in [(l, b), (l, t), (r, t), (r, b)]:
+            coord = pygame.math.Vector2(coord).rotate_rad(-theta)
+            pole_coords.append((coord[0] + cartx, coord[1] + carty + axleoffset))
+        gfxdraw.aapolygon(surf, pole_coords, (202, 152, 101))
+        gfxdraw.filled_polygon(surf, pole_coords, (202, 152, 101))
 
-        # Axle dot
-        pygame.draw.circle(self._screen, (50, 50, 50), (cart_x, int(cart_y)), 6)
+        # ── Axle circle (blue-purple) ─────────────────────────────────────────
+        gfxdraw.aacircle(surf, int(cartx), int(carty + axleoffset),
+                         int(polewidth / 2), (129, 132, 203))
+        gfxdraw.filled_circle(surf, int(cartx), int(carty + axleoffset),
+                              int(polewidth / 2), (129, 132, 203))
 
-        # Ground line
-        pygame.draw.line(self._screen, (0, 0, 0),
-                         (0, int(cart_y) + cart_h // 2 + 1),
-                         (screen_w, int(cart_y) + cart_h // 2 + 1), 1)
+        # ── Ground line ───────────────────────────────────────────────────────
+        gfxdraw.hline(surf, 0, screen_w, carty, (0, 0, 0))
+
+        # Flip y-axis (pygame y goes down, physics y goes up)
+        surf = pygame.transform.flip(surf, False, True)
+        self._screen.blit(surf, (0, 0))
 
         if self.render_mode == "human":
             pygame.event.pump()

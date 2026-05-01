@@ -16,19 +16,19 @@ gamma: 0.99               # 折扣因子
 lr: 0.001                 # 学习率
 epsilon_start: 1.0        # 初始探索率
 epsilon_end: 0.01         # 最小探索率
-epsilon_decay: 0.9975     # 每集衰减（在约第1840集到底）
+epsilon_decay: 0.998     # 每集衰减（在约第1840集到底）
 buffer_size: 10000        # 经验回放容量
 batch_size: 32            # 批次大小
 target_update_freq: 100   # 每 N 集更新 target network
 
 # === 训练配置 ===
-num_episodes: 2000        # 训练集数
+num_episodes: 5000        # 训练集数
 print_every: 50           # 每 N 集打印一次
 num_seeds: 1              # 重复跑几个 seed（多 seed 统计）
-resume: false             # true = 从 models/latest.pt 继续训练
+resume: true              # true = 从 models/latest.pt 继续训练
 render: true              # true = 训练后弹窗演示
 use_custom_env: true      # true = CustomCartPole（自实现物理）
 pos_weight: 0.1           # 小车位置惩罚系数   (x)
-vel_weight: 0.05          # 小车速度惩罚系数   (ẋ)
-angle_weight: 0.0         # 杆角度惩罚系数     (θ)
-angvel_weight: 0.0        # 杆角速度惩罚系数   (θ̇)
+vel_weight: 0.1           # 小车速度惩罚系数   (ẋ)
+angle_weight: 1.0         # 杆角度惩罚系数     (θ)
+angvel_weight: 0.1        # 杆角速度惩罚系数   (θ̇)
