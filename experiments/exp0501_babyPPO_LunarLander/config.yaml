@@ -1,0 +1,28 @@
+# babyPPO — LunarLander-v3 (discrete, 4 actions)
+
+# === 环境 ===
+env_name: "LunarLander-v3"
+max_steps: 1000              # LunarLander episodes can run up to 1000 steps
+
+# === 网络结构 ===
+hidden_layers: [64, 64]
+
+# === PPO 超参数 ===
+lr: 3.0e-4
+gamma: 0.99
+gae_lambda: 0.95             # GAE λ
+clip_eps: 0.2                # surrogate clipping range
+value_coef: 0.5              # critic loss 权重
+entropy_coef: 0.01           # 熵奖励，鼓励探索
+
+n_steps: 2048                # 每次 rollout 收集的步数
+n_epochs: 10                 # 每批数据训练几轮
+batch_size: 64               # minibatch 大小
+
+# === 训练 ===
+resume: true                # true = 从 models/latest.pt 继续训练
+num_updates: 500             # 总更新次数（总步数 ≈ 100万）
+print_every: 10
+num_seeds: 1
+render: true                 # 训练后弹窗演示并保存 GIF
+solved_threshold: 200        # gymnasium 标准：连续100集均值 ≥ 200
