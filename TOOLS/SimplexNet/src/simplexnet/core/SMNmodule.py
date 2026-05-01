@@ -1,21 +1,4 @@
-"""SMNmodule: Simplex Memory Network as a PyTorch module.
-
-This module provides the core network implementation for TOOLS/SimplexNet.
-It uses SimplexMemoryGraph for the DAG structure.
-
-Usage::
-
-    from TOOLS.SimplexNet import SMNmodule
-
-    # SISO function approximation
-    module = SMNmodule(n=2, m=4, n_in=1, n_out=1)
-
-    # DQN Q-network (CartPole)
-    q_net = SMNmodule(n=2, m=4, n_in=4, n_out=2)
-
-    # Forward pass
-    output = module(input_tensor)
-"""
+"""SMN: Simplex Memory Network as a PyTorch module."""
 
 from __future__ import annotations
 
@@ -50,28 +33,17 @@ def _make_output_activation(name: str):
     raise ValueError(f"Unsupported output_activation: {name!r}. Choose tanh/identity.")
 
 
-class SMNmodule(nn.Module):
+class SMN(nn.Module):
     """Simplex Memory Network as a pure PyTorch module.
 
-    No dependency on Config or any experiment infrastructure — suitable for
-    embedding in other projects.
-
     Args:
-        n: Simplex dimension (>= 2).  n=2 → triangle, n=3 → tetrahedron.
-        m: Resolution (>= 2).  Number of lattice points per simplex edge.
+        n: Simplex dimension (>= 2). n=2 -> triangle, n=3 -> tetrahedron.
+        m: Resolution (>= 2). Number of lattice points per simplex edge.
         n_in: Number of input dimensions.
         n_out: Number of output dimensions.
         activation: Hidden-node activation ('relu', 'leaky_relu', 'gelu', 'tanh').
-        x_bounds: Per-channel input bounds as a list of (min, max) pairs.
-            Inputs are linearly normalised to [-1, 1] per channel.
-            If None, defaults to [(-1.0, 1.0)] * n_in (identity — caller is
-            expected to pre-normalise their data).
-
-    Example::
-
-        module = SMNmodule(n=3, m=4, n_in=2, n_out=1,
-                           x_bounds=[(-3.14, 3.14), (-3.14, 3.14)])
-        y = module(x)   # x: (batch, 2)  →  y: (batch, 1)
+        output_activation: Output activation ('identity' or 'tanh').
+        scale_output: Whether to apply variance-preserving output scaling.
     """
 
     def __init__(
@@ -81,9 +53,7 @@ class SMNmodule(nn.Module):
         n_in: int = 1,
         n_out: int = 1,
         activation: str = "relu",
-        output_activation: str = "tanh",
-        x_bounds: list[tuple[float, float]] | None = None,
-        normalize_input: bool = True,
+        output_activation: str = "identity",
         scale_output: bool = True,
     ) -> None:
         super().__init__()
@@ -98,26 +68,9 @@ class SMNmodule(nn.Module):
         self.m = m
         self.n_in = n_in
         self.n_out = n_out
+        self.activation = activation
         self.output_activation = output_activation
-        self.normalize_input = normalize_input
         self.scale_output = scale_output
-
-        # Input normalisation buffers (used only when normalize_input=True).
-        if normalize_input:
-            if x_bounds is None:
-                x_bounds = [(-1.0, 1.0)] * n_in
-            if len(x_bounds) != n_in:
-                raise ValueError(f"x_bounds has {len(x_bounds)} entries but n_in={n_in}")
-            self.register_buffer(
-                "_x_min", torch.tensor([b[0] for b in x_bounds], dtype=torch.float32)
-            )
-            self.register_buffer(
-                "_x_max", torch.tensor([b[1] for b in x_bounds], dtype=torch.float32)
-            )
-        else:
-            # Register dummy buffers so state_dict is consistent regardless of mode.
-            self.register_buffer("_x_min", torch.zeros(n_in))
-            self.register_buffer("_x_max", torch.ones(n_in))
 
         self.graph = SimplexMemoryGraph(n=n, m=m, n_in=n_in, n_out=n_out)
         self.activation_fn = _make_activation(activation)
@@ -220,13 +173,9 @@ class SMNmodule(nn.Module):
         """
         if x.dim() == 1:
             x = x.unsqueeze(-1)
+        if x.shape[-1] != self.n_in:
+            raise ValueError(f"Expected input with last dimension {self.n_in}, got {x.shape[-1]}")
         batch = x.shape[0]
-
-        # Per-channel normalisation to [-1, 1] (skipped when normalize_input=False)
-        if self.normalize_input:
-            x_min = self._x_min.to(dtype=x.dtype)
-            x_max = self._x_max.to(dtype=x.dtype)
-            x = 2.0 * (x - x_min) / (x_max - x_min) - 1.0
 
         # Pre-allocated history buffer: [input cols | core cols]
         hist = x.new_zeros(batch, self.n_in + len(self.graph.core_nodes))
@@ -272,4 +221,4 @@ class SMNmodule(nn.Module):
         )
 
     def __repr__(self) -> str:
-        return f"SMNmodule({self.arch_str})"
+        return f"SMN({self.arch_str})"
