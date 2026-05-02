@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""exp0501 — babyPPO on LunarLander-v3.
+"""exp0501 — babyPPO on LunarLander（连续动作 + 物理驱动奖励）。
 
-离散 PPO（4 个动作）在 LunarLander 上的实现。
-比 CartPole 更难：需要多步协调（下降→减速→对准→着陆），
-奖励信号更复杂（着陆精度、速度、燃料消耗）。
-
-Solved 标准：连续 100 集均值 ≥ 200。
+奖励函数：负g惩罚 + 角加速度惩罚 + 弹道落地预测惩罚 + 触地奖励 + 终止±100
+详见 lunar_ballistic.py。
 
 用法：
     python3 ppo.py
@@ -23,7 +20,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
-from torch.distributions import Categorical
+from torch.distributions import Normal
 
 # =============================================================================
 # 1. 配置
@@ -42,21 +39,32 @@ def make_env(render_mode=None):
     if config.get("use_ballistic", False):
         from lunar_ballistic import BallisticLunarLander
         return BallisticLunarLander(
-            render_mode=render_mode,
+            render_mode     = render_mode,
+            continuous      = config.get("continuous", True),
             entry_speed     = config.get("entry_speed",     5.0),
             entry_angle_deg = config.get("entry_angle_deg", 45.0),
             random_side     = config.get("random_side",     True),
+            w_neg_g         = config.get("w_neg_g",    0.05),
+            w_pos_g         = config.get("w_pos_g",    0.01),
+            w_angacc        = config.get("w_angacc",   0.005),
+            w_land_pos      = config.get("w_land_pos", 50.0),
+            w_land_vel      = config.get("w_land_vel",  2.0),
+            w_legs          = config.get("w_legs",     10.0),
+            w_fallback      = config.get("w_fallback", 200.0),
+            w_main          = config.get("w_main",    0.3),
+            w_side          = config.get("w_side",    0.03),
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
+    kwargs["continuous"] = config.get("continuous", True)
     return gym.make(config["env_name"], **kwargs)
 
 
-_probe = make_env()
+_probe  = make_env()
 obs_dim = _probe.observation_space.shape[0]
-act_dim = _probe.action_space.n
+act_dim = _probe.action_space.shape[0]   # 连续：2
 _probe.close()
 
-print(f"环境：{config['env_name']}  obs={obs_dim}  act={act_dim}")
+print(f"环境：{config['env_name']}  obs={obs_dim}  act={act_dim}（连续）")
 print(f"Solved 标准：连续100集均值 ≥ {config['solved_threshold']}")
 
 run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -77,20 +85,26 @@ def _mlp(in_dim, out_dim, hidden):
     return nn.Sequential(*layers)
 
 
-class Actor(nn.Module):
-    """离散策略：输出动作概率分布 Categorical(logits)。"""
+class ContinuousActor(nn.Module):
+    """连续策略：输出 tanh 压缩均值 + 可学习 log_std，动作范围 [-1, 1]。"""
     def __init__(self):
         super().__init__()
-        self.net = _mlp(obs_dim, act_dim, config["hidden_layers"])
+        self.net     = _mlp(obs_dim, act_dim, config["hidden_layers"])
+        self.log_std = nn.Parameter(torch.full((act_dim,), -0.5))
+
+    def _dist(self, s):
+        mean = torch.tanh(self.net(s))
+        std  = self.log_std.clamp(-3, 1).exp()
+        return Normal(mean, std)
 
     def forward(self, s):
-        dist = Categorical(logits=self.net(s))
-        action = dist.sample()
-        return action, dist.log_prob(action), dist.entropy()
+        dist = self._dist(s)
+        a    = dist.sample()
+        return a, dist.log_prob(a).sum(-1), dist.entropy().sum(-1)
 
     def log_prob_entropy(self, s, a):
-        dist = Categorical(logits=self.net(s))
-        return dist.log_prob(a), dist.entropy()
+        dist = self._dist(s)
+        return dist.log_prob(a).sum(-1), dist.entropy().sum(-1)
 
 
 class Critic(nn.Module):
@@ -109,22 +123,16 @@ class Critic(nn.Module):
 
 
 def compute_gae(rewards, values, dones, last_value, gamma, gae_lambda):
-    """Generalized Advantage Estimation.
-
-    A_t = δ_t + γλ·A_{t+1}
-    δ_t = r_t + γ·V(s_{t+1}) - V(s_t)
-    """
     n = len(rewards)
     advantages = np.zeros(n, dtype=np.float32)
     gae = 0.0
     for t in reversed(range(n)):
         next_val = last_value if t == n - 1 else values[t + 1]
-        mask = 1.0 - dones[t]
+        mask  = 1.0 - dones[t]
         delta = rewards[t] + gamma * next_val * mask - values[t]
-        gae = delta + gamma * gae_lambda * mask * gae
+        gae   = delta + gamma * gae_lambda * mask * gae
         advantages[t] = gae
-    returns = advantages + values
-    return advantages, returns
+    return advantages, advantages + values
 
 
 # =============================================================================
@@ -137,8 +145,8 @@ def run_one_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
 
-    env = make_env()
-    actor  = Actor()
+    env    = make_env()
+    actor  = ContinuousActor()
     critic = Critic()
     optimizer = optim.Adam(
         list(actor.parameters()) + list(critic.parameters()),
@@ -189,11 +197,12 @@ def run_one_seed(seed: int):
                 a, logp, _ = actor(s_t)
                 v = critic(s_t).item()
 
-            s2, r, terminated, truncated, _ = env.step(a.item())
+            a_env = a.clamp(-1, 1).numpy()
+            s2, r, terminated, truncated, _ = env.step(a_env)
             done = terminated or truncated
 
             buf_s.append(s)
-            buf_a.append(a.item())
+            buf_a.append(a.numpy())          # 存未截断值，用于 PPO 比值
             buf_logp.append(logp.item())
             buf_r.append(r)
             buf_done.append(float(done))
@@ -220,7 +229,7 @@ def run_one_seed(seed: int):
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         t_s    = torch.FloatTensor(np.array(buf_s))
-        t_a    = torch.LongTensor(buf_a)
+        t_a    = torch.FloatTensor(np.array(buf_a))   # 连续：FloatTensor
         t_logp = torch.FloatTensor(buf_logp)
         t_adv  = torch.FloatTensor(advantages)
         t_ret  = torch.FloatTensor(returns)
@@ -237,12 +246,12 @@ def run_one_seed(seed: int):
                 new_logp, entropy = actor.log_prob_entropy(t_s[mb], t_a[mb])
                 new_v = critic(t_s[mb])
 
-                ratio = torch.exp(new_logp - t_logp[mb])
+                ratio  = torch.exp(new_logp - t_logp[mb])
                 adv_mb = t_adv[mb]
-                surr1 = ratio * adv_mb
-                surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * adv_mb
-                actor_loss  = -torch.min(surr1, surr2).mean()
-                critic_loss = nn.MSELoss()(new_v, t_ret[mb])
+                surr1  = ratio * adv_mb
+                surr2  = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * adv_mb
+                actor_loss   = -torch.min(surr1, surr2).mean()
+                critic_loss  = nn.MSELoss()(new_v, t_ret[mb])
                 entropy_loss = -entropy_coef * entropy.mean()
 
                 loss = actor_loss + value_coef * critic_loss + entropy_loss
@@ -262,7 +271,7 @@ def run_one_seed(seed: int):
 
         if (update + 1) % config["print_every"] == 0:
             recent = all_ep_rewards[-100:] if all_ep_rewards else [0]
-            avg = np.mean(recent)
+            avg    = np.mean(recent)
             solved = "✅ SOLVED" if avg >= config["solved_threshold"] else ""
             print(f"  [seed {seed}] Update {update+1:4d}/{end_update} | "
                   f"Avg(100ep): {avg:7.2f} | "
@@ -323,8 +332,8 @@ for _ in range(10):
     total = 0
     for _ in range(config["max_steps"]):
         with torch.no_grad():
-            a = actor_last.net(torch.FloatTensor(s)).argmax().item()
-        s, r, terminated, truncated, _ = test_env.step(a)
+            a_env = torch.tanh(actor_last.net(torch.FloatTensor(s))).clamp(-1, 1).numpy()
+        s, r, terminated, truncated, _ = test_env.step(a_env)
         total += r
         if terminated or truncated:
             break
@@ -338,26 +347,24 @@ print(f"测试奖励 (10集贪婪): {np.mean(test_rewards):.2f} ± {np.std(test_
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
 
-# 左图：episode reward（滑动平均）
 for rewards in all_rewards_seeds:
-    ep_idx = np.arange(len(rewards))
-    window = min(50, len(rewards))
+    ep_idx   = np.arange(len(rewards))
+    window   = min(50, len(rewards))
     smoothed = np.convolve(rewards, np.ones(window)/window, mode="valid")
     ax1.plot(ep_idx[:len(smoothed)], smoothed, alpha=0.8, linewidth=1.2)
 ax1.axhline(config["solved_threshold"], color="red", linestyle="--",
             linewidth=1, label=f"solved ({config['solved_threshold']})")
 ax1.set_xlabel("Episode")
 ax1.set_ylabel("Reward (smoothed)")
-ax1.set_title(f"Reward — {config['env_name']}")
+ax1.set_title(f"Reward — {config['env_name']} (continuous)")
 ax1.legend(fontsize=8)
 
-# 右图：actor + critic loss（双 y 轴）
 updates = np.arange(1, len(all_actor_seeds[0]) + 1)
-ax2.plot(updates, all_actor_seeds[0], color="tab:blue", linewidth=1.2, label="Actor loss")
+ax2.plot(updates, all_actor_seeds[0],  color="tab:blue",   linewidth=1.2, label="Actor loss")
 ax2b = ax2.twinx()
 ax2b.plot(updates, all_critic_seeds[0], color="tab:orange", linewidth=1.2, label="Critic loss")
 ax2.set_xlabel("Update")
-ax2.set_ylabel("Actor loss", color="tab:blue")
+ax2.set_ylabel("Actor loss",  color="tab:blue")
 ax2b.set_ylabel("Critic loss", color="tab:orange")
 ax2.set_title("PPO Losses")
 lines1, labels1 = ax2.get_legend_handles_labels()
@@ -376,15 +383,15 @@ print(f"\n图表已保存：{plot_path}")
 
 def run_demo(actor, n_episodes=3):
     gif_env = make_env("rgb_array")
-    frames = []
+    frames  = []
     for ep in range(n_episodes):
         s, _ = gif_env.reset()
         total = 0
         for _ in range(config["max_steps"]):
             frames.append(gif_env.render())
             with torch.no_grad():
-                a = actor.net(torch.FloatTensor(s)).argmax().item()
-            s, r, terminated, truncated, _ = gif_env.step(a)
+                a_env = torch.tanh(actor.net(torch.FloatTensor(s))).clamp(-1, 1).numpy()
+            s, r, terminated, truncated, _ = gif_env.step(a_env)
             total += r
             if terminated or truncated:
                 break
@@ -401,8 +408,8 @@ def run_demo(actor, n_episodes=3):
         total = 0
         for _ in range(config["max_steps"]):
             with torch.no_grad():
-                a = actor.net(torch.FloatTensor(s)).argmax().item()
-            s, r, terminated, truncated, _ = live_env.step(a)
+                a_env = torch.tanh(actor.net(torch.FloatTensor(s))).clamp(-1, 1).numpy()
+            s, r, terminated, truncated, _ = live_env.step(a_env)
             total += r
             if terminated or truncated:
                 break
