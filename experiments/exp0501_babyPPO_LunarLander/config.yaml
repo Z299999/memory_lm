@@ -40,7 +40,7 @@ n_epochs: 10
 batch_size: 64
 
 # === 训练 ===
-resume: false            # 新奖励函数，不兼容旧 checkpoint，从头训练
+resume: true            # 新奖励函数，不兼容旧 checkpoint，从头训练
 num_updates: 500
 print_every: 10
 num_seeds: 1

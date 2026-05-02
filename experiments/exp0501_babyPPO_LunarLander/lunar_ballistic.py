@@ -13,6 +13,12 @@
 
 import math
 import numpy as np
+
+# 3× 地图：patch 模块常量（必须在 from ... import 之前）
+import gymnasium.envs.box2d.lunar_lander as _ll
+_ll.VIEWPORT_W = 1800   # 原始 600
+_ll.VIEWPORT_H = 1200   # 原始 400
+
 from gymnasium.envs.box2d.lunar_lander import (
     LunarLander, VIEWPORT_W, VIEWPORT_H, SCALE, FPS, LEG_DOWN
 )
