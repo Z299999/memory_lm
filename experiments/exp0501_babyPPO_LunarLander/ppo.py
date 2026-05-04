@@ -44,15 +44,6 @@ def make_env(render_mode=None):
             entry_speed     = config.get("entry_speed",     5.0),
             entry_angle_deg = config.get("entry_angle_deg", 45.0),
             random_side     = config.get("random_side",     True),
-            w_neg_g         = config.get("w_neg_g",    0.05),
-            w_pos_g         = config.get("w_pos_g",    0.01),
-            w_angacc        = config.get("w_angacc",   0.005),
-            w_land_pos      = config.get("w_land_pos", 50.0),
-            w_land_vel      = config.get("w_land_vel",  2.0),
-            w_legs          = config.get("w_legs",     10.0),
-            w_fallback      = config.get("w_fallback", 200.0),
-            w_main          = config.get("w_main",    0.3),
-            w_side          = config.get("w_side",    0.03),
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     kwargs["continuous"] = config.get("continuous", True)
