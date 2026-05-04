@@ -12,10 +12,15 @@
 import math
 import numpy as np
 
-# 3× 地图（必须在 from ... import 之前 patch）
+# 可配置地图大小（必须在 from ... import 之前 patch）
+import yaml
+from pathlib import Path
+_cfg = yaml.safe_load(open(Path(__file__).parent / "config.yaml"))
+_map_scale = _cfg.get("map_scale", 1.0)
+
 import gymnasium.envs.box2d.lunar_lander as _ll
-_ll.VIEWPORT_W = 1800   # 原始 600
-_ll.VIEWPORT_H = 1200   # 原始 400
+_ll.VIEWPORT_W = int(600 * _map_scale)
+_ll.VIEWPORT_H = int(400 * _map_scale)
 
 from gymnasium.envs.box2d.lunar_lander import (
     LunarLander, VIEWPORT_W, VIEWPORT_H, SCALE, FPS, LEG_DOWN
