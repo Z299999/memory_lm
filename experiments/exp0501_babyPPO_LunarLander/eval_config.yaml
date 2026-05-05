@@ -1,0 +1,16 @@
+# ppoEval.py — 评估配置（可与训练环境不同，测泛化）
+
+# === 评估环境 ===
+env_name: "LunarLander-v3"
+max_steps: 1000
+map_scale: 1.0           # 评估地图（改为 3.0 测试泛化）
+continuous: true
+use_ballistic: true
+entry_speed: 5.0
+entry_angle_deg: 45.0
+random_side: true
+
+# === 评估参数 ===
+checkpoint: "models/latest.pt"
+num_eval_episodes: 50
+render: true             # true = 保存 GIF + 弹出 live 窗口
