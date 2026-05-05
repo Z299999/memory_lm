@@ -55,15 +55,22 @@ class BallisticLunarLander(LunarLander):
 
         import Box2D
 
-        # 1. 覆盖位置（x 和 y 独立控制）
-        x_phys = self.lander.position.x   # 默认：super().reset() 给的位置
-        y_phys = self.lander.position.y
+        # 1. 覆盖位置（x 和 y 独立控制，同时平移腿避免关节撕裂）
+        old_x = self.lander.position.x
+        old_y = self.lander.position.y
+        x_phys = old_x
+        y_phys = old_y
         if self.init_x_m != 0.0:
             x_phys = VIEWPORT_W / SCALE / 2 + self.init_x_m
         if self.init_altitude_m is not None:
             y_phys = self.helipad_y + self.init_altitude_m
         if self.init_x_m != 0.0 or self.init_altitude_m is not None:
+            dx, dy = x_phys - old_x, y_phys - old_y
             self.lander.position = Box2D.b2Vec2(float(x_phys), float(y_phys))
+            for leg in self.legs:   # 腿同步平移，避免关节约束失败
+                leg.position = Box2D.b2Vec2(
+                    leg.position.x + dx, leg.position.y + dy
+                )
 
         # 2. 注入弹道速度
         flight_rad = math.radians(self.init_flight_angle_deg)
