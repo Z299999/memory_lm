@@ -1,20 +1,32 @@
 # ppoEval.py — 评估配置（可与训练环境不同，测泛化）
 
-# === 评估环境 ===
-env_name: "LunarLander-v3"
-max_steps: 3000           # 大地图需要更多步数
-map_scale: 5.0
-continuous: true
-use_ballistic: true
+# ===== 物理参数 =====
+
+# 地图
+map_scale: 5.0           # 评估地图（可设为与训练不同，测泛化）
+
+# 弹道入射
 entry_speed: 5.0
 entry_angle_deg: 45.0
 random_side: true
+
+# 初始姿态
 angle_tilt_factor: 0.3
 init_angvel: 0.0
+
+# 初始位置
 init_height_m: null
 init_x_offset_m: 0.0
 
-# === 评估参数 ===
+# ===== 系统参数 =====
+
+# 环境
+env_name: "LunarLander-v3"
+max_steps: 3000          # 大地图需要更多步数
+continuous: true
+use_ballistic: true
+
+# 评估控制
 checkpoint: "models/latest.pt"
 num_eval_episodes: 50
-render: true             # true = 保存 GIF + 弹出 live 窗口
+render: true             # true = 保存视频 + 弹出 live 窗口
