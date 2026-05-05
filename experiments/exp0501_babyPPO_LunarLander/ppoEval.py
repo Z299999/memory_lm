@@ -29,7 +29,7 @@ from torch.distributions import Normal
 # =============================================================================
 
 _here    = Path(__file__).parent
-eval_cfg = yaml.safe_load(open(_here / "eval_config.yaml"))
+eval_cfg = yaml.safe_load(open(_here / "configEval.yaml"))
 
 os.environ["MAP_SCALE"] = str(eval_cfg.get("map_scale", 1.0))
 

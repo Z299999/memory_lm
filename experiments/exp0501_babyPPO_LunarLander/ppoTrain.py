@@ -28,7 +28,7 @@ from torch.distributions import Normal
 # =============================================================================
 
 _here  = Path(__file__).parent
-config = yaml.safe_load(open(_here / "train_config.yaml"))
+config = yaml.safe_load(open(_here / "configTrain.yaml"))
 
 os.environ["MAP_SCALE"] = str(config.get("map_scale", 1.0))
 
