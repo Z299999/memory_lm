@@ -3,7 +3,7 @@
 # ===== 物理参数 =====
 
 # 地图
-map_scale: 5.0           # 评估地图（可设为与训练不同，测泛化）
+map_scale: 2.0           # 评估地图（可设为与训练不同，测泛化）
 
 # 弹道入射
 entry_speed: 5.0
@@ -29,4 +29,5 @@ use_ballistic: true
 # 评估控制
 checkpoint: "models/latest.pt"
 num_eval_episodes: 50
-render: true             # true = 保存视频 + 弹出 live 窗口
+render: true             # true = 保存视频
+render_live: false       # true = 额外弹出实时窗口观看

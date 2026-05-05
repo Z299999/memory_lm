@@ -221,16 +221,17 @@ if eval_cfg.get("render", True):
     vid_env.close()
     print(f"  视频已保存：{vid_path}")
 
-    print(f"\n演示模式（{vid_n} 集）... 按 Ctrl+C 可提前退出")
-    live_env = make_env("human")
-    for ep in range(vid_n):
-        s, _ = live_env.reset()
-        total = 0
-        for _ in range(max_steps):
-            a_env = actor.greedy(torch.FloatTensor(s))
-            s, r, terminated, truncated, _ = live_env.step(a_env)
-            total += r
-            if terminated or truncated:
-                break
-        print(f"  Live episode {ep + 1}: reward = {total:.1f}")
-    live_env.close()
+    if eval_cfg.get("render_live", False):
+        print(f"\n演示模式（{vid_n} 集）... 按 Ctrl+C 可提前退出")
+        live_env = make_env("human")
+        for ep in range(vid_n):
+            s, _ = live_env.reset()
+            total = 0
+            for _ in range(max_steps):
+                a_env = actor.greedy(torch.FloatTensor(s))
+                s, r, terminated, truncated, _ = live_env.step(a_env)
+                total += r
+                if terminated or truncated:
+                    break
+            print(f"  Live episode {ep + 1}: reward = {total:.1f}")
+        live_env.close()
