@@ -149,14 +149,20 @@ print(f"  平均集长：{np.mean(ep_lengths):.1f} 步")
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 10))
 
-# 左：每集奖励柱状图，绿=成功，红=失败
-colors = ["tab:green" if s else "tab:red" for s in successes]
-ax1.bar(range(n_episodes), rewards, color=colors, alpha=0.8, width=0.8)
+# 上：每集奖励折线图，成功点绿色，失败点红色
+ep_idx  = np.arange(n_episodes)
+ax1.plot(ep_idx, rewards, color="tab:blue", linewidth=1.2, alpha=0.8)
+ax1.scatter(ep_idx[successes],
+            np.array(rewards)[successes],   color="tab:green", s=20, zorder=3, label="success")
+ax1.scatter(ep_idx[[not s for s in successes]],
+            np.array(rewards)[[not s for s in successes]], color="tab:red", s=20, zorder=3, label="failure")
 ax1.axhline(0, color="black", linewidth=0.8, linestyle="--")
+ax1.axhline(np.mean(rewards), color="gray", linewidth=0.8, linestyle=":", label=f"mean={np.mean(rewards):.1f}")
 ax1.set_xlabel("Episode")
 ax1.set_ylabel("Total Reward")
-ax1.set_title(f"Per-Episode Reward  (map_scale={eval_cfg.get('map_scale',1.0)})\n"
-              f"green=success, red=failure  |  success_rate={success_rate:.1f}%")
+ax1.set_title(f"Per-Episode Reward  (map_scale={eval_cfg.get('map_scale',1.0)})  "
+              f"success={success_rate:.1f}%")
+ax1.legend(fontsize=8)
 
 # 右：奖励分布直方图
 ax2.hist(rewards, bins=20, color="tab:blue", alpha=0.7, edgecolor="white")
@@ -179,28 +185,28 @@ print(f"\n评估图已保存：{plot_path}")
 # =============================================================================
 
 if eval_cfg.get("render", True):
-    gif_n = min(3, n_episodes)
-    gif_env = make_env("rgb_array")
-    frames  = []
-    for ep in range(gif_n):
-        s, _ = gif_env.reset()
+    vid_n   = min(3, n_episodes)
+    vid_env = make_env("rgb_array")
+    vid_path = run_dir / "demo.mp4"
+    writer  = imageio.get_writer(str(vid_path), fps=30)
+    for ep in range(vid_n):
+        s, _ = vid_env.reset()
         total = 0
         for _ in range(max_steps):
-            frames.append(gif_env.render())
+            writer.append_data(vid_env.render())   # 流式写入，不攒内存
             a_env = actor.greedy(torch.FloatTensor(s))
-            s, r, terminated, truncated, _ = gif_env.step(a_env)
+            s, r, terminated, truncated, _ = vid_env.step(a_env)
             total += r
             if terminated or truncated:
                 break
-        print(f"  GIF episode {ep + 1}: reward = {total:.1f}")
-    gif_env.close()
-    gif_path = run_dir / "demo.gif"
-    imageio.mimsave(gif_path, frames, fps=30)
-    print(f"  GIF 已保存：{gif_path}")
+        print(f"  Video episode {ep + 1}: reward = {total:.1f}")
+    writer.close()
+    vid_env.close()
+    print(f"  视频已保存：{vid_path}")
 
-    print(f"\n演示模式（{gif_n} 集）... 按 Ctrl+C 可提前退出")
+    print(f"\n演示模式（{vid_n} 集）... 按 Ctrl+C 可提前退出")
     live_env = make_env("human")
-    for ep in range(gif_n):
+    for ep in range(vid_n):
         s, _ = live_env.reset()
         total = 0
         for _ in range(max_steps):
