@@ -342,10 +342,10 @@ ax1.set_title(f"Reward — map_scale={config.get('map_scale',1.0)}")
 ax1.legend(fontsize=8)
 
 # 中：actor + critic loss 双 y 轴
-updates = np.arange(1, len(all_actor_seeds[0]) + 1)
-ax2.plot(updates, all_actor_seeds[0],  color="tab:blue",   linewidth=1.2, label="Actor loss")
+u_loss = np.arange(1, len(all_actor_seeds[0]) + 1)
+ax2.plot(u_loss, all_actor_seeds[0],  color="tab:blue",   linewidth=1.2, label="Actor loss")
 ax2b = ax2.twinx()
-ax2b.plot(updates, all_critic_seeds[0], color="tab:orange", linewidth=1.2, label="Critic loss")
+ax2b.plot(u_loss, all_critic_seeds[0], color="tab:orange", linewidth=1.2, label="Critic loss")
 ax2.set_xlabel("Update")
 ax2.set_ylabel("Actor loss",  color="tab:blue")
 ax2b.set_ylabel("Critic loss", color="tab:orange")
@@ -354,8 +354,9 @@ lines1, labels1 = ax2.get_legend_handles_labels()
 lines2, labels2 = ax2b.get_legend_handles_labels()
 ax2.legend(lines1 + lines2, labels1 + labels2, fontsize=8)
 
-# 右：entropy
-ax3.plot(updates, all_entropy_seeds[0], color="tab:green", linewidth=1.2)
+# 右：entropy（用自己的长度，兼容 resume 时旧 checkpoint 没有 entropy 的情况）
+u_ent = np.arange(1, len(all_entropy_seeds[0]) + 1)
+ax3.plot(u_ent, all_entropy_seeds[0], color="tab:green", linewidth=1.2)
 ax3.set_xlabel("Update")
 ax3.set_ylabel("Entropy")
 ax3.set_title("Policy Entropy")
