@@ -6,17 +6,17 @@
 map_scale: 2.0           # 地图缩放：1=原始(20×13m), 2=两倍, 3=三倍
 
 # 弹道入射
-entry_speed: 5.0         # 初始速度大小 (Box2D m/s)
-entry_angle_deg: 45.0    # 速度方向与水平面夹角 (°)，向下
-random_side: true        # true=随机左/右飞入
+init_speed: 5.0              # 初始速度大小 (m/s)
+init_flight_angle_deg: 45.0  # 速度方向与水平面夹角 (°)，向下
+random_side: true            # true=随机左/右飞入
 
 # 初始姿态
-angle_tilt_factor: 0.3   # 初始倾斜系数（相对弹道方向角度）
-init_angvel: 0.0         # 初始角速度 (rad/s)
+init_body_angle_deg: 13.5    # 机身初始倾斜角 (°)
+init_angular_velocity: 0.0   # 初始角速度 (rad/s)
 
 # 初始位置（null = 视口顶部中心，默认行为）
-init_height_m: null      # 距着陆垫高度 (m)
-init_x_offset_m: 0.0    # 偏离中心水平距离 (m)，正=右，负=左
+init_altitude_m: null        # 距着陆垫高度 (m)
+init_x_m: 0.0               # 偏离中心水平距离 (m)，正=右，负=左
 
 # ===== 系统参数 =====
 
@@ -42,7 +42,7 @@ batch_size: 64
 
 # 训练控制
 resume: true
-num_updates: 500
+num_updates: 250
 print_every: 10
 num_seeds: 1
 solved_threshold: 200

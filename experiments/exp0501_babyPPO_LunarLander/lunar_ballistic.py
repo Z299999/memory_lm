@@ -28,24 +28,24 @@ from gymnasium.envs.box2d.lunar_lander import (
 class BallisticLunarLander(LunarLander):
     def __init__(self,
                  render_mode=None,
-                 entry_speed: float = 5.0,
-                 entry_angle_deg: float = 45.0,
+                 init_speed: float = 5.0,
+                 init_flight_angle_deg: float = 45.0,
                  random_side: bool = True,
                  continuous: bool = True,
-                 angle_tilt_factor: float = 0.3,
-                 init_angvel: float = 0.0,
-                 init_height_m=None,
-                 init_x_offset_m: float = 0.0,
+                 init_body_angle_deg: float = 13.5,
+                 init_angular_velocity: float = 0.0,
+                 init_altitude_m=None,
+                 init_x_m: float = 0.0,
                  **kwargs):
         super().__init__(render_mode=render_mode, continuous=continuous, **kwargs)
-        self.entry_speed       = entry_speed
-        self.entry_angle_deg   = entry_angle_deg
-        self.random_side       = random_side
-        self.angle_tilt_factor = angle_tilt_factor
-        self.init_angvel       = init_angvel
-        self.init_height_m     = init_height_m
-        self.init_x_offset_m   = init_x_offset_m
-        self._prev_shaping     = None
+        self.init_speed            = init_speed
+        self.init_flight_angle_deg = init_flight_angle_deg
+        self.random_side           = random_side
+        self.init_body_angle_deg   = init_body_angle_deg
+        self.init_angular_velocity = init_angular_velocity
+        self.init_altitude_m       = init_altitude_m
+        self.init_x_m              = init_x_m
+        self._prev_shaping         = None
 
     # ── reset：注入弹道初速度 ─────────────────────────────────────────────────
 
@@ -56,27 +56,27 @@ class BallisticLunarLander(LunarLander):
         import Box2D
 
         # 1. 覆盖位置（可选）
-        if self.init_height_m is not None:
-            x_phys = VIEWPORT_W / SCALE / 2 + self.init_x_offset_m
-            y_phys = self.helipad_y + self.init_height_m
+        if self.init_altitude_m is not None:
+            x_phys = VIEWPORT_W / SCALE / 2 + self.init_x_m
+            y_phys = self.helipad_y + self.init_altitude_m
             self.lander.position = Box2D.b2Vec2(float(x_phys), float(y_phys))
 
         # 2. 注入弹道速度
-        angle_rad = math.radians(self.entry_angle_deg)
+        flight_rad = math.radians(self.init_flight_angle_deg)
         if self.random_side:
             side = 1 if self.np_random.random() < 0.5 else -1
         else:
             side = -1
 
-        vx =  side * self.entry_speed * math.cos(angle_rad)
-        vy = -self.entry_speed * math.sin(angle_rad)
+        vx =  side * self.init_speed * math.cos(flight_rad)
+        vy = -self.init_speed * math.sin(flight_rad)
         self.lander.linearVelocity = Box2D.b2Vec2(float(vx), float(vy))
 
-        # 3. 初始角度
-        self.lander.angle = -side * angle_rad * self.angle_tilt_factor
+        # 3. 初始机身角度
+        self.lander.angle = -side * math.radians(self.init_body_angle_deg)
 
         # 4. 初始角速度
-        self.lander.angularVelocity = self.init_angvel
+        self.lander.angularVelocity = self.init_angular_velocity
 
         pos = self.lander.position
         vel = self.lander.linearVelocity

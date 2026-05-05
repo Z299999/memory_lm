@@ -6,17 +6,17 @@
 map_scale: 2.0           # 评估地图（可设为与训练不同，测泛化）
 
 # 弹道入射
-entry_speed: 15.0
-entry_angle_deg: 20.0
+init_speed: 15.0
+init_flight_angle_deg: 20.0
 random_side: true
 
 # 初始姿态
-angle_tilt_factor: 0.5
-init_angvel: 0.0
+init_body_angle_deg: 13.5
+init_angular_velocity: 0.0
 
 # 初始位置
-init_height_m: null
-init_x_offset_m: 0.0
+init_altitude_m: null
+init_x_m: 0.0
 
 # ===== 系统参数 =====
 

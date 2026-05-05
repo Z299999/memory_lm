@@ -64,13 +64,13 @@ def make_env(render_mode=None):
         return BallisticLunarLander(
             render_mode       = render_mode,
             continuous        = eval_cfg.get("continuous",        True),
-            entry_speed       = physics_cfg.get("entry_speed",       5.0),
-            entry_angle_deg   = physics_cfg.get("entry_angle_deg",   45.0),
-            random_side       = physics_cfg.get("random_side",       True),
-            angle_tilt_factor = physics_cfg.get("angle_tilt_factor", 0.3),
-            init_angvel       = physics_cfg.get("init_angvel",       0.0),
-            init_height_m     = physics_cfg.get("init_height_m",     None),
-            init_x_offset_m   = physics_cfg.get("init_x_offset_m",  0.0),
+            init_speed            = physics_cfg.get("init_speed",            5.0),
+            init_flight_angle_deg = physics_cfg.get("init_flight_angle_deg", 45.0),
+            random_side           = physics_cfg.get("random_side",           True),
+            init_body_angle_deg   = physics_cfg.get("init_body_angle_deg",   13.5),
+            init_angular_velocity = physics_cfg.get("init_angular_velocity", 0.0),
+            init_altitude_m       = physics_cfg.get("init_altitude_m",       None),
+            init_x_m              = physics_cfg.get("init_x_m",              0.0),
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     kwargs["continuous"] = eval_cfg.get("continuous", True)
@@ -197,8 +197,8 @@ ax2.axvline(np.mean(rewards), color="black", linestyle="--",
 ax2.set_xlabel("Total Reward")
 ax2.set_ylabel("Count")
 ax2.set_title(f"Reward Distribution  ({n_episodes} episodes)\n"
-              f"entry_speed={eval_cfg.get('entry_speed',5.0)}  "
-              f"angle={eval_cfg.get('entry_angle_deg',45)}°")
+              f"init_speed={physics_cfg.get('init_speed',5.0)}  "
+              f"flight_angle={physics_cfg.get('init_flight_angle_deg',45)}°")
 ax2.legend(fontsize=8)
 
 plt.tight_layout()

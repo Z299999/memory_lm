@@ -45,13 +45,13 @@ def make_env(render_mode=None):
         return BallisticLunarLander(
             render_mode       = render_mode,
             continuous        = config.get("continuous",        True),
-            entry_speed       = config.get("entry_speed",       5.0),
-            entry_angle_deg   = config.get("entry_angle_deg",   45.0),
-            random_side       = config.get("random_side",       True),
-            angle_tilt_factor = config.get("angle_tilt_factor", 0.3),
-            init_angvel       = config.get("init_angvel",       0.0),
-            init_height_m     = config.get("init_height_m",     None),
-            init_x_offset_m   = config.get("init_x_offset_m",  0.0),
+            init_speed            = config.get("init_speed",            5.0),
+            init_flight_angle_deg = config.get("init_flight_angle_deg", 45.0),
+            random_side           = config.get("random_side",           True),
+            init_body_angle_deg   = config.get("init_body_angle_deg",   13.5),
+            init_angular_velocity = config.get("init_angular_velocity", 0.0),
+            init_altitude_m       = config.get("init_altitude_m",       None),
+            init_x_m              = config.get("init_x_m",              0.0),
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     kwargs["continuous"] = config.get("continuous", True)
