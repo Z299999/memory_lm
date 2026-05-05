@@ -2,13 +2,17 @@
 
 # === 评估环境 ===
 env_name: "LunarLander-v3"
-max_steps: 1000
-map_scale: 1.0           # 评估地图（改为 3.0 测试泛化）
+max_steps: 3000           # 大地图需要更多步数
+map_scale: 5.0
 continuous: true
 use_ballistic: true
 entry_speed: 5.0
 entry_angle_deg: 45.0
 random_side: true
+angle_tilt_factor: 0.3
+init_angvel: 0.0
+init_height_m: null
+init_x_offset_m: 0.0
 
 # === 评估参数 ===
 checkpoint: "models/latest.pt"

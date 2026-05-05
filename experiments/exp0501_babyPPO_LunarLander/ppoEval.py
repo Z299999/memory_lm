@@ -53,11 +53,15 @@ def make_env(render_mode=None):
     if eval_cfg.get("use_ballistic", False):
         from lunar_ballistic import BallisticLunarLander
         return BallisticLunarLander(
-            render_mode     = render_mode,
-            continuous      = eval_cfg.get("continuous", True),
-            entry_speed     = eval_cfg.get("entry_speed",     5.0),
-            entry_angle_deg = eval_cfg.get("entry_angle_deg", 45.0),
-            random_side     = eval_cfg.get("random_side",     True),
+            render_mode       = render_mode,
+            continuous        = eval_cfg.get("continuous",        True),
+            entry_speed       = eval_cfg.get("entry_speed",       5.0),
+            entry_angle_deg   = eval_cfg.get("entry_angle_deg",   45.0),
+            random_side       = eval_cfg.get("random_side",       True),
+            angle_tilt_factor = eval_cfg.get("angle_tilt_factor", 0.3),
+            init_angvel       = eval_cfg.get("init_angvel",       0.0),
+            init_height_m     = eval_cfg.get("init_height_m",     None),
+            init_x_offset_m   = eval_cfg.get("init_x_offset_m",  0.0),
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     kwargs["continuous"] = eval_cfg.get("continuous", True)
@@ -112,33 +116,37 @@ actor.eval()
 n_episodes = eval_cfg.get("num_eval_episodes", 50)
 max_steps  = eval_cfg.get("max_steps", 1000)
 
-rewards     = []
-successes   = []
-ep_lengths  = []
+rewards    = []
+outcomes   = []   # "success" / "crash" / "timeout"
+ep_lengths = []
 
 env = make_env()
 for ep in range(n_episodes):
     s, _ = env.reset()
-    total, length, success = 0.0, 0, False
+    total, length, outcome = 0.0, 0, "timeout"
     for _ in range(max_steps):
         a_env = actor.greedy(torch.FloatTensor(s))
         s, r, terminated, truncated, _ = env.step(a_env)
         total += r
         length += 1
         if terminated:
-            success = r > 0   # terminal +100 = 成功，-100 = 坠毁/越界
+            outcome = "success" if r > 0 else "crash"
             break
         if truncated:
             break
     rewards.append(total)
-    successes.append(success)
+    outcomes.append(outcome)
     ep_lengths.append(length)
 
 env.close()
 
-success_rate = np.mean(successes) * 100
+n_success = outcomes.count("success")
+n_crash   = outcomes.count("crash")
+n_timeout = outcomes.count("timeout")
 print(f"评估结果（{n_episodes} 集，贪婪）：")
-print(f"  成功率：{success_rate:.1f}%")
+print(f"  成功：{n_success}/{n_episodes} ({n_success/n_episodes*100:.1f}%)")
+print(f"  坠毁：{n_crash}/{n_episodes} ({n_crash/n_episodes*100:.1f}%)")
+print(f"  超时：{n_timeout}/{n_episodes} ({n_timeout/n_episodes*100:.1f}%)")
 print(f"  平均奖励：{np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
 print(f"  最高奖励：{max(rewards):.2f}  最低：{min(rewards):.2f}")
 print(f"  平均集长：{np.mean(ep_lengths):.1f} 步")
@@ -149,24 +157,33 @@ print(f"  平均集长：{np.mean(ep_lengths):.1f} 步")
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 10))
 
-# 上：每集奖励折线图，成功点绿色，失败点红色
-ep_idx  = np.arange(n_episodes)
-ax1.plot(ep_idx, rewards, color="tab:blue", linewidth=1.2, alpha=0.8)
-ax1.scatter(ep_idx[successes],
-            np.array(rewards)[successes],   color="tab:green", s=20, zorder=3, label="success")
-ax1.scatter(ep_idx[[not s for s in successes]],
-            np.array(rewards)[[not s for s in successes]], color="tab:red", s=20, zorder=3, label="failure")
+OUTCOME_COLORS = {"success": "tab:green", "crash": "tab:red", "timeout": "tab:orange"}
+
+# 上：每集奖励折线图，三色散点
+ep_idx = np.arange(n_episodes)
+rewards_arr = np.array(rewards)
+ax1.plot(ep_idx, rewards_arr, color="tab:blue", linewidth=1.2, alpha=0.5)
+for outcome, color in OUTCOME_COLORS.items():
+    mask = np.array([o == outcome for o in outcomes])
+    if mask.any():
+        ax1.scatter(ep_idx[mask], rewards_arr[mask],
+                    color=color, s=20, zorder=3, label=outcome)
 ax1.axhline(0, color="black", linewidth=0.8, linestyle="--")
-ax1.axhline(np.mean(rewards), color="gray", linewidth=0.8, linestyle=":", label=f"mean={np.mean(rewards):.1f}")
+ax1.axhline(np.mean(rewards), color="gray", linewidth=0.8, linestyle=":",
+            label=f"mean={np.mean(rewards):.1f}")
 ax1.set_xlabel("Episode")
 ax1.set_ylabel("Total Reward")
-ax1.set_title(f"Per-Episode Reward  (map_scale={eval_cfg.get('map_scale',1.0)})  "
-              f"success={success_rate:.1f}%")
+ax1.set_title(f"Per-Episode Reward  map_scale={eval_cfg.get('map_scale',1.0)}\n"
+              f"success={n_success}  crash={n_crash}  timeout={n_timeout}")
 ax1.legend(fontsize=8)
 
-# 右：奖励分布直方图
-ax2.hist(rewards, bins=20, color="tab:blue", alpha=0.7, edgecolor="white")
-ax2.axvline(np.mean(rewards), color="red", linestyle="--",
+# 下：奖励分布直方图（三色堆叠）
+for outcome, color in OUTCOME_COLORS.items():
+    r_sub = [r for r, o in zip(rewards, outcomes) if o == outcome]
+    if r_sub:
+        ax2.hist(r_sub, bins=15, color=color, alpha=0.6,
+                 label=f"{outcome} ({len(r_sub)})", edgecolor="white")
+ax2.axvline(np.mean(rewards), color="black", linestyle="--",
             linewidth=1.5, label=f"mean={np.mean(rewards):.1f}")
 ax2.set_xlabel("Total Reward")
 ax2.set_ylabel("Count")

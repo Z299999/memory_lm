@@ -9,6 +9,10 @@ use_ballistic: true
 entry_speed: 5.0
 entry_angle_deg: 45.0
 random_side: true
+angle_tilt_factor: 0.3   # 初始倾斜系数（相对弹道方向角度）
+init_angvel: 0.0          # 初始角速度 (rad/s)
+init_height_m: null       # 距着陆垫高度(m)，null = 视口顶部
+init_x_offset_m: 0.0     # 偏离中心水平距离(m)，正=右，负=左
 
 # === 网络结构 ===
 hidden_layers: [64, 64]
