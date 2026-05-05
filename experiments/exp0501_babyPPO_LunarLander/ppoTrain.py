@@ -62,7 +62,7 @@ _probe.close()
 print(f"环境：{config['env_name']}  obs={obs_dim}  act={act_dim}  map_scale={config.get('map_scale',1.0)}")
 print(f"Solved 标准：连续100集均值 ≥ {config['solved_threshold']}")
 
-run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}_train"
 run_dir.mkdir(parents=True, exist_ok=True)
 print(f"输出目录：{run_dir}\n")
 
@@ -326,7 +326,7 @@ print(f"最佳单集奖励:           {np.mean([max(r) for r in all_rewards_seed
 # 8. 训练图（3 列：reward | loss | entropy）
 # =============================================================================
 
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12))
 
 # 左：episode reward 滑动平均
 for rewards in all_rewards_seeds:

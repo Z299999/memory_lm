@@ -147,7 +147,7 @@ print(f"  平均集长：{np.mean(ep_lengths):.1f} 步")
 # 6. 评估图（2 列：每集奖励柱状图 | 奖励分布直方图）
 # =============================================================================
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4))
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 10))
 
 # 左：每集奖励柱状图，绿=成功，红=失败
 colors = ["tab:green" if s else "tab:red" for s in successes]
