@@ -6,12 +6,12 @@
 map_scale: 2.0           # 评估地图（可设为与训练不同，测泛化）
 
 # 弹道入射
-entry_speed: 5.0
-entry_angle_deg: 45.0
+entry_speed: 15.0
+entry_angle_deg: 20.0
 random_side: true
 
 # 初始姿态
-angle_tilt_factor: 0.3
+angle_tilt_factor: 0.5
 init_angvel: 0.0
 
 # 初始位置
@@ -27,6 +27,7 @@ continuous: true
 use_ballistic: true
 
 # 评估控制
+use_train_physics: true  # true = 物理参数跟随 configTrain.yaml；false = 用本文件物理参数
 checkpoint: "models/latest.pt"
 num_eval_episodes: 50
 render: true             # true = 保存视频

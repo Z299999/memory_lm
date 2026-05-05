@@ -33,6 +33,15 @@ eval_cfg = yaml.safe_load(open(_here / "configEval.yaml"))
 
 os.environ["MAP_SCALE"] = str(eval_cfg.get("map_scale", 1.0))
 
+# 物理参数来源：train config 或 eval config
+if eval_cfg.get("use_train_physics", False):
+    _train_cfg = yaml.safe_load(open(_here / "configTrain.yaml"))
+    physics_cfg = _train_cfg
+    print("物理参数来源：configTrain.yaml")
+else:
+    physics_cfg = eval_cfg
+    print("物理参数来源：configEval.yaml")
+
 # =============================================================================
 # 2. 加载 checkpoint
 # =============================================================================
@@ -55,13 +64,13 @@ def make_env(render_mode=None):
         return BallisticLunarLander(
             render_mode       = render_mode,
             continuous        = eval_cfg.get("continuous",        True),
-            entry_speed       = eval_cfg.get("entry_speed",       5.0),
-            entry_angle_deg   = eval_cfg.get("entry_angle_deg",   45.0),
-            random_side       = eval_cfg.get("random_side",       True),
-            angle_tilt_factor = eval_cfg.get("angle_tilt_factor", 0.3),
-            init_angvel       = eval_cfg.get("init_angvel",       0.0),
-            init_height_m     = eval_cfg.get("init_height_m",     None),
-            init_x_offset_m   = eval_cfg.get("init_x_offset_m",  0.0),
+            entry_speed       = physics_cfg.get("entry_speed",       5.0),
+            entry_angle_deg   = physics_cfg.get("entry_angle_deg",   45.0),
+            random_side       = physics_cfg.get("random_side",       True),
+            angle_tilt_factor = physics_cfg.get("angle_tilt_factor", 0.3),
+            init_angvel       = physics_cfg.get("init_angvel",       0.0),
+            init_height_m     = physics_cfg.get("init_height_m",     None),
+            init_x_offset_m   = physics_cfg.get("init_x_offset_m",  0.0),
         )
     kwargs = {"render_mode": render_mode} if render_mode else {}
     kwargs["continuous"] = eval_cfg.get("continuous", True)
