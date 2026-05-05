@@ -55,10 +55,14 @@ class BallisticLunarLander(LunarLander):
 
         import Box2D
 
-        # 1. 覆盖位置（可选）
-        if self.init_altitude_m is not None:
+        # 1. 覆盖位置（x 和 y 独立控制）
+        x_phys = self.lander.position.x   # 默认：super().reset() 给的位置
+        y_phys = self.lander.position.y
+        if self.init_x_m != 0.0:
             x_phys = VIEWPORT_W / SCALE / 2 + self.init_x_m
+        if self.init_altitude_m is not None:
             y_phys = self.helipad_y + self.init_altitude_m
+        if self.init_x_m != 0.0 or self.init_altitude_m is not None:
             self.lander.position = Box2D.b2Vec2(float(x_phys), float(y_phys))
 
         # 2. 注入弹道速度
