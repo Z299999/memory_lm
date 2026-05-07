@@ -1,4 +1,4 @@
-# exp0422 — babyDQN CartPole
+# exp0422 — DQN CartPole
 
 ## 实验目标
 

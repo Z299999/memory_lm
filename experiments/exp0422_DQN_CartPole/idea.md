@@ -1,11 +1,11 @@
-# exp0422_babyRL — 最简 DQN 实现
+# exp0422_DQN_CartPole — 最简 DQN 实现
 
 一个 Python 文件 + 一个 YAML 配置，理解 DQN 强化学习。
 
 ## 文件结构
 
 ```
-exp0422_babyRL/
+exp0422_DQN_CartPole/
 ├── dqn_minimal.py    # 主代码（~180 行）
 ├── config.yaml       # 配置参数
 └── idea.md           # 本文档
@@ -14,7 +14,7 @@ exp0422_babyRL/
 ## 快速开始
 
 ```bash
-cd experiments/exp0422_babyRL
+cd experiments/exp0422_DQN_CartPole
 python3 dqn_minimal.py
 ```
 

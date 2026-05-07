@@ -1,4 +1,4 @@
-# exp0501 — babyPPO LunarLander
+# exp0501 — PPO LunarLander
 
 ## 实验目标
 

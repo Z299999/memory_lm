@@ -1,4 +1,4 @@
-# exp0430 — babyPPO CartPole
+# exp0430 — PPO CartPole
 
 ## 实验目标
 
