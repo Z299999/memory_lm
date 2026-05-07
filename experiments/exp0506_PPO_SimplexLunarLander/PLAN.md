@@ -5,11 +5,35 @@
 在尽量保持 `exp0501_PPO_LunarLander` 不变的前提下，创建一个使用 `TOOLS/SimplexNet` 作为 Actor/Critic backbone 的 PPO 实验，并与 MLP baseline 做相近参数量下的学习效率比较。
 
 
+## Current Defaults
+
+当前已经先定下来的第一轮默认设计：
+
+- MLP baseline:
+  - Actor total: `4868`（含 `log_std`）
+  - Critic total: `4801`
+  - Pair total: `9669`
+- SMN main config:
+  - `n=4, m=9`
+  - Actor total: `4459`（再加 PPO 的 `log_std`）
+  - Critic total: `4291`
+  - Pair total: `8750`
+- SMN backup config:
+  - `n=5, m=7`
+  - Actor total: `4834`
+  - Critic total: `4621`
+  - Pair total: `9455`
+
+当前默认实验意图：
+
+- 主配置 `SMN(n=4, m=9)`：略小于 MLP，测试参数效率
+- 备配置 `SMN(n=5, m=7)`：更接近 MLP，测试严格公平对照
+
+
 ## Todo
 
-- [ ] 明确 `exp0501` 当前 MLP Actor 和 Critic 的参数量，并记录为 baseline
-- [ ] 计算若干组 `SMN(n, m)` 在 `n_in=8, n_out=2` 和 `n_in=8, n_out=1` 下的参数量
-- [ ] 选出第一轮主打的 `SMN` 配置，以及必要时的备选配置
+- [ ] 把当前已选的第一轮主配置 `SMN(n=4, m=9)` 固化进实现与配置文件
+- [ ] 把当前已选的备配置 `SMN(n=5, m=7)` 固化为可切换实验选项
 - [ ] 决定第一轮对照是否只保留 `0501` 当前 MLP baseline，还是再补一个更接近 SMN 参数量的 MLP baseline
 - [ ] 复制 `exp0501` 的实验骨架到 `exp0506`，但暂时不要改 PPO 训练逻辑
 - [ ] 在 `exp0506` 中接入 `TOOLS/SimplexNet` 的 `SMN` 导入路径

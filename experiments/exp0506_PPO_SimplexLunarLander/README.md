@@ -55,7 +55,7 @@
 
 - 输入：环境状态 `obs_dim = 8`
 - 输出：动作均值 `mu(s)`，维度 `act_dim = 2`
-- backbone：`SMN(n=?, m=?, n_in=8, n_out=2, ...)`
+- backbone：第一轮主配置暂定为 `SMN(n=4, m=9, n_in=8, n_out=2, ...)`
 
 当前计划是保留 `exp0501` 的高斯策略头做法：
 
@@ -68,7 +68,7 @@
 
 - 输入：环境状态 `obs_dim = 8`
 - 输出：状态价值 `V(s)`，维度 `1`
-- backbone：`SMN(n=?, m=?, n_in=8, n_out=1, ...)`
+- backbone：第一轮主配置暂定为 `SMN(n=4, m=9, n_in=8, n_out=1, ...)`
 
 
 ## Fair Comparison Rule
@@ -88,6 +88,26 @@
 - 参数预算接近
 - 训练流程一致
 - 课程推进一致
+
+当前已知的第一轮对照参数量如下：
+
+- `exp0501` 当前 MLP baseline
+  - Actor: `4868`（含 `log_std`）
+  - Critic: `4801`
+  - Pair total: `9669`
+- `SMN(n=4, m=9)` 候选
+  - Actor: `4459`（再加 PPO 的 `log_std`）
+  - Critic: `4291`
+  - Pair total: `8750`
+- `SMN(n=5, m=7)` 备选
+  - Actor: `4834`
+  - Critic: `4621`
+  - Pair total: `9455`
+
+因此第一轮实验策略是：
+
+- 主配置：`SMN(n=4, m=9)`，略小于 MLP，测试参数效率
+- 备配置：`SMN(n=5, m=7)`，更接近 MLP，测试严格公平对照
 
 
 ## Success Metrics
@@ -136,10 +156,9 @@
 
 这些问题在正式写代码前需要继续定清楚：
 
-1. `SMN` 的第一主配置使用哪组 `n, m`
-2. 是否额外加入一个参数量更贴近 SMN 的 MLP baseline
-3. 第一轮比较是直接在 `Phase 5` 做，还是先在 `Phase 3/4` 预热
-4. 是否在第一版就做多 seed，还是先单 seed 打通工程
+1. 是否额外加入一个参数量更贴近 `SMN(n=4, m=9)` 的 MLP baseline
+2. 第一轮比较是直接在 `Phase 5` 做，还是先在 `Phase 3/4` 预热
+3. 是否在第一版就做多 seed，还是先单 seed 打通工程
 
 
 ## Expected Folder Structure
@@ -171,6 +190,6 @@ exp0506_PPO_SimplexLunarLander/
 
 下一步建议：
 
-1. 先计算 `exp0501` 当前 MLP actor/critic 参数量
-2. 选出 1 到 3 组合适的 `SMN(n, m)` 候选
-3. 再开始实现 `exp0506` 的最小可运行版本
+1. 先用 `SMN(n=4, m=9)` 做最小可运行版本
+2. 再保留 `SMN(n=5, m=7)` 作为更接近参数量的备选配置
+3. 然后实现并验证 `exp0506` 的最小可运行版本
