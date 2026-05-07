@@ -12,11 +12,20 @@
 
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
-import imageio
-import matplotlib.pyplot as plt
+_here = Path(__file__).parent
+_runtime_cache_dir = _here / ".runtime_cache"
+_mpl_cache_dir = _runtime_cache_dir / "mpl"
+_xdg_cache_dir = _runtime_cache_dir / "xdg"
+_mpl_cache_dir.mkdir(parents=True, exist_ok=True)
+_xdg_cache_dir.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLCONFIGDIR", str(_mpl_cache_dir))
+os.environ.setdefault("XDG_CACHE_HOME", str(_xdg_cache_dir))
+
 import numpy as np
 import gymnasium as gym
 import torch
@@ -28,19 +37,22 @@ from torch.distributions import Normal
 # 1. 配置（必须在 lunar_ballistic import 之前设好 MAP_SCALE）
 # =============================================================================
 
-_here    = Path(__file__).parent
 eval_cfg = yaml.safe_load(open(_here / "configEval.yaml"))
 
 os.environ["MAP_SCALE"] = str(eval_cfg.get("map_scale", 1.0))
+
+
+def log(msg: str) -> None:
+    print(msg, flush=True)
 
 # 物理参数来源：train config 或 eval config
 if eval_cfg.get("use_train_physics", False):
     _train_cfg = yaml.safe_load(open(_here / "configTrain.yaml"))
     physics_cfg = _train_cfg
-    print("物理参数来源：configTrain.yaml")
+    log("物理参数来源：configTrain.yaml")
 else:
     physics_cfg = eval_cfg
-    print("物理参数来源：configEval.yaml")
+    log("物理参数来源：configEval.yaml")
 
 # =============================================================================
 # 2. 加载 checkpoint
@@ -82,12 +94,12 @@ obs_dim = _probe.observation_space.shape[0]
 act_dim = _probe.action_space.shape[0]
 _probe.close()
 
-print(f"评估环境：{eval_cfg['env_name']}  map_scale={eval_cfg.get('map_scale',1.0)}")
-print(f"Checkpoint：{ckpt_path}  (trained to update {ckpt.get('update','?')})")
+log(f"评估环境：{eval_cfg['env_name']}  map_scale={eval_cfg.get('map_scale',1.0)}")
+log(f"Checkpoint：{ckpt_path}  (trained to update {ckpt.get('update','?')})")
 
 run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}_eval"
 run_dir.mkdir(parents=True, exist_ok=True)
-print(f"输出目录：{run_dir}\n")
+log(f"输出目录：{run_dir}\n")
 
 # =============================================================================
 # 4. 网络（与 ppoTrain.py 相同定义）
@@ -130,6 +142,7 @@ outcomes   = []   # "success" / "crash" / "timeout"
 ep_lengths = []
 
 env = make_env()
+eval_start = time.perf_counter()
 for ep in range(n_episodes):
     s, _ = env.reset()
     total, length, outcome = 0.0, 0, "timeout"
@@ -146,23 +159,32 @@ for ep in range(n_episodes):
     rewards.append(total)
     outcomes.append(outcome)
     ep_lengths.append(length)
+    if (ep + 1) % 10 == 0 or ep == n_episodes - 1:
+        elapsed_sec = time.perf_counter() - eval_start
+        avg_ep_sec = elapsed_sec / (ep + 1)
+        eta_sec = avg_ep_sec * (n_episodes - ep - 1)
+        log(f"  Eval episode {ep + 1:3d}/{n_episodes} | "
+            f"reward: {total:7.2f} | outcome: {outcome:7s} | "
+            f"eta: {eta_sec/60.0:4.1f}m")
 
 env.close()
 
 n_success = outcomes.count("success")
 n_crash   = outcomes.count("crash")
 n_timeout = outcomes.count("timeout")
-print(f"评估结果（{n_episodes} 集，贪婪）：")
-print(f"  成功：{n_success}/{n_episodes} ({n_success/n_episodes*100:.1f}%)")
-print(f"  坠毁：{n_crash}/{n_episodes} ({n_crash/n_episodes*100:.1f}%)")
-print(f"  超时：{n_timeout}/{n_episodes} ({n_timeout/n_episodes*100:.1f}%)")
-print(f"  平均奖励：{np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
-print(f"  最高奖励：{max(rewards):.2f}  最低：{min(rewards):.2f}")
-print(f"  平均集长：{np.mean(ep_lengths):.1f} 步")
+log(f"评估结果（{n_episodes} 集，贪婪）：")
+log(f"  成功：{n_success}/{n_episodes} ({n_success/n_episodes*100:.1f}%)")
+log(f"  坠毁：{n_crash}/{n_episodes} ({n_crash/n_episodes*100:.1f}%)")
+log(f"  超时：{n_timeout}/{n_episodes} ({n_timeout/n_episodes*100:.1f}%)")
+log(f"  平均奖励：{np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
+log(f"  最高奖励：{max(rewards):.2f}  最低：{min(rewards):.2f}")
+log(f"  平均集长：{np.mean(ep_lengths):.1f} 步")
 
 # =============================================================================
 # 6. 评估图（2 列：每集奖励柱状图 | 奖励分布直方图）
 # =============================================================================
+
+import matplotlib.pyplot as plt
 
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 10))
 
@@ -204,17 +226,21 @@ ax2.legend(fontsize=8)
 plt.tight_layout()
 plot_path = run_dir / "eval.png"
 plt.savefig(plot_path, dpi=150)
-print(f"\n评估图已保存：{plot_path}")
+plt.close(fig)
+log(f"\n评估图已保存：{plot_path}")
 
 # =============================================================================
 # 7. GIF（前 3 集）+ live demo
 # =============================================================================
 
 if eval_cfg.get("render", True):
+    import imageio
+
     vid_n   = min(3, n_episodes)
     vid_env = make_env("rgb_array")
     vid_path = run_dir / "demo.mp4"
     writer  = imageio.get_writer(str(vid_path), fps=30)
+    log(f"\n开始录制视频：{vid_n} 集 → {vid_path}")
     for ep in range(vid_n):
         s, _ = vid_env.reset()
         total = 0
@@ -225,13 +251,13 @@ if eval_cfg.get("render", True):
             total += r
             if terminated or truncated:
                 break
-        print(f"  Video episode {ep + 1}: reward = {total:.1f}")
+        log(f"  Video episode {ep + 1}: reward = {total:.1f}")
     writer.close()
     vid_env.close()
-    print(f"  视频已保存：{vid_path}")
+    log(f"  视频已保存：{vid_path}")
 
     if eval_cfg.get("render_live", False):
-        print(f"\n演示模式（{vid_n} 集）... 按 Ctrl+C 可提前退出")
+        log(f"\n演示模式（{vid_n} 集）... 按 Ctrl+C 可提前退出")
         live_env = make_env("human")
         for ep in range(vid_n):
             s, _ = live_env.reset()
@@ -242,5 +268,5 @@ if eval_cfg.get("render", True):
                 total += r
                 if terminated or truncated:
                     break
-            print(f"  Live episode {ep + 1}: reward = {total:.1f}")
+            log(f"  Live episode {ep + 1}: reward = {total:.1f}")
         live_env.close()

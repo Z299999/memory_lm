@@ -11,10 +11,20 @@
 
 import os
 import random
+import time
 from datetime import datetime
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+_here = Path(__file__).parent
+_runtime_cache_dir = _here / ".runtime_cache"
+_mpl_cache_dir = _runtime_cache_dir / "mpl"
+_xdg_cache_dir = _runtime_cache_dir / "xdg"
+_mpl_cache_dir.mkdir(parents=True, exist_ok=True)
+_xdg_cache_dir.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLCONFIGDIR", str(_mpl_cache_dir))
+os.environ.setdefault("XDG_CACHE_HOME", str(_xdg_cache_dir))
+
 import numpy as np
 import gymnasium as gym
 import torch
@@ -27,12 +37,15 @@ from torch.distributions import Normal
 # 1. 配置（必须在 lunar_ballistic import 之前设好 MAP_SCALE）
 # =============================================================================
 
-_here  = Path(__file__).parent
 config = yaml.safe_load(open(_here / "configTrain.yaml"))
 
 os.environ["MAP_SCALE"] = str(config.get("map_scale", 1.0))
 
 num_seeds = config.get("num_seeds", 1)
+
+
+def log(msg: str) -> None:
+    print(msg, flush=True)
 
 # =============================================================================
 # 2. 环境工厂
@@ -63,12 +76,12 @@ obs_dim = _probe.observation_space.shape[0]
 act_dim = _probe.action_space.shape[0]
 _probe.close()
 
-print(f"环境：{config['env_name']}  obs={obs_dim}  act={act_dim}  map_scale={config.get('map_scale',1.0)}")
-print(f"Solved 标准：连续100集均值 ≥ {config['solved_threshold']}")
+log(f"环境：{config['env_name']}  obs={obs_dim}  act={act_dim}  map_scale={config.get('map_scale',1.0)}")
+log(f"Solved 标准：连续100集均值 ≥ {config['solved_threshold']}")
 
 run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}_train"
 run_dir.mkdir(parents=True, exist_ok=True)
-print(f"输出目录：{run_dir}\n")
+log(f"输出目录：{run_dir}\n")
 
 # =============================================================================
 # 3. 网络定义
@@ -180,12 +193,14 @@ def run_one_seed(seed: int):
         all_actor_losses  = ckpt.get("actor_losses",  [])
         all_critic_losses = ckpt.get("critic_losses", [])
         all_entropies     = ckpt.get("entropies",     [])
-        print(f"  [seed {seed}] Resumed from update {start_update}")
+        log(f"  [seed {seed}] Resumed from update {start_update}")
 
     s, _ = env.reset()
     end_update = start_update + num_updates
+    train_start = time.perf_counter()
 
     for update in range(start_update, end_update):
+        update_start = time.perf_counter()
         # ── Rollout ───────────────────────────────────────────────────────────
         buf_s, buf_a, buf_logp, buf_r, buf_done, buf_v = [], [], [], [], [], []
         ep_reward = 0.0
@@ -271,11 +286,18 @@ def run_one_seed(seed: int):
             recent = all_ep_rewards[-100:] if all_ep_rewards else [0]
             avg    = np.mean(recent)
             solved = "✅ SOLVED" if avg >= config["solved_threshold"] else ""
-            print(f"  [seed {seed}] Update {update+1:4d}/{end_update} | "
-                  f"Avg(100ep): {avg:7.2f} | "
-                  f"Actor: {all_actor_losses[-1]:.4f} | "
-                  f"Critic: {all_critic_losses[-1]:.4f} | "
-                  f"Entropy: {all_entropies[-1]:.4f}  {solved}")
+            update_sec = time.perf_counter() - update_start
+            elapsed_sec = time.perf_counter() - train_start
+            updates_done = update + 1 - start_update
+            updates_left = end_update - (update + 1)
+            avg_update_sec = elapsed_sec / max(updates_done, 1)
+            eta_min = (updates_left * avg_update_sec) / 60.0
+            log(f"  [seed {seed}] Update {update+1:4d}/{end_update} | "
+                f"Avg(100ep): {avg:7.2f} | "
+                f"Actor: {all_actor_losses[-1]:.4f} | "
+                f"Critic: {all_critic_losses[-1]:.4f} | "
+                f"Entropy: {all_entropies[-1]:.4f} | "
+                f"dt: {update_sec:4.1f}s | eta: {eta_min:4.1f}m  {solved}")
 
     env.close()
 
@@ -292,7 +314,7 @@ def run_one_seed(seed: int):
         "entropies":     all_entropies,
         "hidden_layers": hidden,
     }, ckpt_path)
-    print(f"  [seed {seed}] Checkpoint saved → {ckpt_path}")
+    log(f"  [seed {seed}] Checkpoint saved → {ckpt_path}")
 
     return all_ep_rewards, all_actor_losses, all_critic_losses, all_entropies, actor
 
@@ -308,7 +330,7 @@ all_entropy_seeds  = []
 actor_last = None
 
 for seed in range(num_seeds):
-    print(f"\n── Seed {seed} ──────────────────────────────────")
+    log(f"\n── Seed {seed} ──────────────────────────────────")
     ep_rewards, actor_losses, critic_losses, entropies, actor_last = run_one_seed(seed)
     all_rewards_seeds.append(ep_rewards)
     all_actor_seeds.append(actor_losses)
@@ -319,16 +341,18 @@ for seed in range(num_seeds):
 # 7. 汇总打印
 # =============================================================================
 
-print("\n" + "=" * 50)
-print("训练完成!")
+log("\n" + "=" * 50)
+log("训练完成!")
 all_final = [np.mean(r[-100:]) if len(r) >= 100 else np.mean(r)
              for r in all_rewards_seeds]
-print(f"平均最终奖励 (后100集): {np.mean(all_final):.2f}")
-print(f"最佳单集奖励:           {np.mean([max(r) for r in all_rewards_seeds]):.2f}")
+log(f"平均最终奖励 (后100集): {np.mean(all_final):.2f}")
+log(f"最佳单集奖励:           {np.mean([max(r) for r in all_rewards_seeds]):.2f}")
 
 # =============================================================================
 # 8. 训练图（3 列：reward | loss | entropy）
 # =============================================================================
+
+import matplotlib.pyplot as plt
 
 fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12))
 
@@ -368,4 +392,5 @@ ax3.set_title("Policy Entropy")
 plt.tight_layout()
 plot_path = run_dir / "training.png"
 plt.savefig(plot_path, dpi=150)
-print(f"\n训练图已保存：{plot_path}")
+plt.close(fig)
+log(f"\n训练图已保存：{plot_path}")

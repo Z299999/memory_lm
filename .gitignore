@@ -16,6 +16,7 @@ exp0408_memory_backprop/plots/
 # Ignore all runs/ and models/ directories across all experiments
 **/runs/
 **/models/
+**/.runtime_cache/
 
 # Exp0414 - ignore LaTeX auxiliary files (keep .tex, .bib, and .pdf)
 *.aux
@@ -34,4 +35,3 @@ exp0418_brainSimplex/plots/
 TOOLS/SimplexNet/plots/
 TOOLS/SimplexNet/checkpoints/
 TOOLS/SimplexNet/logs/
-
