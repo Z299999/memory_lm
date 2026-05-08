@@ -9,6 +9,8 @@
 
 当前已经先定下来的第一轮默认设计：
 
+- `exp0501` 与 `exp0506` 的正式对照默认 `map_scale=1.0`
+
 - MLP baseline:
   - Actor total: `4868`（含 `log_std`）
   - Critic total: `4801`
@@ -66,21 +68,21 @@ from simplexnet import SMN
 - [x] 验证 `exp0506` 是否能在 `Phase 1` 下正常训练，不出现 shape mismatch、NaN 或分布参数异常
 - [x] 明确“学得更快”的主指标：reward / success rate vs environment steps
 - [x] 明确“学得更快”的副指标：reward / success rate vs wall-clock time
+- [x] 把 `exp0501` 与 `exp0506` 的默认正式对照口径统一收成 `map_scale=1.0`（仅修改 config 默认值）
+- [x] 让 train / eval 在 run 目录下产出稳定的 JSON 摘要，供 comparison 脚本复用
+- [x] 在 `exp0506` 中新增显式 run-dir 输入的 comparison 脚本设计
+- [x] 在 `exp0506` 中实现显式 run-dir 输入的 comparison 脚本
+- [x] 用 `map_scale=1.0` 的默认配置重新跑一组 `0501` train / eval run
+- [x] 用 `map_scale=1.0` 的默认配置重新跑一组 `0506` train / eval run
+- [x] 用 comparison 脚本生成第一张 `MLP vs SMN` 对照图和 JSON 摘要
 
 
 ## Todo
 
-- [ ] 决定第一轮对照是否只保留 `0501` 当前 MLP baseline，还是再补一个更接近 SMN 参数量的 MLP baseline
-- [ ] 决定第一轮正式对比是直接从 `Phase 5` 开始，还是先在 `Phase 3/4` 预热
 - [ ] 为 `exp0506` 写一份自己的 `TRAINING_PLAN.md`，记录阶段推进和对照结果
-- [ ] 在训练日志中记录每轮实验的参数量、训练步数、最终成功率和平均奖励
-- [ ] 在训练日志中明确记录总训练时长、平均 update 时长、以及达到关键阈值所需时间
-- [ ] 生成至少一组 `MLP vs SMN` 的 reward curve 对比图
-- [ ] 生成至少一组 `MLP vs SMN` 的 success rate 或 eval result 对比图
 - [ ] 检查 `SMN` 是否在相近参数量下表现出更好的样本效率
 - [ ] 检查 `SMN` 是否在 wall-clock 时间上仍然具有竞争力
-- [ ] 如果第一轮结果不稳定，决定是调整 `n,m` 还是先回到更简单阶段继续验证
-- [ ] 更新 `exp0506` README，把最终实验设计变成实际实现说明
+- [ ] 如果第一轮结果不稳定，决定是继续用 `n=4,m=9`，还是切到 `n=5,m=7` 做更接近参数量的公平对照
 
 
 ## Notes

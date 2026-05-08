@@ -10,6 +10,7 @@
     python3 ppoEval.py
 """
 
+import json
 import os
 import sys
 import time
@@ -101,6 +102,20 @@ run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}_eval"
 run_dir.mkdir(parents=True, exist_ok=True)
 log(f"输出目录：{run_dir}\n")
 
+
+def write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(to_jsonable(payload), indent=2), encoding="utf-8")
+
+
+def to_jsonable(value):
+    if isinstance(value, dict):
+        return {k: to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(v) for v in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
 # =============================================================================
 # 4. 网络（与 ppoTrain.py 相同定义）
 # =============================================================================
@@ -129,6 +144,7 @@ class ContinuousActor(nn.Module):
 actor = ContinuousActor(obs_dim, act_dim, hidden_layers)
 actor.load_state_dict(ckpt["actor"])
 actor.eval()
+actor_param_count = sum(p.numel() for p in actor.parameters())
 
 # =============================================================================
 # 5. 贪婪评估
@@ -168,6 +184,7 @@ for ep in range(n_episodes):
             f"eta: {eta_sec/60.0:4.1f}m")
 
 env.close()
+total_eval_time = time.perf_counter() - eval_start
 
 n_success = outcomes.count("success")
 n_crash   = outcomes.count("crash")
@@ -179,6 +196,7 @@ log(f"  超时：{n_timeout}/{n_episodes} ({n_timeout/n_episodes*100:.1f}%)")
 log(f"  平均奖励：{np.mean(rewards):.2f} ± {np.std(rewards):.2f}")
 log(f"  最高奖励：{max(rewards):.2f}  最低：{min(rewards):.2f}")
 log(f"  平均集长：{np.mean(ep_lengths):.1f} 步")
+log(f"  评估用时：{total_eval_time:.2f}s")
 
 # =============================================================================
 # 6. 评估图（2 列：每集奖励柱状图 | 奖励分布直方图）
@@ -229,6 +247,38 @@ plt.savefig(plot_path, dpi=150)
 plt.close(fig)
 log(f"\n评估图已保存：{plot_path}")
 
+eval_summary = {
+    "experiment": "exp0501_PPO_LunarLander",
+    "model_type": "MLP",
+    "run_type": "eval",
+    "run_dir": str(run_dir),
+    "config_path": str(_here / "configEval.yaml"),
+    "checkpoint_path": str(ckpt_path),
+    "env_name": eval_cfg["env_name"],
+    "map_scale": eval_cfg.get("map_scale", 1.0),
+    "num_eval_episodes": n_episodes,
+    "max_steps": max_steps,
+    "obs_dim": obs_dim,
+    "act_dim": act_dim,
+    "hidden_layers": hidden_layers,
+    "actor_structure": [obs_dim, *hidden_layers, act_dim],
+    "actor_param_count": actor_param_count,
+    "total_eval_time_sec": total_eval_time,
+    "success_count": n_success,
+    "crash_count": n_crash,
+    "timeout_count": n_timeout,
+    "success_rate": n_success / n_episodes if n_episodes else 0.0,
+    "mean_reward": float(np.mean(rewards)),
+    "std_reward": float(np.std(rewards)),
+    "best_reward": float(max(rewards)),
+    "worst_reward": float(min(rewards)),
+    "avg_episode_length": float(np.mean(ep_lengths)),
+    "rewards": rewards,
+    "outcomes": outcomes,
+    "episode_lengths": ep_lengths,
+    "eval_plot": str(plot_path),
+}
+
 # =============================================================================
 # 7. GIF（前 3 集）+ live demo
 # =============================================================================
@@ -255,6 +305,7 @@ if eval_cfg.get("render", True):
     writer.close()
     vid_env.close()
     log(f"  视频已保存：{vid_path}")
+    eval_summary["video_path"] = str(vid_path)
 
     if eval_cfg.get("render_live", False):
         log(f"\n演示模式（{vid_n} 集）... 按 Ctrl+C 可提前退出")
@@ -270,3 +321,7 @@ if eval_cfg.get("render", True):
                     break
             log(f"  Live episode {ep + 1}: reward = {total:.1f}")
         live_env.close()
+
+summary_path = run_dir / "eval_summary.json"
+write_json(summary_path, eval_summary)
+log(f"评估摘要已保存：{summary_path}")

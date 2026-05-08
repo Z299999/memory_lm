@@ -9,6 +9,7 @@
     python3 ppoTrain.py
 """
 
+import json
 import os
 import random
 import time
@@ -89,6 +90,20 @@ log(f"Solved 标准：连续100集均值 ≥ {config['solved_threshold']}")
 run_dir = _here / f"runs/{datetime.now().strftime('%Y%m%d_%H%M%S')}_train"
 run_dir.mkdir(parents=True, exist_ok=True)
 log(f"输出目录：{run_dir}\n")
+
+
+def write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(to_jsonable(payload), indent=2), encoding="utf-8")
+
+
+def to_jsonable(value):
+    if isinstance(value, dict):
+        return {k: to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(v) for v in value]
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
 
 # =============================================================================
 # 3. 网络定义
@@ -183,12 +198,14 @@ def run_one_seed(seed: int):
     env    = make_env()
     actor  = ContinuousActor(obs_dim, act_dim, smn_n, smn_m, smn_activation)
     critic = Critic(obs_dim, smn_n, smn_m, smn_activation)
+    actor_param_count = sum(p.numel() for p in actor.parameters())
+    critic_param_count = sum(p.numel() for p in critic.parameters())
     optimizer = optim.Adam(
         list(actor.parameters()) + list(critic.parameters()),
         lr=config["lr"]
     )
-    log(f"  [seed {seed}] SMN actor params: {sum(p.numel() for p in actor.parameters())}")
-    log(f"  [seed {seed}] SMN critic params: {sum(p.numel() for p in critic.parameters())}")
+    log(f"  [seed {seed}] SMN actor params: {actor_param_count}")
+    log(f"  [seed {seed}] SMN critic params: {critic_param_count}")
 
     gamma        = config["gamma"]
     gae_lambda   = config["gae_lambda"]
@@ -204,6 +221,7 @@ def run_one_seed(seed: int):
     all_actor_losses  = []
     all_critic_losses = []
     all_entropies     = []
+    update_durations  = []
 
     # ── Resume ───────────────────────────────────────────────────────────────
     models_dir   = _here / "models"
@@ -307,12 +325,13 @@ def run_one_seed(seed: int):
         all_actor_losses.append(np.mean(ep_actor_losses))
         all_critic_losses.append(np.mean(ep_critic_losses))
         all_entropies.append(np.mean(ep_entropies))
+        update_sec = time.perf_counter() - update_start
+        update_durations.append(update_sec)
 
         if (update + 1) % config["print_every"] == 0:
             recent = all_ep_rewards[-100:] if all_ep_rewards else [0]
             avg    = np.mean(recent)
             solved = "✅ SOLVED" if avg >= config["solved_threshold"] else ""
-            update_sec = time.perf_counter() - update_start
             elapsed_sec = time.perf_counter() - train_start
             updates_done = update + 1 - start_update
             updates_left = end_update - (update + 1)
@@ -326,6 +345,7 @@ def run_one_seed(seed: int):
                 f"dt: {update_sec:4.1f}s | eta: {eta_min:4.1f}m  {solved}")
 
     env.close()
+    total_training_time = time.perf_counter() - train_start
 
     # ── Checkpoint ────────────────────────────────────────────────────────────
     models_dir.mkdir(exist_ok=True)
@@ -344,7 +364,25 @@ def run_one_seed(seed: int):
     }, ckpt_path)
     log(f"  [seed {seed}] Checkpoint saved → {ckpt_path}")
 
-    return all_ep_rewards, all_actor_losses, all_critic_losses, all_entropies, actor
+    return {
+        "seed": seed,
+        "actor_param_count": actor_param_count,
+        "critic_param_count": critic_param_count,
+        "total_param_count": actor_param_count + critic_param_count,
+        "total_training_time_sec": total_training_time,
+        "avg_update_time_sec": float(np.mean(update_durations)) if update_durations else 0.0,
+        "update_durations_sec": update_durations,
+        "start_update": start_update,
+        "end_update": end_update - 1,
+        "num_updates_completed": len(all_actor_losses),
+        "num_episodes": len(all_ep_rewards),
+        "final_avg_100ep": float(np.mean(all_ep_rewards[-100:])) if all_ep_rewards else 0.0,
+        "best_episode_reward": float(max(all_ep_rewards)) if all_ep_rewards else 0.0,
+        "ep_rewards": all_ep_rewards,
+        "actor_losses": all_actor_losses,
+        "critic_losses": all_critic_losses,
+        "entropies": all_entropies,
+    }
 
 
 # =============================================================================
@@ -355,15 +393,16 @@ all_rewards_seeds  = []
 all_actor_seeds    = []
 all_critic_seeds   = []
 all_entropy_seeds  = []
-actor_last = None
+seed_summaries = []
 
 for seed in range(num_seeds):
     log(f"\n── Seed {seed} ──────────────────────────────────")
-    ep_rewards, actor_losses, critic_losses, entropies, actor_last = run_one_seed(seed)
-    all_rewards_seeds.append(ep_rewards)
-    all_actor_seeds.append(actor_losses)
-    all_critic_seeds.append(critic_losses)
-    all_entropy_seeds.append(entropies)
+    seed_summary = run_one_seed(seed)
+    seed_summaries.append(seed_summary)
+    all_rewards_seeds.append(seed_summary["ep_rewards"])
+    all_actor_seeds.append(seed_summary["actor_losses"])
+    all_critic_seeds.append(seed_summary["critic_losses"])
+    all_entropy_seeds.append(seed_summary["entropies"])
 
 # =============================================================================
 # 7. 汇总打印
@@ -375,6 +414,34 @@ all_final = [np.mean(r[-100:]) if len(r) >= 100 else np.mean(r)
              for r in all_rewards_seeds]
 log(f"平均最终奖励 (后100集): {np.mean(all_final):.2f}")
 log(f"最佳单集奖励:           {np.mean([max(r) for r in all_rewards_seeds]):.2f}")
+
+train_summary = {
+    "experiment": "exp0506_PPO_SimplexLunarLander",
+    "model_type": "SMN",
+    "run_type": "train",
+    "run_dir": str(run_dir),
+    "config_path": str(_here / "configTrain.yaml"),
+    "env_name": config["env_name"],
+    "map_scale": config.get("map_scale", 1.0),
+    "num_seeds": num_seeds,
+    "obs_dim": obs_dim,
+    "act_dim": act_dim,
+    "smn_n": config["smn_n"],
+    "smn_m": config["smn_m"],
+    "smn_activation": config.get("smn_activation", "relu"),
+    "actor_param_count": seed_summaries[0]["actor_param_count"],
+    "critic_param_count": seed_summaries[0]["critic_param_count"],
+    "total_param_count": seed_summaries[0]["total_param_count"],
+    "total_training_time_sec": float(np.mean([s["total_training_time_sec"] for s in seed_summaries])),
+    "avg_update_time_sec": float(np.mean([s["avg_update_time_sec"] for s in seed_summaries])),
+    "final_avg_100ep": float(np.mean(all_final)),
+    "best_episode_reward": float(np.mean([s["best_episode_reward"] for s in seed_summaries])),
+    "seed_summaries": seed_summaries,
+    "ep_rewards": seed_summaries[0]["ep_rewards"],
+    "actor_losses": seed_summaries[0]["actor_losses"],
+    "critic_losses": seed_summaries[0]["critic_losses"],
+    "entropies": seed_summaries[0]["entropies"],
+}
 
 # =============================================================================
 # 8. 训练图（3 列：reward | loss | entropy）
@@ -422,3 +489,8 @@ plot_path = run_dir / "training.png"
 plt.savefig(plot_path, dpi=150)
 plt.close(fig)
 log(f"\n训练图已保存：{plot_path}")
+
+train_summary["training_plot"] = str(plot_path)
+summary_path = run_dir / "train_summary.json"
+write_json(summary_path, train_summary)
+log(f"训练摘要已保存：{summary_path}")

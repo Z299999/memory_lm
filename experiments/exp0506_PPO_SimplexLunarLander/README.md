@@ -156,6 +156,43 @@ from simplexnet import SMN
 也可能相反。
 
 
+## Default Comparison Setting
+
+当前默认正式对照口径已经切到：
+
+- `exp0501` train / eval 默认 `map_scale=1.0`
+- `exp0506` train / eval 默认 `map_scale=1.0`
+
+这里的含义仅限于 config 文件中的默认设置变更，不涉及环境实现或地图逻辑的额外修改。
+
+
+## Comparison Artifacts
+
+`exp0506` 现在承担统一对照汇报的职责。第一版 comparison 工作流是：
+
+- 显式传入一组 `exp0501` 的 train / eval run 目录
+- 显式传入一组 `exp0506` 的 train / eval run 目录
+- 生成：
+  - `comparison.png`
+  - `comparison_summary.json`
+
+comparison figure 采用 `Overlay + Panels`：
+
+- 上半部分叠加 `MLP` 和 `SMN` 的训练曲线
+- 下半部分左右各一个 summary panel
+
+图和摘要中会明确写出：
+
+- `MLP` 结构
+- `SMN` 的 `n`、`m`
+- actor / critic / total 参数量
+- train / eval 的总时长
+- 平均 update 时长
+- success rate
+- 平均奖励
+- 当前 `map_scale`
+
+
 ## Planned First Version
 
 第一版不追求一次性扫很多 `n, m`，而是先做一个最干净的最小比较：
@@ -213,9 +250,13 @@ exp0506_PPO_SimplexLunarLander/
   - 训练可正常启动、更新、保存 checkpoint
   - 评估脚本可正常读取 SMN checkpoint 并完成图表 / 视频输出
   - 一轮 `Phase 1` 验证结果约为 `150.38` 的后 100 集训练均值，贪婪评估成功率 `34/50`
+- `0501` 与 `0506` 的 train / eval 脚本现在都会在各自 run 目录下额外落盘 JSON 摘要，方便 comparison 脚本稳定读取结果
+- comparison 脚本已纳入 `exp0506`，作为后续 `MLP vs SMN` 汇报的统一入口
+- comparison 脚本已经过一轮真实 run-dir 验证，能够从 `0501` 与 `0506` 的 train / eval 摘要生成统一的 `comparison.png` 与 `comparison_summary.json`
 
 下一步建议：
 
-1. 决定是否把当前 `Phase 1` 结果固定为第一版 SMN baseline
-2. 再保留 `SMN(n=5, m=7)` 作为更接近参数量的备选配置
+1. 在固定随机种子或多 seed 条件下继续复跑，避免单次结果波动误导结论
+2. 先继续观察主配置 `SMN(n=4, m=9)`，再决定是否补 `SMN(n=5, m=7)` 做更接近参数量的公平对照
+3. 如有必要，再把 comparison 脚本扩展到多 seed 汇总图
 3. 然后开始正式的 `MLP vs SMN` 对照训练，并把训练时长纳入指标
