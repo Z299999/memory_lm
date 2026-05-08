@@ -51,6 +51,24 @@
 - `exp0501` 使用 MLP Actor + MLP Critic
 - `exp0506` 使用 SMN Actor + SMN Critic
 
+
+## How SMN Is Imported
+
+`exp0506` 当前没有依赖额外安装好的 `simplexnet` 包，而是直接从仓库内的源码导入。
+
+做法是：
+
+- 以当前脚本目录为起点定位 repo 根目录
+- 拼出 `TOOLS/SimplexNet/src`
+- 把这个路径动态加入 `sys.path`
+- 再执行：
+
+```python
+from simplexnet import SMN
+```
+
+这意味着 `exp0506` 始终使用仓库当前版本的 `SimplexNet` 源码，而不是某个独立安装版本。
+
 ### Planned Actor
 
 - 输入：环境状态 `obs_dim = 8`
@@ -187,6 +205,7 @@ exp0506_PPO_SimplexLunarLander/
 - 实验目标已定
 - README 与 PLAN 已写好
 - `exp0501` 的 PPO 实验骨架已复制到 `exp0506`
+- `TOOLS/SimplexNet/src` 已通过 repo 内相对定位方式接入训练与评估脚本
 - MLP Actor / Critic 已替换为 SMN Actor / Critic
 - `SMN(n=4, m=9)` 已作为默认主配置接入训练与评估脚本
 - `log_std` 仍然保持为独立可学习参数，便于和 `exp0501` 做干净对照
@@ -197,6 +216,6 @@ exp0506_PPO_SimplexLunarLander/
 
 下一步建议：
 
-1. 决定是否把 `Phase 1` 的当前结果作为第一版 baseline 保存下来
+1. 决定是否把当前 `Phase 1` 结果固定为第一版 SMN baseline
 2. 再保留 `SMN(n=5, m=7)` 作为更接近参数量的备选配置
-3. 然后开始正式的 `MLP vs SMN` 对照训练
+3. 然后开始正式的 `MLP vs SMN` 对照训练，并把训练时长纳入指标
