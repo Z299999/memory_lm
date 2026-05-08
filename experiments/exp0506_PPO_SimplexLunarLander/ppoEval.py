@@ -53,6 +53,19 @@ os.environ["MAP_SCALE"] = str(eval_cfg.get("map_scale", 1.0))
 def log(msg: str) -> None:
     print(msg, flush=True)
 
+
+def seed_env_spaces(env, seed: int) -> None:
+    if hasattr(env, "action_space") and hasattr(env.action_space, "seed"):
+        env.action_space.seed(seed)
+    if hasattr(env, "observation_space") and hasattr(env.observation_space, "seed"):
+        env.observation_space.seed(seed)
+
+
+def reset_env(env, seed: int | None = None):
+    if seed is None:
+        return env.reset()
+    return env.reset(seed=seed)
+
 # 物理参数来源：train config 或 eval config
 if eval_cfg.get("use_train_physics", False):
     _train_cfg = yaml.safe_load(open(_here / "configTrain.yaml"))
@@ -163,15 +176,17 @@ log(f"SMN actor config: n={smn_n}, m={smn_m}, activation={smn_activation}")
 
 n_episodes = eval_cfg.get("num_eval_episodes", 50)
 max_steps  = eval_cfg.get("max_steps", 1000)
+eval_seed_base = eval_cfg.get("eval_seed", 0)
 
 rewards    = []
 outcomes   = []   # "success" / "crash" / "timeout"
 ep_lengths = []
 
 env = make_env()
+seed_env_spaces(env, eval_seed_base)
 eval_start = time.perf_counter()
 for ep in range(n_episodes):
-    s, _ = env.reset()
+    s, _ = reset_env(env, seed=eval_seed_base + ep)
     total, length, outcome = 0.0, 0, "timeout"
     for _ in range(max_steps):
         a_env = actor.greedy(torch.FloatTensor(s))
@@ -275,6 +290,8 @@ eval_summary = {
     "smn_m": smn_m,
     "smn_activation": smn_activation,
     "actor_param_count": actor_param_count,
+    "eval_seed_base": eval_seed_base,
+    "eval_seed_strategy": "eval_seed_base + episode_index",
     "total_eval_time_sec": total_eval_time,
     "success_count": n_success,
     "crash_count": n_crash,
@@ -300,11 +317,13 @@ if eval_cfg.get("render", True):
 
     vid_n   = min(3, n_episodes)
     vid_env = make_env("rgb_array")
+    video_seed_base = eval_seed_base + 10_000
+    seed_env_spaces(vid_env, video_seed_base)
     vid_path = run_dir / "demo.mp4"
     writer  = imageio.get_writer(str(vid_path), fps=30)
     log(f"\n开始录制视频：{vid_n} 集 → {vid_path}")
     for ep in range(vid_n):
-        s, _ = vid_env.reset()
+        s, _ = reset_env(vid_env, seed=video_seed_base + ep)
         total = 0
         for _ in range(max_steps):
             writer.append_data(vid_env.render())   # 流式写入，不攒内存
@@ -322,8 +341,10 @@ if eval_cfg.get("render", True):
     if eval_cfg.get("render_live", False):
         log(f"\n演示模式（{vid_n} 集）... 按 Ctrl+C 可提前退出")
         live_env = make_env("human")
+        live_seed_base = eval_seed_base + 20_000
+        seed_env_spaces(live_env, live_seed_base)
         for ep in range(vid_n):
-            s, _ = live_env.reset()
+            s, _ = reset_env(live_env, seed=live_seed_base + ep)
             total = 0
             for _ in range(max_steps):
                 a_env = actor.greedy(torch.FloatTensor(s))

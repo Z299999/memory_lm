@@ -55,6 +55,19 @@ num_seeds = config.get("num_seeds", 1)
 def log(msg: str) -> None:
     print(msg, flush=True)
 
+
+def seed_env_spaces(env, seed: int) -> None:
+    if hasattr(env, "action_space") and hasattr(env.action_space, "seed"):
+        env.action_space.seed(seed)
+    if hasattr(env, "observation_space") and hasattr(env.observation_space, "seed"):
+        env.observation_space.seed(seed)
+
+
+def reset_env(env, seed: int | None = None):
+    if seed is None:
+        return env.reset()
+    return env.reset(seed=seed)
+
 # =============================================================================
 # 2. 环境工厂
 # =============================================================================
@@ -196,6 +209,7 @@ def run_one_seed(seed: int):
     smn_m = config["smn_m"]
     smn_activation = config.get("smn_activation", "relu")
     env    = make_env()
+    seed_env_spaces(env, seed)
     actor  = ContinuousActor(obs_dim, act_dim, smn_n, smn_m, smn_activation)
     critic = Critic(obs_dim, smn_n, smn_m, smn_activation)
     actor_param_count = sum(p.numel() for p in actor.parameters())
@@ -239,7 +253,8 @@ def run_one_seed(seed: int):
         all_entropies     = ckpt.get("entropies",     [])
         log(f"  [seed {seed}] Resumed from update {start_update}")
 
-    s, _ = env.reset()
+    episode_reset_count = 0
+    s, _ = reset_env(env, seed=seed + episode_reset_count)
     end_update = start_update + num_updates
     train_start = time.perf_counter()
 
@@ -269,7 +284,8 @@ def run_one_seed(seed: int):
             if done:
                 ep_rewards_this_update.append(ep_reward)
                 ep_reward = 0.0
-                s, _ = env.reset()
+                episode_reset_count += 1
+                s, _ = reset_env(env, seed=seed + episode_reset_count)
 
         with torch.no_grad():
             last_v = critic(torch.FloatTensor(s)).item()
@@ -374,6 +390,8 @@ def run_one_seed(seed: int):
         "update_durations_sec": update_durations,
         "start_update": start_update,
         "end_update": end_update - 1,
+        "env_seed_base": seed,
+        "episode_reset_count": episode_reset_count,
         "num_updates_completed": len(all_actor_losses),
         "num_episodes": len(all_ep_rewards),
         "final_avg_100ep": float(np.mean(all_ep_rewards[-100:])) if all_ep_rewards else 0.0,
@@ -432,6 +450,7 @@ train_summary = {
     "actor_param_count": seed_summaries[0]["actor_param_count"],
     "critic_param_count": seed_summaries[0]["critic_param_count"],
     "total_param_count": seed_summaries[0]["total_param_count"],
+    "env_seed_strategy": "seed + episode_reset_count",
     "total_training_time_sec": float(np.mean([s["total_training_time_sec"] for s in seed_summaries])),
     "avg_update_time_sec": float(np.mean([s["avg_update_time_sec"] for s in seed_summaries])),
     "final_avg_100ep": float(np.mean(all_final)),
