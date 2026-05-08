@@ -1,0 +1,39 @@
+# ppoEval.py — 评估配置（可与训练环境不同，测泛化）
+
+# ===== 物理参数 =====
+
+# 地图
+map_scale: 2.0           # 评估地图（可设为与训练不同，测泛化）
+
+# 弹道入射（Phase 1：先验证 SMN-PPO 评估链路）
+init_speed: 2.0
+init_flight_angle_deg: 80.0
+random_side: false
+
+# 初始姿态（Phase 1）
+init_body_angle_deg: 0.0
+init_angular_velocity: 0.0
+
+# 初始位置（Phase 1）
+init_altitude_m: 8.0
+init_x_m: 0.0
+
+# ===== 系统参数 =====
+
+# 环境
+env_name: "LunarLander-v3"
+max_steps: 3000          # 大地图需要更多步数
+continuous: true
+use_ballistic: true
+
+# SMN 结构
+smn_n: 4
+smn_m: 9
+smn_activation: "relu"
+
+# 评估控制
+use_train_physics: false # true = 物理参数跟随 configTrain.yaml；false = 用本文件物理参数
+checkpoint: "models/latest.pt"
+num_eval_episodes: 50
+render: true             # true = 保存视频
+render_live: false       # true = 额外弹出实时窗口观看

@@ -1,0 +1,50 @@
+# ppoTrain.py — 训练配置
+
+# ===== 物理参数 =====
+
+# 地图
+map_scale: 2.0           # 地图缩放：1=原始(20×13m), 2=两倍, 3=三倍
+
+# 弹道入射（Phase 1：先验证 SMN-PPO 能稳定起跑）
+init_speed: 2.0              # 初始速度大小 (m/s)
+init_flight_angle_deg: 80.0  # 速度方向与水平面夹角 (°)，向下
+random_side: false           # true=随机左/右飞入
+
+# 初始姿态（Phase 1）
+init_body_angle_deg: 0.0     # 机身初始倾斜角 (°)
+init_angular_velocity: 0.0   # 初始角速度 (rad/s)
+
+# 初始位置（Phase 1）
+init_altitude_m: 8.0         # 距着陆垫高度 (m)
+init_x_m: 0.0               # 偏离中心水平距离 (m)，正=右，负=左
+
+# ===== 系统参数 =====
+
+# 环境
+env_name: "LunarLander-v3"
+max_steps: 1000
+continuous: true
+use_ballistic: true
+
+# SMN 结构
+smn_n: 4
+smn_m: 9
+smn_activation: "relu"
+
+# PPO 超参数
+lr: 3.0e-4
+gamma: 0.99
+gae_lambda: 0.95
+clip_eps: 0.2
+value_coef: 0.5
+entropy_coef: 0.01
+n_steps: 2048
+n_epochs: 10
+batch_size: 64
+
+# 训练控制
+resume: false
+num_updates: 250
+print_every: 10
+num_seeds: 1
+solved_threshold: 200
