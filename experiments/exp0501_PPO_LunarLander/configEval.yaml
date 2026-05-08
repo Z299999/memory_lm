@@ -5,17 +5,17 @@
 # 地图
 map_scale: 2.0           # 评估地图（可设为与训练不同，测泛化）
 
-# 弹道入射（Phase 5：评估目标弹道条件）
-init_speed: 5.0
-init_flight_angle_deg: 45.0
-random_side: true
+# 弹道入射（Phase 1：MLP baseline 正式对照）
+init_speed: 2.0
+init_flight_angle_deg: 80.0
+random_side: false
 
-# 初始姿态（Phase 5）
-init_body_angle_deg: 13.5
+# 初始姿态（Phase 1）
+init_body_angle_deg: 0.0
 init_angular_velocity: 0.0
 
-# 初始位置（Phase 5）
-init_altitude_m: 10.0
+# 初始位置（Phase 1）
+init_altitude_m: 8.0
 init_x_m: 0.0
 
 # ===== 系统参数 =====
