@@ -75,14 +75,19 @@ from simplexnet import SMN
 - [x] 用 `map_scale=1.0` 的默认配置重新跑一组 `0501` train / eval run
 - [x] 用 `map_scale=1.0` 的默认配置重新跑一组 `0506` train / eval run
 - [x] 用 comparison 脚本生成第一张 `MLP vs SMN` 对照图和 JSON 摘要
+- [x] 修复 `exp0501` 与 `exp0506` 的 train / eval 环境 seeding，使环境 reset、评估和视频录制进入可复现实验轨道
+- [x] 用修复后的可复现 seeding 重新跑一组 `map_scale=1.0` 的 `0501` train / eval run
+- [x] 用修复后的可复现 seeding 重新跑一组 `map_scale=1.0` 的 `0506` train / eval run
+- [x] 用修复后的 run 重新生成一张更可信的 `MLP vs SMN` comparison 图和 JSON 摘要
 
 
 ## Todo
 
-- [ ] 为 `exp0506` 写一份自己的 `TRAINING_PLAN.md`，记录阶段推进和对照结果
+- [x] 为 `exp0506` 写一份自己的 `TRAINING_PLAN.md`，记录阶段推进和对照结果
 - [ ] 检查 `SMN` 是否在相近参数量下表现出更好的样本效率
 - [ ] 检查 `SMN` 是否在 wall-clock 时间上仍然具有竞争力
 - [ ] 如果第一轮结果不稳定，决定是继续用 `n=4,m=9`，还是切到 `n=5,m=7` 做更接近参数量的公平对照
+- [ ] 决定下一轮是先做多 seed 正式比较，还是先切到 `SMN(n=5,m=7)` 做更接近参数量的公平对照
 
 
 ## Notes

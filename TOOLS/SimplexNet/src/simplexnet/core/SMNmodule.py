@@ -91,9 +91,8 @@ class SMN(nn.Module):
         # Pre-build index tensors for the forward pass (no Python loops at runtime)
         (
             self._level_schedule,
-            self._output_mappings,
-            self._output_norm_scales,
-            self._input_node_indices,
+            self._output_schedule,
+            self._hist_width,
         ) = self._build_schedule()
 
     # ------------------------------------------------------------------
@@ -122,6 +121,7 @@ class SMN(nn.Module):
         # Level schedule: one entry per topological level of core nodes
         level_schedule = []
         write_offset = self.n_in
+        level_idx = 0
         for _level, nodes in sorted(self.graph.topological_levels.items()):
             if nodes[0][0] in ("in", "out"):
                 continue
@@ -133,29 +133,61 @@ class SMN(nn.Module):
                     dst_list.append(i)
                     ew_list.append(edge_to_idx[(pred, node)])
                 hist_idx[node_to_idx[node]] = write_offset + i
+            unique_src = sorted(set(src_list))
+            src_pos = {src: i for i, src in enumerate(unique_src)}
+            flat_idx = [src_pos[src] * len(nodes) + dst for src, dst in zip(src_list, dst_list)]
+
+            src_name = f"_level_{level_idx}_src"
+            flat_name = f"_level_{level_idx}_flat"
+            ew_name = f"_level_{level_idx}_ew"
+            bias_name = f"_level_{level_idx}_bias"
+            self.register_buffer(src_name, torch.tensor(unique_src, dtype=torch.long))
+            self.register_buffer(flat_name, torch.tensor(flat_idx, dtype=torch.long))
+            self.register_buffer(ew_name, torch.tensor(ew_list, dtype=torch.long))
+            self.register_buffer(bias_name, torch.tensor(bias_list, dtype=torch.long))
             level_schedule.append((
-                torch.tensor(src_list,  dtype=torch.long),
-                torch.tensor(dst_list,  dtype=torch.long).unsqueeze(0),
-                torch.tensor(ew_list,   dtype=torch.long),
-                torch.tensor(bias_list, dtype=torch.long),
+                src_name,
+                flat_name,
+                ew_name,
+                bias_name,
+                len(unique_src),
                 len(nodes),
                 write_offset,
             ))
             write_offset += len(nodes)
+            level_idx += 1
 
-        # Output mappings: one per output node
-        output_mappings = []
+        # Output mappings: flatten all output fan-ins into one scatter schedule
+        output_src_list = []
+        output_ew_list = []
+        output_dst_list = []
         output_norm_scales = []
-        for out_node in self.graph.output_nodes:
+        for out_idx, out_node in enumerate(self.graph.output_nodes):
             preds = self.graph.preds[out_node]
-            output_mappings.append((
-                torch.tensor([hist_idx[node_to_idx[p]] for p in preds], dtype=torch.long),
-                torch.tensor([edge_to_idx[(p, out_node)] for p in preds], dtype=torch.long),
-            ))
+            output_src_list.extend(hist_idx[node_to_idx[p]] for p in preds)
+            output_ew_list.extend(edge_to_idx[(p, out_node)] for p in preds)
+            output_dst_list.extend([out_idx] * len(preds))
             output_norm_scales.append(1.0 / (len(preds) ** 0.5) if self.scale_output else 1.0)
 
-        input_node_indices = [node_to_idx[n] for n in self.graph.input_nodes]
-        return level_schedule, output_mappings, output_norm_scales, input_node_indices
+        output_unique_src = sorted(set(output_src_list))
+        output_src_pos = {src: i for i, src in enumerate(output_unique_src)}
+        output_flat_idx = [
+            output_src_pos[src] * self.n_out + dst
+            for src, dst in zip(output_src_list, output_dst_list)
+        ]
+
+        self.register_buffer("_output_src_idx", torch.tensor(output_unique_src, dtype=torch.long))
+        self.register_buffer("_output_ew_idx", torch.tensor(output_ew_list, dtype=torch.long))
+        self.register_buffer("_output_flat_idx", torch.tensor(output_flat_idx, dtype=torch.long))
+        self.register_buffer("_output_norm_scales", torch.tensor(output_norm_scales, dtype=torch.float32))
+
+        output_schedule = (
+            "_output_src_idx",
+            "_output_ew_idx",
+            "_output_flat_idx",
+            "_output_norm_scales",
+        )
+        return level_schedule, output_schedule, write_offset
 
     # ------------------------------------------------------------------
     # Forward
@@ -178,27 +210,37 @@ class SMN(nn.Module):
         batch = x.shape[0]
 
         # Pre-allocated history buffer: [input cols | core cols]
-        hist = x.new_zeros(batch, self.n_in + len(self.graph.core_nodes))
-        for i in range(self.n_in):
-            hist[:, i] = x[:, i]
+        hist = x.new_zeros(batch, self._hist_width)
+        hist[:, :self.n_in] = x
 
         # Core nodes, level by level
-        for src_t, dst_rows_0, ew_idx_t, bias_t, n_level, write_start in self._level_schedule:
-            src_states = hist[:, src_t]                               # (B, n_edges)
-            weighted   = src_states * self.ew[ew_idx_t]              # (B, n_edges)
-            agg = weighted.new_zeros(batch, n_level).scatter_add(
-                1, dst_rows_0.expand(batch, -1), weighted
-            )                                                         # (B, n_level)
+        for src_name, flat_name, ew_name, bias_name, n_src, n_level, write_start in self._level_schedule:
+            src_t = getattr(self, src_name)
+            flat_t = getattr(self, flat_name)
+            ew_idx_t = getattr(self, ew_name)
+            bias_t = getattr(self, bias_name)
+            src_states = hist.index_select(1, src_t)                 # (B, n_src)
+            weight_flat = self.ew.new_zeros(n_src * n_level)
+            weight_flat[flat_t] = self.ew.index_select(0, ew_idx_t)
+            weight_matrix = weight_flat.view(n_src, n_level)
+            agg = src_states.matmul(weight_matrix)                   # (B, n_level)
             out = self.activation_fn(agg + self.nb[bias_t])          # (B, n_level)
             hist[:, write_start:write_start + n_level] = out
 
         # Output nodes (variance-preserving aggregation + configurable output activation)
-        outputs = []
-        for i, (out_src_t, out_ew_t) in enumerate(self._output_mappings):
-            val = (hist[:, out_src_t] * self.ew[out_ew_t]).sum(1, keepdim=True)
-            outputs.append(val * self._output_norm_scales[i])
+        out_src_name, out_ew_name, out_flat_name, out_scale_name = self._output_schedule
+        out_src_t = getattr(self, out_src_name)
+        out_ew_t = getattr(self, out_ew_name)
+        out_flat_t = getattr(self, out_flat_name)
+        out_scale_t = getattr(self, out_scale_name)
 
-        return self.output_activation_fn(torch.cat(outputs, dim=1) + self.output_bias)
+        output_src_states = hist.index_select(1, out_src_t)
+        output_weight_flat = self.ew.new_zeros(out_src_t.numel() * self.n_out)
+        output_weight_flat[out_flat_t] = self.ew.index_select(0, out_ew_t)
+        output_weight_matrix = output_weight_flat.view(out_src_t.numel(), self.n_out)
+        outputs = output_src_states.matmul(output_weight_matrix)
+        outputs = outputs * out_scale_t.unsqueeze(0).to(outputs.dtype)
+        return self.output_activation_fn(outputs + self.output_bias)
 
     # ------------------------------------------------------------------
     # Properties
