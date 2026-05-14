@@ -1,0 +1,4 @@
+theory/*.aux
+theory/*.log
+theory/*.out
+theory/*.pdf
