@@ -2,3 +2,4 @@ theory/*.aux
 theory/*.log
 theory/*.out
 theory/*.pdf
+.runtime_cache/
