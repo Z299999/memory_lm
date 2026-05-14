@@ -43,12 +43,13 @@
 exp0513_sigmaAlgAddrDopamine/
 ├── checks/
 ├── run.py
+├── viz.py
 ├── config.yaml
 ├── README.md
 ├── PLAN.md
 ├── theory/
 ├── src/
-├── experiments/
+├── viz/
 └── runs/
 ```
 
@@ -79,6 +80,30 @@ python3 run.py
 如果想验证理论里那个可手算的小例子：
 
 - 运行 [checks/verify_theory_hand_example.py](/Users/shzhang/Documents/Codes/memory_lm/experiments/exp0513_sigmaAlgAddrDopamine/checks/verify_theory_hand_example.py:1)
+
+如果想打开第一版网络结构可视化：
+
+```bash
+cd experiments/exp0513_sigmaAlgAddrDopamine
+python3 viz.py
+```
+
+然后访问：
+
+- `http://127.0.0.1:8000/viz/`
+
+也可以自己指定端口，或者自动打开浏览器：
+
+```bash
+python3 viz.py --port 8765
+python3 viz.py --open
+```
+
+这个页面是一个静态结构解释器：
+
+- 默认显示 `1 -> 16 -> 16 -> (y=1, q=9)` 的 forward network
+- 点击 `q_i` 高亮它控制的 forward edges
+- 点击 forward edge 查看它被哪些 `q_i` 控
 
 ## What This Experiment Is Really About
 
