@@ -238,14 +238,12 @@ This is the standard task-driven update.
 
 The modulator heads generate a separate internal update. The internal update is not defined by the gradient. Instead, it is produced by the modulator outputs \(q_\theta(x_t)\), the head-to-edge assignment, and an energy normalization rule.
 
-\begin{remark}[How the modulator heads are learned]
-The formulas below specify how \(q\)-heads modulate edge updates, but they do not by themselves determine how the parameters of the \(q\)-heads are learned. There are at least three reasonable regimes:
-\begin{enumerate}[leftmargin=*]
-\item keep the assignment matrix \(B\) fixed and treat the \(q\)-heads as fixed or slowly changing exploratory modulators;
-\item attach an auxiliary objective to the \(q\)-heads so that they receive direct gradient supervision;
-\item treat the whole mechanism as a dynamical system and train the \(q\)-heads through multi-step differentiation or another outer-loop credit-assignment method.
-\end{enumerate}
-In this note we focus on the addressability and update geometry induced by \(B\) and \(q\). The choice of learning rule for the \(q\)-head parameters is left as a design decision for later implementation.
+\begin{remark}[Current experimental regime]
+For the first version of this project, we fix the assignment matrix \(B\) once at initialization and keep it static throughout training. Thus the set of synapses influenced by each modulator head is fixed in advance.
+
+We also do not introduce a separate auxiliary loss or outer-loop objective specifically for the \(q\)-heads. Instead, training starts in a regime where ordinary backpropagation dominates, i.e. \(\lambda_t\) is small, and then gradually transitions toward stronger internal modulation by increasing \(\lambda_t\).
+
+The working hypothesis is not that the \(q\)-heads are explicitly taught a modulation rule. Rather, the experiment asks whether a useful self-modulation pattern can emerge gradually under this schedule once the network has first been shaped by ordinary task-driven learning.
 \end{remark}
 
 \subsection{Randomized but constrained head-to-edge assignment}
@@ -270,7 +268,7 @@ The \(j\)-th row
 \[
 B_{j,:}
 \]
-is the address of edge \(e_j\). The assignment matrix should be randomized but constrained. The constraints are as follows.
+is the address of edge \(e_j\). The assignment matrix may be sampled or designed at initialization, but in the current experiment it is thereafter kept fixed. The constraints are as follows.
 
 Under the full-coverage requirement \(B_{j,:}\neq 0\), feasibility already requires
 \[

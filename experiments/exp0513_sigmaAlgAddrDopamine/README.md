@@ -6,11 +6,12 @@
 
 - 把一部分可训练边定义为 controllable edge set \(E\)
 - 用 \(m\) 个 modulator heads 输出内部信号 \(q\)
-- 用一个二值 assignment matrix \(B\) 把这 \(m\) 个 head 映射到 \(N=|E|\) 条边
+- 用一个静态的二值 assignment matrix \(B\) 把这 \(m\) 个 head 映射到 \(N=|E|\) 条边
 - 通过 sigma-algebra / binary address 的视角说明：
   - \(m\) 个二值生成元最多可区分 \(2^m\) 条边
   - 因而 \(m=O(\log N)\) 足以提供 addressability
   - 但这不等于对 \(N\) 条边进行一步独立控制
+- 训练策略上，前期由普通 backprop 主导，随后逐步增大 self-modulation 的占比，观察 \(q\)-调控是否会在这个过程中自己涌现出稳定机制
 
 ## Current Status
 
@@ -26,12 +27,15 @@
   - \(1/\sqrt{k_i}\) 能量归一化
   - backprop 与 internal modulation 的混合更新
   - 一个可手算的小 MLP 例子
+- 已经确定两条实验决策：
+  - \(B\) 是静态的，一旦初始化后不再改动
+  - 不给 \(q\)-heads 单独设计监督目标，而是先用 BP 训练、再逐步过渡到自我调控
 
 还没有完成的部分：
 
 - 还没有最小可运行代码原型
-- 还没有把 \(q\)-head 自身如何学习这件事定下来
 - 还没有 toy task 实验来验证这种内部调制是否有实际收益
+- 还没有验证 \(q\)-调控是否真的会随着训练过程逐步涌现
 
 ## Folder Layout
 
@@ -52,16 +56,13 @@ exp0513_sigmaAlgAddrDopamine/
 
 1. 数学上，`O(log N)` 个 modulator heads 到底能对多少边提供可区分地址？
 2. 工程上，怎样构造一个既满足 coverage / distinguishability，又不过分失衡的 \(B\)？
-3. 学习上，\(q\)-heads 的参数到底应该：
-   - 固定
-   - 用 auxiliary loss 学
-   - 还是通过多步 credit assignment / meta-learning 学
+3. 动力学上，在固定 \(B\)、没有单独 \(q\)-head 训练目标的情况下，\(q\)-调控是否会随着训练从 BP 主导阶段逐步涌现？
 
 ## Recommended Next Step
 
 最推荐的推进顺序是：
 
-1. 先把理论稿中的定义、边界条件和 claims 收紧
-2. 再做一个最小 `toy MLP` 原型
+1. 先把最小 `toy MLP` 原型写出来
+2. 把静态 \(B\)、`lambda schedule` 和 mixed update 都落成代码
 3. 先验证手算例子和代码结果一致
-4. 然后再上更像实验的 toy task
+4. 然后再上 toy task，观察 \(q\)-调控是否会逐步涌现
