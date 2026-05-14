@@ -66,13 +66,13 @@ def compute_internal_update(
     return delta_int, s, q_mean
 
 
-def mix_phase_b_updates(
+def mix_controllable_updates(
     bp_flat: torch.Tensor,
     int_flat: torch.Tensor,
     index_map: list[ParameterSlice],
     lambda_value: float,
 ) -> tuple[torch.Tensor, OrderedDict[str, torch.Tensor], torch.Tensor]:
-    """Mix BP and internal updates according to V1 Phase B rules."""
+    """Mix BP and internal updates for the current lambda-controlled run."""
     total = torch.empty_like(bp_flat)
     bp_mask = torch.zeros_like(bp_flat, dtype=torch.bool)
     q_head_start = index_map[-1].start
@@ -83,19 +83,6 @@ def mix_phase_b_updates(
     total[q_head_start:q_head_end] = lambda_value * int_flat[q_head_start:q_head_end]
     per_param = unflatten_internal_signal(total, index_map)
     return total, per_param, bp_mask
-
-
-def phase_a_controllable_updates(
-    bp_flat: torch.Tensor,
-    index_map: list[ParameterSlice],
-) -> tuple[torch.Tensor, OrderedDict[str, torch.Tensor]]:
-    """Phase A uses BP on trunk/y weights and zero update on q-head weights."""
-    total = bp_flat.clone()
-    q_head_start = index_map[-1].start
-    q_head_end = index_map[-1].end
-    total[q_head_start:q_head_end] = 0.0
-    per_param = unflatten_internal_signal(total, index_map)
-    return total, per_param
 
 
 def apply_updates(

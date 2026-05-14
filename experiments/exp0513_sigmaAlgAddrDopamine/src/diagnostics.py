@@ -73,7 +73,6 @@ def average_epoch_metrics(batch_metrics: list[dict[str, float]]) -> dict[str, fl
 
 def plot_q_diagnostics(
     history: list[dict[str, float]],
-    phase_a_epochs: int,
     output_path: Path,
 ) -> None:
     """Plot q- and s-related diagnostics over training."""
@@ -83,7 +82,6 @@ def plot_q_diagnostics(
 
     def _plot(ax, key: str, title: str) -> None:
         ax.plot(epochs, [row[key] for row in history], linewidth=1.6)
-        ax.axvline(phase_a_epochs, color="black", linestyle="--", linewidth=1)
         ax.set_title(title)
         ax.set_xlabel("epoch")
 
@@ -101,7 +99,6 @@ def plot_q_diagnostics(
 
 def plot_update_diagnostics(
     history: list[dict[str, float]],
-    phase_a_epochs: int,
     output_path: Path,
 ) -> None:
     """Plot update norms and BP/internal alignment."""
@@ -111,7 +108,6 @@ def plot_update_diagnostics(
 
     def _plot(ax, key: str, title: str) -> None:
         ax.plot(epochs, [row[key] for row in history], linewidth=1.6)
-        ax.axvline(phase_a_epochs, color="black", linestyle="--", linewidth=1)
         ax.set_title(title)
         ax.set_xlabel("epoch")
 

@@ -15,7 +15,7 @@
 
 ## Current Status
 
-当前 `exp0513` 还处在理论定型阶段：
+当前 `exp0513` 已经从理论草稿推进到可运行原型阶段：
 
 - 已有一版理论稿：
   - [theory/theory.tex](/Users/shzhang/Documents/Codes/memory_lm/experiments/exp0513_sigmaAlgAddrDopamine/theory/theory.tex)
@@ -31,24 +31,49 @@
   - \(B\) 是静态的，一旦初始化后不再改动
   - 不给 \(q\)-heads 单独设计监督目标，而是先用 BP 训练、再逐步过渡到自我调控
 
-还没有完成的部分：
+当前已经完成的工程入口：
 
-- 还没有最小可运行代码原型
-- 还没有 toy task 实验来验证这种内部调制是否有实际收益
-- 还没有验证 \(q\)-调控是否真的会随着训练过程逐步涌现
+- 已有单次训练入口与可续训 checkpoint 机制
+- 已支持 1D task registry：`sin`, `sin_mix`, `poly_wave`, `piecewise`
+- 已支持用 `config.yaml` 选择 `lambda`、任务与 `resume_from`
 
 ## Folder Layout
 
 ```text
 exp0513_sigmaAlgAddrDopamine/
+├── run.py
+├── config.yaml
 ├── README.md
 ├── PLAN.md
 ├── theory/
-│   └── theory.tex
 ├── src/
-│   └── __init__.py
+├── experiments/
 └── runs/
 ```
+
+## Quick Start
+
+```bash
+cd experiments/exp0513_sigmaAlgAddrDopamine
+python3 run.py
+```
+
+常规使用方式：
+
+- 修改 [config.yaml](/Users/shzhang/Documents/Codes/memory_lm/experiments/exp0513_sigmaAlgAddrDopamine/config.yaml)
+- 运行 [run.py](/Users/shzhang/Documents/Codes/memory_lm/experiments/exp0513_sigmaAlgAddrDopamine/run.py)
+
+支持的 1D 任务：
+
+- `sin`
+- `sin_mix`
+- `poly_wave`
+- `piecewise`
+
+如果想接着之前的模型继续训练：
+
+- 在 `config.yaml` 中设置 `resume_from: "/abs/path/to/model.pt"`
+- 同时自由修改 `lambda`
 
 ## What This Experiment Is Really About
 
@@ -62,7 +87,7 @@ exp0513_sigmaAlgAddrDopamine/
 
 最推荐的推进顺序是：
 
-1. 先把最小 `toy MLP` 原型写出来
-2. 把静态 \(B\)、`lambda schedule` 和 mixed update 都落成代码
-3. 先验证手算例子和代码结果一致
-4. 然后再上 toy task，观察 \(q\)-调控是否会逐步涌现
+1. 用 `lambda: 0.0` 跑一个纯 BP checkpoint
+2. 通过 `resume_from` 继续训练，并尝试调大或调小 `lambda`
+3. 对比不同 `task_name` 下的 loss 曲线与可选诊断图
+4. 观察 \(q\)-调控在不同任务上的稳定性与涌现模式

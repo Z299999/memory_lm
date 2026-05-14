@@ -1,0 +1,16 @@
+run_name: exp0513_default
+task_name: sin_mix
+seed: 42
+epochs: 1000
+lambda: 0.0
+resume_from: ""
+batch_size: 64
+lr_bp: 0.01
+eta_int: 0.0001
+gamma: 1.0
+num_train: 500
+num_val: 200
+num_plot: 500
+x_min: -6.283185307179586
+x_max: 6.283185307179586
+enable_diagnostics: false
