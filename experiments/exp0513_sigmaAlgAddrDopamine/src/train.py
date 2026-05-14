@@ -145,11 +145,14 @@ def plot_loss_curve(
 ) -> None:
     """Plot train/validation MSE with a compact config text box."""
     epochs = [row["epoch"] for row in history]
+    train_losses = [max(row["train_loss"], 1e-12) for row in history]
+    val_losses = [max(row["val_loss"], 1e-12) for row in history]
     fig, ax = plt.subplots(figsize=(10, 5.5))
-    ax.plot(epochs, [row["train_loss"] for row in history], label="train", linewidth=1.8)
-    ax.plot(epochs, [row["val_loss"] for row in history], label="val", linewidth=1.8)
+    ax.plot(epochs, train_losses, label="train", linewidth=1.8)
+    ax.plot(epochs, val_losses, label="val", linewidth=1.8)
     ax.set_xlabel("epoch")
-    ax.set_ylabel("MSE")
+    ax.set_ylabel("MSE (log scale)")
+    ax.set_yscale("log")
     ax.set_title(f"exp0513 loss curve | task={config.task_name}")
     ax.grid(alpha=0.3)
     ax.legend()

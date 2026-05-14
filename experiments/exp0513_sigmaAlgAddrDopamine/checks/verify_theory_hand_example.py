@@ -1,10 +1,9 @@
-"""Reproduce the hand-computable theory example for exp0513."""
+"""Verify the theory hand-worked example for exp0513."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-import sys
 
 import torch
 

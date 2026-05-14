@@ -196,7 +196,7 @@
 - [x] 默认输出收紧为单 checkpoint、单主图、单 summary
 - [x] `enable_diagnostics=false` 时不产出诊断图
 - [x] `enable_diagnostics=true` 时可产出诊断图
-- [x] hand example 入口保持兼容
+- [x] theory hand-example 校验入口保持兼容
 - [x] 完成默认入口、任务切换、续训、诊断开关四类烟测
 
 ## First Fallback Order

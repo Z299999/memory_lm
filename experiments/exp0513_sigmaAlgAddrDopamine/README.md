@@ -41,6 +41,7 @@
 
 ```text
 exp0513_sigmaAlgAddrDopamine/
+├── checks/
 ├── run.py
 ├── config.yaml
 ├── README.md
@@ -74,6 +75,10 @@ python3 run.py
 
 - 在 `config.yaml` 中设置 `resume_from: "/abs/path/to/model.pt"`
 - 同时自由修改 `lambda`
+
+如果想验证理论里那个可手算的小例子：
+
+- 运行 [checks/verify_theory_hand_example.py](/Users/shzhang/Documents/Codes/memory_lm/experiments/exp0513_sigmaAlgAddrDopamine/checks/verify_theory_hand_example.py:1)
 
 ## What This Experiment Is Really About
 
