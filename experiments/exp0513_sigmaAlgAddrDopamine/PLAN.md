@@ -187,6 +187,58 @@
 - 在全 `tanh` 饱和趋势下，mixed update 是否仍能工作
 - 从旧 checkpoint 继续训练时，`lambda` 改变后行为是否连续可解释
 
+## Next Step: Visualization UI
+
+下一步把 `exp0513` 从“可运行训练脚本”推进到“可交互理解机制”的界面原型。
+
+### Visual Goal
+
+- 借鉴 `Z299999.github.io` 里现有的网络图界面组织方式
+- 中间画静态网络结构：
+  - `x -> trunk layer 1 -> trunk layer 2 -> y_head`
+  - `x -> trunk layer 1 -> trunk layer 2 -> q_head`
+- 后续把 self-modulation 也画出来：
+  - `q_head` 不只是输出节点
+  - 还要可视化它们对 controllable edges 的调控关系
+
+### Visualization Build Order
+
+1. 先做静态网络结构图
+- 只画分层节点和 forward edges
+- 目标是把 `0513` 的结构清楚表达出来
+
+2. 再做 `q_i -> controlled edges` 高亮联动
+- 点击某个 `q_i`
+- 高亮它控制的 edge 集合
+- 非相关边变淡
+
+3. 再做“`q -> edge`”可视化连线
+- 用 edge anchor 或 edge midpoint 表示“控制的是边，不是点”
+- 让 self-modulation 的结构在图上直接可见
+
+4. 最后再把训练控制和曲线接进界面
+- 训练按钮
+- `lambda`
+- loss 曲线
+- 其他 control panel 参数
+
+### UI Layout Direction
+
+- 左侧：control panel
+  - 训练按钮
+  - `lambda`
+  - `task_name`
+  - `resume_from`
+- 中间：network visualization
+- 右侧：loss curve 和诊断信息
+
+### First Visualization Acceptance Criteria
+
+- [ ] 能静态显示 `exp0513` 当前网络结构
+- [ ] 能区分 input / trunk / `y_head` / `q_head`
+- [ ] 点击某个 `q_i` 后，能高亮它控制的 forward edges
+- [ ] 界面结构预留后续接入训练按钮和 loss 曲线的位置
+
 ## Acceptance Criteria
 
 - [x] `python3 run.py` 可直接从 `config.yaml` 启动
