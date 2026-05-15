@@ -60,7 +60,7 @@ select {
 #panel-right {
   background: var(--surface);
   overflow-y: auto;
-  padding: 18px 18px 22px;
+  padding: 14px 14px 18px;
 }
 
 #panel-left {
@@ -78,15 +78,15 @@ select {
 }
 
 #graph-header {
-  padding: 16px 18px 10px;
+  padding: 12px 14px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
 
 #graph-header h2,
 #panel-left h1 {
-  margin: 0 0 8px;
-  font-size: 20px;
+  margin: 0 0 6px;
+  font-size: 17px;
   font-weight: 700;
 }
 
@@ -95,7 +95,8 @@ select {
 .muted {
   margin: 0;
   color: var(--muted);
-  line-height: 1.45;
+  line-height: 1.35;
+  font-size: 12px;
 }
 
 #cy {
@@ -106,15 +107,15 @@ select {
 }
 
 .panel-section {
-  margin-top: 18px;
-  padding-top: 18px;
+  margin-top: 14px;
+  padding-top: 14px;
   border-top: 1px solid var(--border);
 }
 
 .panel-section h2,
 #panel-right h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--accent);
 }
@@ -124,26 +125,26 @@ select {
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .section-hint {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--muted);
 }
 
 .button-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 button {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 7px;
   background: #f7f9fb;
   color: var(--text);
-  padding: 10px 12px;
+  padding: 8px 10px;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
@@ -170,11 +171,11 @@ button.primary:hover:not(:disabled) {
 }
 
 .flash-message {
-  margin-top: 14px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-size: 13px;
-  line-height: 1.45;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .flash-message.hidden {
@@ -199,7 +200,7 @@ button.primary:hover:not(:disabled) {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 10px;
+  gap: 10px 8px;
 }
 
 .form-field {
@@ -213,7 +214,7 @@ button.primary:hover:not(:disabled) {
 }
 
 .form-field label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
 }
 
@@ -221,18 +222,19 @@ button.primary:hover:not(:disabled) {
 .form-field select {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 7px 9px;
   background: #ffffff;
   color: var(--text);
+  font-size: 12px;
 }
 
 .checkbox-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 100%;
-  padding-top: 22px;
+  padding-top: 18px;
 }
 
 .checkbox-row input {
@@ -247,8 +249,9 @@ button.primary:hover:not(:disabled) {
 .panel-list {
   margin: 0;
   padding-left: 18px;
-  line-height: 1.55;
+  line-height: 1.4;
   color: var(--text);
+  font-size: 12px;
 }
 
 .panel-list li + li {
@@ -258,8 +261,8 @@ button.primary:hover:not(:disabled) {
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 12px;
   color: var(--text);
 }
 
@@ -296,7 +299,7 @@ button.primary:hover:not(:disabled) {
 #detail-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 #loss-panel,
@@ -307,34 +310,34 @@ button.primary:hover:not(:disabled) {
 .detail-card {
   background: #fbfcfd;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 14px 16px;
+  border-radius: 8px;
+  padding: 10px 10px 12px;
 }
 
 .detail-kicker {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
 }
 
 .detail-title {
-  margin: 0 0 8px;
-  font-size: 18px;
+  margin: 0 0 6px;
+  font-size: 15px;
   font-weight: 700;
 }
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .stat-box {
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
   background: var(--accent-soft);
 }
 
@@ -355,8 +358,8 @@ button.primary:hover:not(:disabled) {
 }
 
 .stat-label {
-  margin: 0 0 4px;
-  font-size: 11px;
+  margin: 0 0 3px;
+  font-size: 10px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -364,20 +367,20 @@ button.primary:hover:not(:disabled) {
 
 .stat-value {
   margin: 0;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
 }
 
 .detail-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 8px;
-  font-size: 13px;
+  margin-top: 6px;
+  font-size: 12px;
 }
 
 .detail-table th,
 .detail-table td {
-  padding: 8px 0;
+  padding: 6px 0;
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
@@ -396,29 +399,29 @@ button.primary:hover:not(:disabled) {
 }
 
 .pill {
-  padding: 6px 10px;
+  padding: 5px 8px;
   background: var(--accent-soft);
   color: var(--accent);
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
 .layer-breakdown {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .layer-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 62px;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .layer-name {
-  margin: 0 0 6px;
-  font-size: 13px;
+  margin: 0 0 4px;
+  font-size: 12px;
 }
 
 .bar-track {
@@ -435,13 +438,13 @@ button.primary:hover:not(:disabled) {
 }
 
 .layer-metric {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   text-align: right;
 }
 
 .loss-chart-shell {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .loss-chart {
@@ -455,8 +458,8 @@ button.primary:hover:not(:disabled) {
 .loss-legend {
   display: flex;
   gap: 14px;
-  margin-top: 10px;
-  font-size: 12px;
+  margin-top: 8px;
+  font-size: 11px;
   color: var(--muted);
 }
 

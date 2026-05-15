@@ -42,11 +42,13 @@ const state = {
   defaultConfig: null,
   taskNames: [],
   defaultGraphPayload: null,
+  defaultPreviewState: null,
   activeRun: null,
   cy: null,
   graphPayload: null,
   graphKey: null,
   selectedDopamineId: null,
+  selectedNodeId: null,
   selectedEdgeId: null,
   pollHandle: null,
 };
@@ -77,6 +79,10 @@ function getLayerLabelMap(payload) {
 
 function getArchitecture(payload) {
   return payload?.architecture || state.activeRun?.architecture || null;
+}
+
+function getPreviewState() {
+  return state.activeRun || state.defaultPreviewState || null;
 }
 
 function createNodeElement(node, payload) {
@@ -284,10 +290,11 @@ function renderStatusPanel() {
 
 function renderLossPanel() {
   const panel = document.getElementById('loss-panel');
-  const activeRun = state.activeRun;
-  const history = activeRun?.loss_history || [];
+  const previewState = getPreviewState();
+  const localHistory = previewState?.local_loss_history || [];
+  const globalHistory = previewState?.global_loss_history || [];
 
-  if (!activeRun) {
+  if (!previewState) {
     panel.innerHTML = `
       <div class="detail-card">
         <p class="detail-kicker">Live loss</p>
@@ -303,14 +310,19 @@ function renderLossPanel() {
 
   panel.innerHTML = `
     <div class="detail-card">
-      <p class="detail-kicker">Live loss</p>
+      <p class="detail-kicker">Local loss</p>
       <h2 class="detail-title">Current run curve</h2>
-      ${renderLossChart(history)}
+      ${renderLossChart(localHistory, 'local')}
+    </div>
+    <div class="detail-card">
+      <p class="detail-kicker">Global loss</p>
+      <h2 class="detail-title">Accumulated curve</h2>
+      ${renderLossChart(globalHistory, 'global')}
     </div>
   `;
 }
 
-function renderLossChart(history) {
+function renderLossChart(history, epochMode) {
   if (!history || history.length === 0) {
     return `<p class="muted">No epochs completed yet. The curve will appear after the first validation pass.</p>`;
   }
@@ -321,7 +333,8 @@ function renderLossChart(history) {
   const padRight = 18;
   const padTop = 16;
   const padBottom = 28;
-  const xs = history.map((row) => Number(row.global_epoch));
+  const xKey = epochMode === 'local' ? 'local_epoch' : 'global_epoch';
+  const xs = history.map((row) => Number(row[xKey]));
   const train = history.map((row) => Math.log10(Math.max(Number(row.train_loss), 1e-12)));
   const val = history.map((row) => Math.log10(Math.max(Number(row.val_loss), 1e-12)));
   const allY = [...train, ...val];
@@ -356,8 +369,8 @@ function renderLossChart(history) {
         <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${height - padBottom}" stroke="#94a3b8" stroke-width="1.2" />
         <polyline fill="none" stroke="${EDGE_COLORS.highlight}" stroke-width="2.2" points="${toPolyline(train)}" />
         <polyline fill="none" stroke="${NODE_COLORS.output}" stroke-width="2.2" points="${toPolyline(val)}" />
-        <text x="${padLeft}" y="${height - 6}" font-size="10" fill="#64748b">global ${minX}</text>
-        <text x="${width - padRight}" y="${height - 6}" text-anchor="end" font-size="10" fill="#64748b">global ${maxX}</text>
+        <text x="${padLeft}" y="${height - 6}" font-size="10" fill="#64748b">${epochMode} ${minX}</text>
+        <text x="${width - padRight}" y="${height - 6}" text-anchor="end" font-size="10" fill="#64748b">${epochMode} ${maxX}</text>
       </svg>
       <div class="loss-legend">
         <span><span class="legend-swatch legend-train"></span>train</span>
@@ -442,6 +455,8 @@ function renderDopamineDetail(panel, nodeId, payload) {
     return acc;
   }, {});
 
+  const previewState = getPreviewState();
+  const activationValue = previewState?.node_activation_snapshot?.[nodeId];
   panel.innerHTML = `
     <div class="detail-card">
       <p class="detail-kicker">Selected dopamine node</p>
@@ -453,6 +468,10 @@ function renderDopamineDetail(panel, nodeId, payload) {
     <div class="detail-card">
       <p class="detail-kicker">Coverage summary</p>
       <div class="stats-grid">
+        <div class="stat-box">
+          <p class="stat-label">Activation</p>
+          <p class="stat-value">${formatMaybeMetric(activationValue)}</p>
+        </div>
         <div class="stat-box">
           <p class="stat-label">Controlled edges</p>
           <p class="stat-value">${selectedStat?.edge_count ?? controlledEdges.length}</p>
@@ -477,11 +496,30 @@ function renderDopamineDetail(panel, nodeId, payload) {
   `;
 }
 
+function renderNodeDetail(panel, nodeId, payload) {
+  const previewState = getPreviewState();
+  const activationValue = previewState?.node_activation_snapshot?.[nodeId];
+  const node = payload.nodes.find((item) => item.id === nodeId);
+  panel.innerHTML = `
+    <div class="detail-card">
+      <p class="detail-kicker">Selected node</p>
+      <h2 class="detail-title">${nodeId}</h2>
+      <table class="detail-table">
+        <tr><th>Kind</th><td>${node?.kind ?? 'n/a'}</td></tr>
+        <tr><th>Activation mean</th><td>${formatMaybeMetric(activationValue)}</td></tr>
+      </table>
+      <p class="muted">Activation values appear after the latest validation pass. Preview-only states leave this as not run yet.</p>
+    </div>
+  `;
+}
+
 function renderEdgeDetail(panel, edge, payload) {
   const pills = (edge.controllingDopamineIds || [])
     .map((nodeId) => `<span class="pill">${nodeId}</span>`)
     .join('');
   const layerLabel = edge.layerLabel || getLayerLabelMap(payload).get(edge.layerKey) || edge.layerKey;
+  const previewState = getPreviewState();
+  const weightValue = previewState?.edge_weight_snapshot?.[edge.id];
 
   panel.innerHTML = `
     <div class="detail-card">
@@ -492,6 +530,7 @@ function renderEdgeDetail(panel, edge, payload) {
         <tr><th>Target</th><td><code>${edge.target}</code></td></tr>
         <tr><th>Layer</th><td>${layerLabel}</td></tr>
         <tr><th>Order index</th><td>${edge.orderIndex}</td></tr>
+        <tr><th>Weight</th><td>${formatMaybeMetric(weightValue)}</td></tr>
       </table>
     </div>
     <div class="detail-card">
@@ -510,6 +549,10 @@ function renderDetailPanel() {
   }
   if (state.selectedDopamineId) {
     renderDopamineDetail(panel, state.selectedDopamineId, payload);
+    return;
+  }
+  if (state.selectedNodeId) {
+    renderNodeDetail(panel, state.selectedNodeId, payload);
     return;
   }
   if (state.selectedEdgeId) {
@@ -579,10 +622,8 @@ function applyGraphSelection() {
 function bindGraphInteractions(cy) {
   cy.on('tap', 'node', (event) => {
     const node = event.target;
-    if (!node.data('isDopamine')) {
-      return;
-    }
-    state.selectedDopamineId = node.id();
+    state.selectedDopamineId = node.data('isDopamine') ? node.id() : null;
+    state.selectedNodeId = node.id();
     state.selectedEdgeId = null;
     applyGraphSelection();
     renderDetailPanel();
@@ -591,6 +632,7 @@ function bindGraphInteractions(cy) {
   cy.on('tap', 'edge', (event) => {
     state.selectedEdgeId = event.target.id();
     state.selectedDopamineId = null;
+    state.selectedNodeId = null;
     applyGraphSelection();
     renderDetailPanel();
   });
@@ -598,6 +640,7 @@ function bindGraphInteractions(cy) {
   cy.on('tap', (event) => {
     if (event.target === cy) {
       state.selectedDopamineId = null;
+      state.selectedNodeId = null;
       state.selectedEdgeId = null;
       applyGraphSelection();
       renderDetailPanel();
@@ -731,6 +774,13 @@ function formatMetric(value, digits = 4) {
   return Number(value).toFixed(digits);
 }
 
+function formatMaybeMetric(value, digits = 4) {
+  if (value === null || value === undefined) {
+    return 'not run yet';
+  }
+  return formatMetric(value, digits);
+}
+
 function formatPercent(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return 'n/a';
@@ -769,6 +819,7 @@ async function loadDefaults() {
   state.defaultConfig = payload.config;
   state.taskNames = payload.task_names || [];
   state.defaultGraphPayload = payload.graph_payload || null;
+  state.defaultPreviewState = payload.preview_state || null;
   renderConfigForm();
   fillForm(state.defaultConfig);
   syncGraphFromState();
@@ -833,6 +884,7 @@ function bindDashboardControls() {
       fillForm(state.defaultConfig);
       if (!state.activeRun) {
         state.selectedDopamineId = null;
+        state.selectedNodeId = null;
         state.selectedEdgeId = null;
         syncGraphFromState();
       }

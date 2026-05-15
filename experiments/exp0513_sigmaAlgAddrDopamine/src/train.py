@@ -125,7 +125,10 @@ def _build_live_status(
     val_loss: float | None,
     best_val_loss: float | None,
     architecture: dict[str, object],
-    loss_history: list[dict[str, float]],
+    local_loss_history: list[dict[str, float]],
+    global_loss_history: list[dict[str, float]],
+    node_activation_snapshot: dict[str, float | None],
+    edge_weight_snapshot: dict[str, float],
     error: str | None = None,
 ) -> dict[str, object]:
     """Create the live dashboard payload for the current run state."""
@@ -155,7 +158,11 @@ def _build_live_status(
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "graph_payload": graph_payload,
         "architecture": architecture,
-        "loss_history": loss_history,
+        "local_loss_history": local_loss_history,
+        "global_loss_history": global_loss_history,
+        "loss_history": local_loss_history,
+        "node_activation_snapshot": node_activation_snapshot,
+        "edge_weight_snapshot": edge_weight_snapshot,
     }
     if error:
         payload["error"] = error
@@ -180,6 +187,40 @@ def _evaluate(model: SelfModulatedMLP, x: torch.Tensor, y_true: torch.Tensor) ->
         y_pred, _ = model(x)
         mse = torch.mean((y_pred - y_true) ** 2).item()
     return float(mse)
+
+
+def _build_node_activation_snapshot(
+    model: SelfModulatedMLP,
+    x: torch.Tensor,
+) -> dict[str, float]:
+    """Mean node activations from the latest validation forward pass."""
+    model.eval()
+    with torch.no_grad():
+        y_pred, hidden_states = model(x)
+
+    snapshot: dict[str, float] = {}
+    if x.dim() == 1:
+        x = x.unsqueeze(-1)
+    for idx in range(x.shape[1]):
+        snapshot[f"x{idx}"] = float(x[:, idx].mean().item())
+    for layer_idx, hidden in enumerate(hidden_states, start=1):
+        for neuron_idx in range(hidden.shape[1]):
+            snapshot[f"h{layer_idx}_{neuron_idx}"] = float(hidden[:, neuron_idx].mean().item())
+    for idx in range(y_pred.shape[1]):
+        snapshot[f"y{idx}"] = float(y_pred[:, idx].mean().item())
+    return snapshot
+
+
+def _build_edge_weight_snapshot(
+    model: SelfModulatedMLP,
+    edge_records: list[dict[str, object]],
+) -> dict[str, float]:
+    """Current scalar weight for every forward edge in graph order."""
+    flat_weights, _ = flatten_controllable_weights(model)
+    return {
+        str(edge["id"]): float(flat_weights[idx].item())
+        for idx, edge in enumerate(edge_records)
+    }
 
 
 def _architecture_signature_dict(config: ExperimentConfig) -> dict[str, object]:
@@ -335,6 +376,7 @@ def _checkpoint_payload(
     dopamine_m: int,
     recommended_dopamine_m: int,
     coverage_c: int,
+    global_loss_history: list[dict[str, float]],
 ) -> dict[str, object]:
     """Final checkpoint payload for resume support."""
     return {
@@ -350,6 +392,7 @@ def _checkpoint_payload(
         "graph_payload": graph_payload,
         "edge_count": edge_count,
         "global_epoch_completed": global_epoch_completed,
+        "global_loss_history": global_loss_history,
         "architecture": model.arch_dict(),
         "model_state_dict": model.state_dict(),
         "summary": summary,
@@ -361,6 +404,8 @@ def _make_summary(
     config: ExperimentConfig,
     train_history: list[float],
     val_history: list[float],
+    local_loss_history: list[dict[str, float]],
+    global_loss_history: list[dict[str, float]],
     dopamine_m: int,
     recommended_dopamine_m: int,
     coverage_c: int,
@@ -378,6 +423,8 @@ def _make_summary(
         "architecture": _architecture_signature_dict(config),
         "epochs_added": len(train_history),
         "lambda": config.lambda_value,
+        "local_loss_history": local_loss_history,
+        "global_loss_history": global_loss_history,
         "final_train_loss": float(train_history[-1]),
         "final_val_loss": float(val_history[-1]),
         "best_val_loss": float(min(val_history)),
@@ -444,6 +491,7 @@ def run_experiment(
         coverage_c = int(source_checkpoint["coverage_c"])
         global_epoch_completed_before = int(source_checkpoint.get("global_epoch_completed", 0))
         graph_payload = dict(source_checkpoint.get("graph_payload") or build_graph_payload(model, assignment_metadata))
+        inherited_global_loss_history = list(source_checkpoint.get("global_loss_history") or [])
         resume_info = {
             "path": str(Path(config.resume_from).resolve()),
             "source_lambda": source_checkpoint.get("lambda"),
@@ -468,6 +516,7 @@ def run_experiment(
         )
         graph_payload = build_graph_payload(model, assignment_metadata)
         global_epoch_completed_before = 0
+        inherited_global_loss_history = []
 
     dopamine_node_ids = list(assignment_metadata["selected_dopamine_node_ids"])
     global_epoch_start = global_epoch_completed_before + 1
@@ -509,7 +558,13 @@ def run_experiment(
     history: list[dict[str, float]] = []
     train_losses: list[float] = []
     val_losses: list[float] = []
-    loss_history: list[dict[str, float]] = []
+    local_loss_history: list[dict[str, float]] = []
+    global_loss_history: list[dict[str, float]] = list(inherited_global_loss_history)
+    edge_weight_snapshot = _build_edge_weight_snapshot(model, edge_records)
+    node_activation_snapshot = {
+        node["id"]: None
+        for node in graph_payload["nodes"]
+    }
     stopped_early = False
 
     write_live_status(
@@ -531,7 +586,10 @@ def run_experiment(
             val_loss=None,
             best_val_loss=None,
             architecture=model.arch_dict(),
-            loss_history=loss_history,
+            local_loss_history=local_loss_history,
+            global_loss_history=global_loss_history,
+            node_activation_snapshot=node_activation_snapshot,
+            edge_weight_snapshot=edge_weight_snapshot,
         ),
         status_callback=status_callback,
     )
@@ -551,12 +609,16 @@ def run_experiment(
             history.append(metrics)
             train_losses.append(train_loss)
             val_losses.append(val_loss)
-            loss_history.append({
+            history_point = {
                 "local_epoch": float(local_epoch),
                 "global_epoch": float(global_epoch),
                 "train_loss": float(train_loss),
                 "val_loss": float(val_loss),
-            })
+            }
+            local_loss_history.append(history_point)
+            global_loss_history.append(history_point)
+            node_activation_snapshot = _build_node_activation_snapshot(model, dataset.x_val)
+            edge_weight_snapshot = _build_edge_weight_snapshot(model, edge_records)
 
             write_live_status(
                 live_status_path,
@@ -577,7 +639,10 @@ def run_experiment(
                     val_loss=val_loss,
                     best_val_loss=min(val_losses),
                     architecture=model.arch_dict(),
-                    loss_history=loss_history,
+                    local_loss_history=local_loss_history,
+                    global_loss_history=global_loss_history,
+                    node_activation_snapshot=node_activation_snapshot,
+                    edge_weight_snapshot=edge_weight_snapshot,
                 ),
                 status_callback=status_callback,
             )
@@ -606,7 +671,10 @@ def run_experiment(
                 val_loss=val_losses[-1] if val_losses else None,
                 best_val_loss=min(val_losses) if val_losses else None,
                 architecture=model.arch_dict(),
-                loss_history=loss_history,
+                local_loss_history=local_loss_history,
+                global_loss_history=global_loss_history,
+                node_activation_snapshot=node_activation_snapshot,
+                edge_weight_snapshot=edge_weight_snapshot,
                 error=str(exc),
             ),
             status_callback=status_callback,
@@ -618,6 +686,8 @@ def run_experiment(
         config=config,
         train_history=train_losses,
         val_history=val_losses,
+        local_loss_history=local_loss_history,
+        global_loss_history=global_loss_history,
         dopamine_m=dopamine_m,
         recommended_dopamine_m=recommended_dopamine_m,
         coverage_c=coverage_c,
@@ -642,6 +712,7 @@ def run_experiment(
             dopamine_m=dopamine_m,
             recommended_dopamine_m=recommended_dopamine_m,
             coverage_c=coverage_c,
+            global_loss_history=global_loss_history,
         ),
         run_dir / "model.pt",
     )
@@ -680,7 +751,10 @@ def run_experiment(
             val_loss=val_losses[-1],
             best_val_loss=min(val_losses),
             architecture=model.arch_dict(),
-            loss_history=loss_history,
+            local_loss_history=local_loss_history,
+            global_loss_history=global_loss_history,
+            node_activation_snapshot=node_activation_snapshot,
+            edge_weight_snapshot=edge_weight_snapshot,
         ),
         status_callback=status_callback,
     )

@@ -23,7 +23,7 @@ from src.assignment import (
     resolve_dopamine_m,
 )
 from src.model import SelfModulatedMLP
-from src.train import load_experiment_checkpoint, make_run_dir, run_experiment
+from src.train import _build_edge_weight_snapshot, load_experiment_checkpoint, make_run_dir, run_experiment
 
 
 ROOT = Path(__file__).resolve().parent
@@ -48,6 +48,7 @@ class DashboardState:
             "task_names": available_task_names(),
             "graph_payload": preview["graph_payload"],
             "architecture": preview["graph_payload"].get("architecture"),
+            "preview_state": preview["preview_state"],
         }
 
     def get_state(self) -> dict[str, Any]:
@@ -105,7 +106,11 @@ class DashboardState:
             "updated_at": None,
             "graph_payload": preview["graph_payload"],
             "architecture": preview["graph_payload"].get("architecture"),
+            "local_loss_history": [],
+            "global_loss_history": list(preview["global_loss_history_before"]),
             "loss_history": [],
+            "node_activation_snapshot": dict(preview["preview_state"]["node_activation_snapshot"]),
+            "edge_weight_snapshot": dict(preview["preview_state"]["edge_weight_snapshot"]),
         }
 
         with self.lock:
@@ -128,7 +133,21 @@ class DashboardState:
         validate_task_dimensions(config.task_name, config.input_dim, config.output_dim)
         if config.resume_from:
             checkpoint = load_experiment_checkpoint(config.resume_from)
-            graph_payload = dict(checkpoint.get("graph_payload") or {})
+            model = SelfModulatedMLP(
+                input_dim=config.input_dim,
+                trunk_dims=config.trunk_dims,
+                y_dim=config.output_dim,
+            )
+            model.load_state_dict(checkpoint["model_state_dict"])
+            assignment_metadata = dict(checkpoint["dopamine_assignment_metadata"])
+            graph_payload = dict(checkpoint.get("graph_payload") or build_graph_payload(model, assignment_metadata))
+            preview_state = {
+                "node_activation_snapshot": {
+                    node["id"]: None
+                    for node in graph_payload["nodes"]
+                },
+                "edge_weight_snapshot": _build_edge_weight_snapshot(model, build_forward_edge_records(model)),
+            }
             return {
                 "graph_payload": graph_payload,
                 "dopamine_m": int(checkpoint["effective_dopamine_m"]),
@@ -136,6 +155,8 @@ class DashboardState:
                 "coverage_c": int(checkpoint["coverage_c"]),
                 "edge_count": int(checkpoint["edge_count"]),
                 "global_epoch_completed_before": int(checkpoint.get("global_epoch_completed", 0)),
+                "global_loss_history_before": list(checkpoint.get("global_loss_history") or []),
+                "preview_state": preview_state,
             }
 
         model = SelfModulatedMLP(
@@ -157,13 +178,19 @@ class DashboardState:
             dopamine_m=dopamine_m,
             seed=config.seed,
         )
+        graph_payload = build_graph_payload(model, assignment_metadata)
         return {
-            "graph_payload": build_graph_payload(model, assignment_metadata),
+            "graph_payload": graph_payload,
             "dopamine_m": dopamine_m,
             "recommended_dopamine_m": recommended_dopamine_m,
             "coverage_c": config.coverage_c,
             "edge_count": len(edge_records),
             "global_epoch_completed_before": 0,
+            "global_loss_history_before": [],
+            "preview_state": {
+                "node_activation_snapshot": {node["id"]: None for node in graph_payload["nodes"]},
+                "edge_weight_snapshot": _build_edge_weight_snapshot(model, edge_records),
+            },
         }
 
     def _update_live_state(self, payload: dict[str, Any]) -> None:
