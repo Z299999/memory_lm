@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+from typing import Callable
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -69,6 +70,60 @@ def make_run_dir(base_dir: Path, run_name: str) -> Path:
     run_dir = base_dir / f"{timestamp}_{run_name}"
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
+
+
+def _write_json_atomic(output_path: Path, payload: dict[str, object]) -> None:
+    """Atomically write a JSON payload to disk."""
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2))
+    tmp_path.replace(output_path)
+
+
+def _build_live_status(
+    *,
+    config: ExperimentConfig,
+    run_dir: Path,
+    q_dim: int,
+    edge_count: int,
+    status: str,
+    epoch: int,
+    train_loss: float | None,
+    val_loss: float | None,
+    best_val_loss: float | None,
+    error: str | None = None,
+) -> dict[str, object]:
+    """Create the live dashboard payload for the current run state."""
+    payload: dict[str, object] = {
+        "run_name": config.run_name,
+        "task_name": config.task_name,
+        "status": status,
+        "epoch": epoch,
+        "epochs_total": config.epochs,
+        "lambda": config.lambda_value,
+        "train_loss": train_loss,
+        "val_loss": val_loss,
+        "best_val_loss": best_val_loss,
+        "seed": config.seed,
+        "m": q_dim,
+        "N": edge_count,
+        "resume_from": config.resume_from,
+        "run_dir": str(run_dir),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def write_live_status(
+    live_status_path: Path,
+    payload: dict[str, object],
+    status_callback: Callable[[dict[str, object]], None] | None = None,
+) -> None:
+    """Persist and optionally emit the current live dashboard state."""
+    _write_json_atomic(live_status_path, payload)
+    if status_callback is not None:
+        status_callback(payload)
 
 
 def _evaluate(model: SelfModulatedMLP, x: torch.Tensor, y_true: torch.Tensor) -> tuple[float, torch.Tensor, torch.Tensor]:
@@ -248,6 +303,9 @@ def run_experiment(
     config: ExperimentConfig | None = None,
     config_path: Path | None = None,
     run_dir: Path | None = None,
+    live_status_path: Path | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+    status_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     """Run one exp0513 training job using the current lambda configuration."""
     config = config or ExperimentConfig()
@@ -260,6 +318,26 @@ def run_experiment(
     flat_weights, index_map = flatten_controllable_weights(model)
     edge_count = flat_weights.numel()
     _, B_tilde, assignment_metadata = build_static_assignment(edge_count, q_dim)
+
+    base_dir = Path(__file__).resolve().parents[1] / "runs"
+    run_dir = run_dir or make_run_dir(base_dir, config.run_name)
+    live_status_path = live_status_path or (run_dir / "live_viewer.json")
+    if live_status_path.parent != run_dir:
+        live_status_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if config_path is not None:
+        copy_config_to_run_dir(config_path, run_dir)
+    else:
+        dump_config_to_yaml(config, run_dir / "config.yaml")
+    write_resolved_config(
+        config,
+        extra={
+            "resolved_q_dim": q_dim,
+            "architecture": model.arch_dict(),
+            "N": edge_count,
+        },
+        output_path=run_dir / "resolved_config.json",
+    )
 
     resume_info: dict[str, object] | None = None
     if config.resume_from:
@@ -288,39 +366,79 @@ def run_experiment(
         shuffle=True,
     )
 
-    base_dir = Path(__file__).resolve().parents[1] / "runs"
-    run_dir = run_dir or make_run_dir(base_dir, config.run_name)
-    if config_path is not None:
-        copy_config_to_run_dir(config_path, run_dir)
-    else:
-        dump_config_to_yaml(config, run_dir / "config.yaml")
-    write_resolved_config(
-        config,
-        extra={
-            "resolved_q_dim": q_dim,
-            "architecture": model.arch_dict(),
-            "N": edge_count,
-        },
-        output_path=run_dir / "resolved_config.json",
-    )
-
     history: list[dict[str, float]] = []
     train_losses: list[float] = []
     val_losses: list[float] = []
 
     q_head_before = model.q_head.weight.detach().clone()
+    stopped_early = False
 
-    for epoch in range(1, config.epochs + 1):
-        train_loss, metrics = _epoch_train(model, loader, B_tilde, index_map, config)
-        val_loss, _, _ = _evaluate(model, dataset.x_val, dataset.y_val)
-        metrics.update({
-            "epoch": epoch,
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-        })
-        history.append(metrics)
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
+    write_live_status(
+        live_status_path,
+        _build_live_status(
+            config=config,
+            run_dir=run_dir,
+            q_dim=q_dim,
+            edge_count=edge_count,
+            status="running",
+            epoch=0,
+            train_loss=None,
+            val_loss=None,
+            best_val_loss=None,
+        ),
+        status_callback=status_callback,
+    )
+
+    try:
+        for epoch in range(1, config.epochs + 1):
+            train_loss, metrics = _epoch_train(model, loader, B_tilde, index_map, config)
+            val_loss, _, _ = _evaluate(model, dataset.x_val, dataset.y_val)
+            metrics.update({
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+            })
+            history.append(metrics)
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+
+            write_live_status(
+                live_status_path,
+                _build_live_status(
+                    config=config,
+                    run_dir=run_dir,
+                    q_dim=q_dim,
+                    edge_count=edge_count,
+                    status="running",
+                    epoch=epoch,
+                    train_loss=train_loss,
+                    val_loss=val_loss,
+                    best_val_loss=min(val_losses),
+                ),
+                status_callback=status_callback,
+            )
+
+            if stop_requested is not None and stop_requested():
+                stopped_early = True
+                break
+    except Exception as exc:
+        write_live_status(
+            live_status_path,
+            _build_live_status(
+                config=config,
+                run_dir=run_dir,
+                q_dim=q_dim,
+                edge_count=edge_count,
+                status="failed",
+                epoch=len(train_losses),
+                train_loss=train_losses[-1] if train_losses else None,
+                val_loss=val_losses[-1] if val_losses else None,
+                best_val_loss=min(val_losses) if val_losses else None,
+                error=str(exc),
+            ),
+            status_callback=status_callback,
+        )
+        raise
 
     q_weight_change = float((model.q_head.weight.detach() - q_head_before).norm().item())
     summary = _make_summary(
@@ -351,8 +469,27 @@ def run_experiment(
         plot_update_diagnostics(history, run_dir / "update_diagnostics.png")
         save_history_json(history, run_dir / "diagnostics_history.json")
 
+    final_status = "stopped" if stopped_early else "completed"
+    write_live_status(
+        live_status_path,
+        _build_live_status(
+            config=config,
+            run_dir=run_dir,
+            q_dim=q_dim,
+            edge_count=edge_count,
+            status=final_status,
+            epoch=len(train_losses),
+            train_loss=train_losses[-1],
+            val_loss=val_losses[-1],
+            best_val_loss=min(val_losses),
+        ),
+        status_callback=status_callback,
+    )
+
     return {
         "run_dir": str(run_dir),
         "summary": summary,
         "assignment_metadata": assignment_metadata,
+        "status": final_status,
+        "live_status_path": str(live_status_path),
     }

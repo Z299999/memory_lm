@@ -6,6 +6,13 @@
   --muted: #677284;
   --accent: #0b63ce;
   --accent-soft: #dceaff;
+  --accent-deep: #064fa6;
+  --danger: #c0392b;
+  --danger-soft: #fde7e3;
+  --success: #18794e;
+  --success-soft: #dff4e8;
+  --warning: #9a6700;
+  --warning-soft: #fff4d6;
   --edge: #6a6f7a;
   --highlight: #0b63ce;
   --selected: #d95f0e;
@@ -36,9 +43,15 @@ code {
   font-size: 0.95em;
 }
 
+button,
+input,
+select {
+  font: inherit;
+}
+
 #layout {
   display: grid;
-  grid-template-columns: 270px minmax(540px, 1fr) 320px;
+  grid-template-columns: 330px minmax(540px, 1fr) 360px;
   gap: 0;
   height: 100%;
 }
@@ -100,10 +113,135 @@ code {
 
 .panel-section h2,
 #panel-right h2 {
-  margin: 0 0 10px;
+  margin: 0;
   font-size: 14px;
   font-weight: 700;
   color: var(--accent);
+}
+
+.section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.section-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f7f9fb;
+  color: var(--text);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: #eef4fb;
+  border-color: #c4d6ea;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-deep);
+  border-color: var(--accent-deep);
+}
+
+.flash-message {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.flash-message.hidden {
+  display: none;
+}
+
+.flash-message.info {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+.flash-message.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.flash-message.success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-field.wide {
+  grid-column: 1 / -1;
+}
+
+.form-field label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.form-field input,
+.form-field select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: #ffffff;
+  color: var(--text);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 100%;
+  padding-top: 22px;
+}
+
+.checkbox-row input {
+  width: 16px;
+  height: 16px;
+}
+
+.checkbox-row label {
+  color: var(--text);
 }
 
 .panel-list {
@@ -153,15 +291,22 @@ code {
 .legend-highlight { border-top-color: var(--highlight); }
 .legend-selected { border-top-color: var(--selected); }
 
+#status-panel,
+#detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#detail-panel {
+  margin-top: 14px;
+}
+
 .detail-card {
   background: #fbfcfd;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px 14px 16px;
-}
-
-.detail-card + .detail-card {
-  margin-top: 14px;
 }
 
 .detail-kicker {
@@ -189,6 +334,22 @@ code {
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--accent-soft);
+}
+
+.stat-box.status-running {
+  background: var(--warning-soft);
+}
+
+.stat-box.status-completed {
+  background: var(--success-soft);
+}
+
+.stat-box.status-stopped {
+  background: #f0ecff;
+}
+
+.stat-box.status-failed {
+  background: var(--danger-soft);
 }
 
 .stat-label {
@@ -277,13 +438,18 @@ code {
   text-align: right;
 }
 
-@media (max-width: 1180px) {
+.subtle-path {
+  word-break: break-all;
+  font-size: 12px;
+}
+
+@media (max-width: 1280px) {
   #layout {
-    grid-template-columns: 240px minmax(420px, 1fr) 280px;
+    grid-template-columns: 300px minmax(420px, 1fr) 320px;
   }
 }
 
-@media (max-width: 920px) {
+@media (max-width: 1080px) {
   #layout {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(420px, 1fr) auto;

@@ -27,6 +27,38 @@ const LAYER_LABELS = {
   'trunk2->q': 'Trunk L2 -> q head',
 };
 
+const FORM_FIELDS = [
+  { key: 'run_name', label: 'Run name', type: 'text', wide: true },
+  { key: 'task_name', label: 'Task name', type: 'select' },
+  { key: 'seed', label: 'Seed', type: 'number', step: '1' },
+  { key: 'epochs', label: 'Epochs', type: 'number', step: '1' },
+  { key: 'lambda', label: 'Lambda', type: 'number', step: '0.01' },
+  { key: 'batch_size', label: 'Batch size', type: 'number', step: '1' },
+  { key: 'lr_bp', label: 'Learning rate', type: 'number', step: '0.0001' },
+  { key: 'eta_int', label: 'Internal eta', type: 'number', step: '0.00001' },
+  { key: 'gamma', label: 'Gamma', type: 'number', step: '0.1' },
+  { key: 'num_train', label: 'Train samples', type: 'number', step: '1' },
+  { key: 'num_val', label: 'Val samples', type: 'number', step: '1' },
+  { key: 'num_plot', label: 'Plot samples', type: 'number', step: '1' },
+  { key: 'x_min', label: 'x min', type: 'number', step: '0.1' },
+  { key: 'x_max', label: 'x max', type: 'number', step: '0.1' },
+  { key: 'resume_from', label: 'Resume from', type: 'text', wide: true },
+  { key: 'enable_diagnostics', label: 'Enable diagnostics', type: 'checkbox', wide: true },
+];
+
+const POLL_INTERVAL_MS = 1000;
+
+const state = {
+  defaultConfig: null,
+  taskNames: [],
+  activeRun: null,
+  cy: null,
+  data: null,
+  selectedQId: null,
+  selectedEdgeId: null,
+  pollHandle: null,
+};
+
 function createNode(id, label, kind, column, row, rowCount) {
   const xPositions = [-520, -240, 40, 320, 540];
   const x = xPositions[column] ?? 0;
@@ -181,16 +213,10 @@ function buildVizData() {
   const assignmentRows = buildStaticAssignment(edges.length, ARCH.qDim);
   const qToEdges = enrichEdgesWithControl(edges, assignmentRows);
 
-  const layerCounts = edges.reduce((acc, edge) => {
-    acc[edge.layerKey] = (acc[edge.layerKey] ?? 0) + 1;
-    return acc;
-  }, {});
-
   return {
     nodes,
     edges,
     qToEdges,
-    layerCounts,
     totalNodes: nodes.length,
     totalEdges: edges.length,
     totalLayers: 5,
@@ -270,6 +296,67 @@ function createCy(data) {
   });
 }
 
+function renderStatusPanel() {
+  const panel = document.getElementById('status-panel');
+  const activeRun = state.activeRun;
+
+  if (!activeRun) {
+    panel.innerHTML = `
+      <div class="detail-card">
+        <p class="detail-kicker">Dashboard status</p>
+        <h2 class="detail-title">Idle</h2>
+        <p class="muted">
+          Load the default configuration, edit any parameter in the left panel, and click <code>Run</code>
+          to start a single active training session.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  const statusClass = `status-${activeRun.status || 'idle'}`;
+  const epochDisplay = `${activeRun.epoch ?? 0} / ${activeRun.epochs_total ?? '-'}`;
+  panel.innerHTML = `
+    <div class="detail-card">
+      <p class="detail-kicker">Active run</p>
+      <h2 class="detail-title">${activeRun.run_name || 'unnamed run'}</h2>
+      <div class="stats-grid">
+        <div class="stat-box ${statusClass}">
+          <p class="stat-label">Status</p>
+          <p class="stat-value">${activeRun.status || 'idle'}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">Epoch</p>
+          <p class="stat-value">${epochDisplay}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">Train loss</p>
+          <p class="stat-value">${formatMetric(activeRun.train_loss)}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">Val loss</p>
+          <p class="stat-value">${formatMetric(activeRun.val_loss)}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">Best val</p>
+          <p class="stat-value">${formatMetric(activeRun.best_val_loss)}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">Lambda</p>
+          <p class="stat-value">${formatMetric(activeRun.lambda, 2)}</p>
+        </div>
+      </div>
+      <table class="detail-table">
+        <tr><th>Task</th><td>${activeRun.task_name || 'n/a'}</td></tr>
+        <tr><th>Seed</th><td>${activeRun.seed ?? 'n/a'}</td></tr>
+        <tr><th>Run dir</th><td class="subtle-path">${activeRun.run_dir || 'n/a'}</td></tr>
+        <tr><th>Updated</th><td>${activeRun.updated_at || 'n/a'}</td></tr>
+      </table>
+      ${activeRun.error ? `<p class="muted">Error: ${escapeHtml(activeRun.error)}</p>` : ''}
+    </div>
+  `;
+}
+
 function renderDefaultDetail(panel, data) {
   panel.innerHTML = `
     <div class="detail-card">
@@ -304,7 +391,7 @@ function renderDefaultDetail(panel, data) {
   `;
 }
 
-function buildLayerBreakdownHtml(layerCounts, totalControlled) {
+function buildLayerBreakdownHtml(layerCounts) {
   const orderedLayerKeys = ['input->trunk1', 'trunk1->trunk2', 'trunk2->y', 'trunk2->q'];
   return orderedLayerKeys
     .map((layerKey) => {
@@ -361,7 +448,7 @@ function renderQDetail(panel, qId, data) {
         </div>
       </div>
       <div class="layer-breakdown">
-        ${buildLayerBreakdownHtml(layerCounts, controlledEdges.length)}
+        ${buildLayerBreakdownHtml(layerCounts)}
       </div>
     </div>
   `;
@@ -390,12 +477,27 @@ function renderEdgeDetail(panel, edge) {
   `;
 }
 
+function renderDetailPanel() {
+  const panel = document.getElementById('detail-panel');
+  if (state.selectedQId) {
+    renderQDetail(panel, state.selectedQId, state.data);
+    return;
+  }
+  if (state.selectedEdgeId) {
+    const edge = state.data.edges.find((item) => item.id === state.selectedEdgeId);
+    if (edge) {
+      renderEdgeDetail(panel, edge);
+      return;
+    }
+  }
+  renderDefaultDetail(panel, state.data);
+}
+
 function clearEdgeStyling(cy) {
   cy.edges().forEach((edgeEle) => {
     edgeEle.data('color', EDGE_COLORS.default);
     edgeEle.data('thickness', 1.6);
     edgeEle.data('opacity', 0.68);
-    edgeEle.removeClass('selected-edge');
   });
   cy.nodes('.selected-q').removeClass('selected-q');
 }
@@ -433,34 +535,44 @@ function highlightSelectedEdge(cy, edgeId) {
   });
 }
 
-function bindInteractions(cy, data) {
-  const detailPanel = document.getElementById('detail-panel');
-  renderDefaultDetail(detailPanel, data);
+function applyGraphSelection() {
+  if (!state.cy) {
+    return;
+  }
+  if (state.selectedQId) {
+    highlightEdgesForQ(state.cy, state.selectedQId);
+  } else if (state.selectedEdgeId) {
+    highlightSelectedEdge(state.cy, state.selectedEdgeId);
+  } else {
+    clearEdgeStyling(state.cy);
+  }
+}
 
+function bindGraphInteractions(cy, data) {
   cy.on('tap', 'node', (event) => {
     const node = event.target;
     if (node.data('kind') !== 'q') {
       return;
     }
-    const qId = node.id();
-    highlightEdgesForQ(cy, qId);
-    renderQDetail(detailPanel, qId, data);
+    state.selectedQId = node.id();
+    state.selectedEdgeId = null;
+    applyGraphSelection();
+    renderDetailPanel();
   });
 
   cy.on('tap', 'edge', (event) => {
-    const edgeId = event.target.id();
-    const edge = data.edges.find((item) => item.id === edgeId);
-    if (!edge) {
-      return;
-    }
-    highlightSelectedEdge(cy, edgeId);
-    renderEdgeDetail(detailPanel, edge);
+    state.selectedEdgeId = event.target.id();
+    state.selectedQId = null;
+    applyGraphSelection();
+    renderDetailPanel();
   });
 
   cy.on('tap', (event) => {
     if (event.target === cy) {
-      clearEdgeStyling(cy);
-      renderDefaultDetail(detailPanel, data);
+      state.selectedQId = null;
+      state.selectedEdgeId = null;
+      applyGraphSelection();
+      renderDetailPanel();
     }
   });
 
@@ -470,10 +582,224 @@ function bindInteractions(cy, data) {
   });
 }
 
-function main() {
-  const data = buildVizData();
-  const cy = createCy(data);
-  bindInteractions(cy, data);
+function createFieldMarkup(field) {
+  if (field.type === 'checkbox') {
+    return `
+      <div class="form-field wide">
+        <div class="checkbox-row">
+          <input id="field-${field.key}" name="${field.key}" type="checkbox">
+          <label for="field-${field.key}">${field.label}</label>
+        </div>
+      </div>
+    `;
+  }
+
+  if (field.type === 'select') {
+    const options = state.taskNames
+      .map((taskName) => `<option value="${taskName}">${taskName}</option>`)
+      .join('');
+    return `
+      <div class="form-field ${field.wide ? 'wide' : ''}">
+        <label for="field-${field.key}">${field.label}</label>
+        <select id="field-${field.key}" name="${field.key}">
+          ${options}
+        </select>
+      </div>
+    `;
+  }
+
+  const stepAttr = field.step ? `step="${field.step}"` : '';
+  return `
+    <div class="form-field ${field.wide ? 'wide' : ''}">
+      <label for="field-${field.key}">${field.label}</label>
+      <input
+        id="field-${field.key}"
+        name="${field.key}"
+        type="${field.type}"
+        ${stepAttr}
+      >
+    </div>
+  `;
 }
 
-main();
+function renderConfigForm() {
+  const container = document.getElementById('config-fields');
+  container.innerHTML = FORM_FIELDS.map(createFieldMarkup).join('');
+}
+
+function fillForm(config) {
+  FORM_FIELDS.forEach((field) => {
+    const element = document.getElementById(`field-${field.key}`);
+    if (!element) {
+      return;
+    }
+    if (field.type === 'checkbox') {
+      element.checked = Boolean(config[field.key]);
+    } else {
+      element.value = config[field.key] ?? '';
+    }
+  });
+}
+
+function readFormPayload() {
+  const payload = {};
+  FORM_FIELDS.forEach((field) => {
+    const element = document.getElementById(`field-${field.key}`);
+    if (!element) {
+      return;
+    }
+    if (field.type === 'checkbox') {
+      payload[field.key] = element.checked;
+      return;
+    }
+    if (field.type === 'number') {
+      payload[field.key] = Number(element.value);
+      return;
+    }
+    payload[field.key] = element.value;
+  });
+  return payload;
+}
+
+function setFlashMessage(message, kind = 'info') {
+  const box = document.getElementById('flash-message');
+  if (!message) {
+    box.className = 'flash-message hidden';
+    box.textContent = '';
+    return;
+  }
+  box.className = `flash-message ${kind}`;
+  box.textContent = message;
+}
+
+function updateButtons() {
+  const runBtn = document.getElementById('btn-run');
+  const stopBtn = document.getElementById('btn-stop');
+  const running = Boolean(state.activeRun && ['running', 'starting', 'stopping'].includes(state.activeRun.status));
+  runBtn.disabled = running;
+  stopBtn.disabled = !running;
+}
+
+function formatMetric(value, digits = 4) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'n/a';
+  }
+  return Number(value).toFixed(digits);
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.error || `Request failed: ${response.status}`);
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+async function loadDefaults() {
+  const payload = await fetchJson('/api/default-config');
+  state.defaultConfig = payload.config;
+  state.taskNames = payload.task_names || [];
+  renderConfigForm();
+  fillForm(state.defaultConfig);
+}
+
+async function refreshState(showMessage = false) {
+  const payload = await fetchJson('/api/state');
+  state.activeRun = payload.active_run;
+  renderStatusPanel();
+  renderDetailPanel();
+  updateButtons();
+  if (showMessage) {
+    setFlashMessage('Dashboard state refreshed.', 'info');
+  }
+}
+
+async function handleRun() {
+  try {
+    const payload = readFormPayload();
+    const result = await fetchJson('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    state.activeRun = result.active_run;
+    renderStatusPanel();
+    updateButtons();
+    setFlashMessage('Training run started.', 'success');
+  } catch (error) {
+    const payload = error.payload || {};
+    if (payload.active_run !== undefined) {
+      state.activeRun = payload.active_run;
+      renderStatusPanel();
+      updateButtons();
+    }
+    setFlashMessage(error.message, 'error');
+  }
+}
+
+async function handleStop() {
+  try {
+    const result = await fetchJson('/api/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    state.activeRun = result.active_run;
+    renderStatusPanel();
+    updateButtons();
+    setFlashMessage('Stop requested. Training will finish the current epoch and then write artifacts.', 'info');
+  } catch (error) {
+    setFlashMessage(error.message, 'error');
+  }
+}
+
+function bindDashboardControls() {
+  document.getElementById('btn-run').addEventListener('click', handleRun);
+  document.getElementById('btn-stop').addEventListener('click', handleStop);
+  document.getElementById('btn-refresh').addEventListener('click', () => refreshState(true).catch((error) => {
+    setFlashMessage(error.message, 'error');
+  }));
+  document.getElementById('btn-reset-form').addEventListener('click', () => {
+    if (state.defaultConfig) {
+      fillForm(state.defaultConfig);
+      setFlashMessage('Form reset to default configuration.', 'info');
+    }
+  });
+}
+
+function startPolling() {
+  if (state.pollHandle) {
+    clearInterval(state.pollHandle);
+  }
+  state.pollHandle = window.setInterval(() => {
+    refreshState(false).catch(() => {
+      // Keep polling silently; the user can still press Refresh for details.
+    });
+  }, POLL_INTERVAL_MS);
+}
+
+async function initializeDashboard() {
+  state.data = buildVizData();
+  state.cy = createCy(state.data);
+  bindGraphInteractions(state.cy, state.data);
+
+  await loadDefaults();
+  bindDashboardControls();
+  renderStatusPanel();
+  renderDetailPanel();
+  await refreshState(false);
+  startPolling();
+}
+
+initializeDashboard().catch((error) => {
+  setFlashMessage(`Failed to initialize dashboard: ${error.message}`, 'error');
+});

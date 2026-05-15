@@ -3,18 +3,42 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>exp0513 Network Structure Visualizer</title>
+  <title>exp0513 Dashboard</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
 </head>
 <body>
   <main id="layout">
     <aside id="panel-left">
-      <h1>exp0513 Visualizer</h1>
+      <h1>exp0513 Dashboard</h1>
       <p class="panel-intro">
-        A static structure explorer for the default self-modulated network:
-        <code>1 -&gt; 16 -&gt; 16 -&gt; (y=1, q=9)</code>.
+        Edit the run configuration, start a single active training run, and inspect the default
+        self-modulated network structure in the same page.
       </p>
+
+      <div id="flash-message" class="flash-message hidden"></div>
+
+      <section class="panel-section">
+        <div class="section-header">
+          <h2>Run Controls</h2>
+        </div>
+        <div class="button-row">
+          <button id="btn-run" class="primary">Run</button>
+          <button id="btn-stop">Stop</button>
+          <button id="btn-refresh">Refresh</button>
+          <button id="btn-reset-form">Reset form</button>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <div class="section-header">
+          <h2>Configuration</h2>
+          <span class="section-hint">All fields mirror the training config.</span>
+        </div>
+        <form id="config-form">
+          <div id="config-fields" class="form-grid"></div>
+        </form>
+      </section>
 
       <section class="panel-section">
         <h2>Legend</h2>
@@ -28,22 +52,11 @@
       </section>
 
       <section class="panel-section">
-        <h2>Layers</h2>
-        <ul class="panel-list">
-          <li><code>x0</code>: scalar input</li>
-          <li><code>h1_i</code>: trunk layer 1</li>
-          <li><code>h2_i</code>: trunk layer 2</li>
-          <li><code>y0</code>: task output</li>
-          <li><code>q_i</code>: modulator outputs</li>
-        </ul>
-      </section>
-
-      <section class="panel-section">
         <h2>Interaction</h2>
         <ul class="panel-list">
           <li>Click a <code>q_i</code> node to highlight its controlled forward edges.</li>
           <li>Click any forward edge to inspect its source, target, and controlling <code>q_i</code>.</li>
-          <li>Click the background to clear the current selection.</li>
+          <li>Training state refreshes automatically every second while a run is active.</li>
         </ul>
       </section>
     </aside>
@@ -51,12 +64,13 @@
     <section id="panel-center">
       <header id="graph-header">
         <h2>Default exp0513 Network Structure</h2>
-        <p>Static forward graph with controllable-edge inspection only.</p>
+        <p>Static forward graph with controllable-edge inspection plus live run control.</p>
       </header>
       <div id="cy"></div>
     </section>
 
     <aside id="panel-right">
+      <div id="status-panel"></div>
       <div id="detail-panel"></div>
     </aside>
   </main>

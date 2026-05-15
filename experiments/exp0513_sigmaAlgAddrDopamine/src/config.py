@@ -45,11 +45,8 @@ class ExperimentConfig:
         return data
 
 
-def load_config_from_yaml(path: Path) -> ExperimentConfig:
-    """Load exp0513 config from a yaml file."""
-    with open(path, "r", encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle) or {}
-
+def config_from_user_dict(raw: dict[str, object], base_dir: Path | None = None) -> ExperimentConfig:
+    """Build an ExperimentConfig from user-facing keys."""
     defaults = ExperimentConfig()
     valid_keys = set(asdict(defaults).keys()) | {"lambda"}
     unknown = set(raw.keys()) - valid_keys
@@ -57,17 +54,26 @@ def load_config_from_yaml(path: Path) -> ExperimentConfig:
         raise ValueError(f"Unknown config keys: {sorted(unknown)}")
 
     payload = asdict(defaults)
-    if "lambda" in raw:
-        payload["lambda_value"] = raw.pop("lambda")
-    payload.update(raw)
+    normalized = dict(raw)
+    if "lambda" in normalized:
+        payload["lambda_value"] = normalized.pop("lambda")
+    payload.update(normalized)
 
     if payload["resume_from"]:
-        resume_path = Path(payload["resume_from"])
+        resume_path = Path(str(payload["resume_from"])).expanduser()
         if not resume_path.is_absolute():
-            resume_path = (path.parent / resume_path).resolve()
+            anchor = base_dir or Path.cwd()
+            resume_path = (anchor / resume_path).resolve()
         payload["resume_from"] = str(resume_path)
 
     return ExperimentConfig(**payload)
+
+
+def load_config_from_yaml(path: Path) -> ExperimentConfig:
+    """Load exp0513 config from a yaml file."""
+    with open(path, "r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    return config_from_user_dict(raw, base_dir=path.parent)
 
 
 def dump_config_to_yaml(config: ExperimentConfig, path: Path) -> None:
