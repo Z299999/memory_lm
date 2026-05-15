@@ -112,25 +112,12 @@ summary {
   overflow: hidden;
 }
 
-#graph-header h2 {
-  margin: 0 0 6px;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-#graph-header p,
 .panel-intro,
 .muted {
   margin: 0;
   color: var(--muted);
   line-height: 1.35;
   font-size: 12px;
-}
-
-#graph-header {
-  padding: 10px 12px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
 }
 
 #cy {
@@ -284,6 +271,14 @@ button:disabled:hover {
   background: #ffffff;
   color: var(--text);
   font-size: 12px;
+}
+
+.form-field input.is-disabled,
+.form-field input:disabled,
+.form-field select:disabled {
+  color: var(--muted);
+  background: #f3f5f8;
+  cursor: not-allowed;
 }
 
 .derived-summary {

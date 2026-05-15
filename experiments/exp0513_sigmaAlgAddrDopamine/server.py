@@ -43,8 +43,13 @@ class DashboardState:
     def load_default_config(self) -> dict[str, Any]:
         config = load_config_from_yaml(DEFAULT_CONFIG_PATH)
         preview = self._build_preview_payload(config)
+        latest_resume = self._find_latest_model_checkpoint()
+        config_payload = config.to_user_dict()
+        config_payload["resume_latest"] = latest_resume is not None
+        if latest_resume is not None:
+            config_payload["resume_from"] = str(latest_resume)
         return {
-            "config": config.to_user_dict(),
+            "config": config_payload,
             "task_names": available_task_names(),
             "graph_payload": preview["graph_payload"],
             "architecture": preview["graph_payload"].get("architecture"),
@@ -53,10 +58,12 @@ class DashboardState:
         }
 
     def preview_config(self, user_payload: dict[str, Any]) -> dict[str, Any]:
-        config = config_from_user_dict(user_payload, base_dir=self.root)
+        config = self._config_from_dashboard_payload(user_payload)
         preview = self._build_preview_payload(config)
+        config_payload = config.to_user_dict()
+        config_payload["resume_latest"] = bool(user_payload.get("resume_latest"))
         return {
-            "config": config.to_user_dict(),
+            "config": config_payload,
             "graph_payload": preview["graph_payload"],
             "architecture": preview["graph_payload"].get("architecture"),
             "preview_state": preview["preview_state"],
@@ -86,7 +93,7 @@ class DashboardState:
             if self.worker_thread is not None and self.worker_thread.is_alive():
                 raise RuntimeError("A training run is already in progress.")
 
-        config = config_from_user_dict(user_payload, base_dir=self.root)
+        config = self._config_from_dashboard_payload(user_payload)
         preview = self._build_preview_payload(config)
         run_dir = make_run_dir(self.root / "runs", config.run_name)
         live_status_path = run_dir / "live_viewer.json"
@@ -140,6 +147,24 @@ class DashboardState:
             self.worker_thread = worker
         worker.start()
         return self.get_state()
+
+    def _config_from_dashboard_payload(self, user_payload: dict[str, Any]) -> ExperimentConfig:
+        payload = dict(user_payload)
+        if payload.pop("resume_latest", False):
+            latest_checkpoint = self._find_latest_model_checkpoint()
+            if latest_checkpoint is None:
+                raise ValueError("No previous model.pt found in runs/. Uncheck 'Resume latest model.pt' to start from scratch.")
+            payload["resume_from"] = str(latest_checkpoint)
+        return config_from_user_dict(payload, base_dir=self.root)
+
+    def _find_latest_model_checkpoint(self) -> Path | None:
+        runs_dir = self.root / "runs"
+        if not runs_dir.exists():
+            return None
+        candidates = [path for path in runs_dir.glob("*/model.pt") if path.is_file()]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime)
 
     def _build_preview_payload(self, config: ExperimentConfig) -> dict[str, Any]:
         validate_task_dimensions(config.task_name, config.input_dim, config.output_dim)

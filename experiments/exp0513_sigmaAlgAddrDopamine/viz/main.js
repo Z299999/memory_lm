@@ -14,6 +14,7 @@ const EDGE_COLORS = {
 
 const FORM_FIELDS = [
   { key: 'run_name', label: 'Run name', type: 'text', wide: true },
+  { key: 'resume_latest', label: 'Resume latest model.pt', type: 'checkbox', wide: true },
   { key: 'task_name', label: 'Task name', type: 'select' },
   { key: 'seed', label: 'Seed', type: 'number', step: '1' },
   { key: 'epochs', label: 'Continue epochs', type: 'number', step: '1' },
@@ -40,7 +41,7 @@ const FORM_SECTIONS = [
   {
     key: 'run',
     title: 'Run',
-    fields: ['run_name', 'resume_from', 'seed'],
+    fields: ['run_name', 'resume_latest', 'resume_from', 'seed'],
   },
   {
     key: 'task',
@@ -778,6 +779,10 @@ function createSectionMarkup(section) {
 function renderConfigForm() {
   const container = document.getElementById('config-sections');
   container.innerHTML = FORM_SECTIONS.map(createSectionMarkup).join('');
+  const resumeLatest = document.getElementById('field-resume_latest');
+  if (resumeLatest) {
+    resumeLatest.addEventListener('change', syncResumeModeUi);
+  }
 }
 
 function fillForm(config) {
@@ -796,6 +801,7 @@ function fillForm(config) {
       element.value = config[field.key] ?? '';
     }
   });
+  syncResumeModeUi();
 }
 
 function readFormPayload() {
@@ -824,6 +830,26 @@ function readFormPayload() {
     payload[field.key] = element.value;
   });
   return payload;
+}
+
+function syncResumeModeUi() {
+  const resumeLatest = document.getElementById('field-resume_latest');
+  const resumeFrom = document.getElementById('field-resume_from');
+  if (!resumeLatest || !resumeFrom) {
+    return;
+  }
+
+  const useLatest = resumeLatest.checked;
+  resumeFrom.disabled = useLatest;
+  resumeFrom.readOnly = useLatest;
+  resumeFrom.placeholder = useLatest ? 'auto: latest runs/*/model.pt' : '';
+  if (useLatest) {
+    resumeFrom.classList.add('is-disabled');
+    resumeFrom.title = 'Using the newest runs/*/model.pt automatically.';
+  } else {
+    resumeFrom.classList.remove('is-disabled');
+    resumeFrom.title = '';
+  }
 }
 
 function renderDopaminePreviewSummary(summary) {
