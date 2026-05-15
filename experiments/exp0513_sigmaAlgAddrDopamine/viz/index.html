@@ -8,63 +8,90 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
 </head>
 <body>
-  <main id="layout">
-    <aside id="panel-left">
+  <header id="toolbar">
+    <div class="toolbar-brand">
       <h1>exp0513 Dashboard</h1>
       <p class="panel-intro">
-        Edit the run configuration, start a single active training run, and inspect the default
-        hidden-dopamine network structure in the same page.
+        Confirm a dopamine preview first, then launch or resume a single active training run.
       </p>
+    </div>
+    <div class="toolbar-actions">
+      <button id="btn-confirm" class="primary">Confirm</button>
+      <button id="btn-run">Run</button>
+      <button id="btn-stop">Stop</button>
+      <button id="btn-refresh">Refresh</button>
+      <button id="btn-reset-form">Reset</button>
+    </div>
+    <div class="toolbar-status">
+      <div class="toolbar-pill">
+        <span class="toolbar-pill-label">Preview</span>
+        <span id="toolbar-preview-state" class="toolbar-pill-value">dirty</span>
+      </div>
+      <div class="toolbar-pill">
+        <span class="toolbar-pill-label">Status</span>
+        <span id="toolbar-run-status" class="toolbar-pill-value">idle</span>
+      </div>
+      <div class="toolbar-pill">
+        <span class="toolbar-pill-label">Global epoch</span>
+        <span id="toolbar-global-epoch" class="toolbar-pill-value">0</span>
+      </div>
+    </div>
+  </header>
 
+  <main id="layout">
+    <aside id="panel-left">
       <div id="flash-message" class="flash-message hidden"></div>
 
       <section class="panel-section">
         <div class="section-header">
-          <h2>Run Controls</h2>
-        </div>
-        <div class="button-row">
-          <button id="btn-run" class="primary">Run</button>
-          <button id="btn-stop">Stop</button>
-          <button id="btn-refresh">Refresh</button>
-          <button id="btn-reset-form">Reset form</button>
-        </div>
-      </section>
-
-      <section class="panel-section">
-        <div class="section-header">
           <h2>Configuration</h2>
-          <span class="section-hint">All fields mirror the training config and resume semantics.</span>
+          <span class="section-hint">Edit fields, press Confirm to refresh the preview, then Run.</span>
         </div>
         <form id="config-form">
-          <div id="config-fields" class="form-grid"></div>
+          <div id="config-sections" class="config-sections"></div>
         </form>
       </section>
 
-      <section class="panel-section">
-        <h2>Legend</h2>
-        <div class="legend-item"><span class="legend-dot legend-input"></span> Input node</div>
-        <div class="legend-item"><span class="legend-dot legend-hidden"></span> Hidden neuron</div>
-        <div class="legend-item"><span class="legend-dot legend-dopamine"></span> Dopamine hidden node</div>
-        <div class="legend-item"><span class="legend-dot legend-y"></span> Output node</div>
-        <div class="legend-item"><span class="legend-line legend-forward"></span> Forward edge</div>
-        <div class="legend-item"><span class="legend-line legend-highlight"></span> Controlled by selected dopamine node</div>
-        <div class="legend-item"><span class="legend-line legend-selected"></span> Selected edge</div>
-      </section>
-
-      <section class="panel-section">
-        <h2>Interaction</h2>
-        <ul class="panel-list">
-          <li>Click a dopamine hidden node to highlight its controlled forward edges.</li>
-          <li>Click any forward edge to inspect its source, target, and controlling dopamine nodes.</li>
-          <li>Training state refreshes automatically every second while a run is active.</li>
-        </ul>
+      <section class="panel-section fold-stack">
+        <details class="panel-fold">
+          <summary>Legend</summary>
+          <div class="fold-body">
+            <div class="legend-item"><span class="legend-dot legend-input"></span> Input node</div>
+            <div class="legend-item"><span class="legend-dot legend-hidden"></span> Hidden neuron</div>
+            <div class="legend-item"><span class="legend-dot legend-dopamine"></span> Dopamine hidden node</div>
+            <div class="legend-item"><span class="legend-dot legend-y"></span> Output node</div>
+            <div class="legend-item"><span class="legend-line legend-forward"></span> Forward edge</div>
+            <div class="legend-item"><span class="legend-line legend-highlight"></span> Controlled by selected dopamine node</div>
+            <div class="legend-item"><span class="legend-line legend-selected"></span> Selected edge</div>
+          </div>
+        </details>
+        <details class="panel-fold">
+          <summary>Interaction</summary>
+          <div class="fold-body">
+            <ul class="panel-list">
+              <li>Click a dopamine hidden node to highlight its controlled forward edges.</li>
+              <li>Click any forward edge to inspect its source, target, weight, and controlling dopamine nodes.</li>
+              <li>Training state refreshes automatically every second while a run is active.</li>
+            </ul>
+          </div>
+        </details>
+        <details class="panel-fold">
+          <summary>Diagnostics</summary>
+          <div class="fold-body">
+            <ul class="panel-list">
+              <li>Preview-only states show initialized edge weights immediately.</li>
+              <li>Node activations appear after the first validation pass of a real run.</li>
+              <li>Local loss tracks only the current continuation run; global loss spans all resumes.</li>
+            </ul>
+          </div>
+        </details>
       </section>
     </aside>
 
     <section id="panel-center">
       <header id="graph-header">
         <h2>exp0513 Dopamine Network Structure</h2>
-        <p>Forward graph with hidden dopamine node coverage inspection plus live run control.</p>
+        <p>Confirm previews first, then use the toolbar to run or stop training.</p>
       </header>
       <div id="cy"></div>
     </section>

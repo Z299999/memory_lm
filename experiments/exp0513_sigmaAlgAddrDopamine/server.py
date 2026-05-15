@@ -49,6 +49,18 @@ class DashboardState:
             "graph_payload": preview["graph_payload"],
             "architecture": preview["graph_payload"].get("architecture"),
             "preview_state": preview["preview_state"],
+            "preview_summary": preview["preview_summary"],
+        }
+
+    def preview_config(self, user_payload: dict[str, Any]) -> dict[str, Any]:
+        config = config_from_user_dict(user_payload, base_dir=self.root)
+        preview = self._build_preview_payload(config)
+        return {
+            "config": config.to_user_dict(),
+            "graph_payload": preview["graph_payload"],
+            "architecture": preview["graph_payload"].get("architecture"),
+            "preview_state": preview["preview_state"],
+            "preview_summary": preview["preview_summary"],
         }
 
     def get_state(self) -> dict[str, Any]:
@@ -156,6 +168,19 @@ class DashboardState:
                 "edge_count": int(checkpoint["edge_count"]),
                 "global_epoch_completed_before": int(checkpoint.get("global_epoch_completed", 0)),
                 "global_loss_history_before": list(checkpoint.get("global_loss_history") or []),
+                "preview_summary": {
+                    "effective_dopamine_m": int(checkpoint["effective_dopamine_m"]),
+                    "recommended_dopamine_m": int(checkpoint.get("recommended_dopamine_m", checkpoint["effective_dopamine_m"])),
+                    "hidden_pool_size": int(graph_payload["architecture"]["hidden_pool_size"]),
+                    "edge_count": int(checkpoint["edge_count"]),
+                    "coverage_c": int(checkpoint["coverage_c"]),
+                    "average_edges_per_dopamine": float(
+                        checkpoint["dopamine_assignment_metadata"].get(
+                            "average_edges_per_dopamine",
+                            int(checkpoint["edge_count"]) / int(checkpoint["effective_dopamine_m"]),
+                        )
+                    ),
+                },
                 "preview_state": preview_state,
             }
 
@@ -187,6 +212,14 @@ class DashboardState:
             "edge_count": len(edge_records),
             "global_epoch_completed_before": 0,
             "global_loss_history_before": [],
+            "preview_summary": {
+                "effective_dopamine_m": dopamine_m,
+                "recommended_dopamine_m": recommended_dopamine_m,
+                "hidden_pool_size": model.hidden_pool_size(),
+                "edge_count": len(edge_records),
+                "coverage_c": config.coverage_c,
+                "average_edges_per_dopamine": float(assignment_metadata["average_edges_per_dopamine"]),
+            },
             "preview_state": {
                 "node_activation_snapshot": {node["id"]: None for node in graph_payload["nodes"]},
                 "edge_weight_snapshot": _build_edge_weight_snapshot(model, edge_records),
@@ -263,6 +296,14 @@ class DashboardRequestHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/preview":
+            try:
+                payload = self._read_json_body()
+                self._send_json(self.dashboard_state.preview_config(payload))
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+
         if parsed.path == "/api/run":
             try:
                 payload = self._read_json_body()

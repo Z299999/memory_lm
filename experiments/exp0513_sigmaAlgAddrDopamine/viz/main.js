@@ -36,6 +36,37 @@ const FORM_FIELDS = [
   { key: 'enable_diagnostics', label: 'Enable diagnostics', type: 'checkbox', wide: true },
 ];
 
+const FORM_SECTIONS = [
+  {
+    key: 'run',
+    title: 'Run',
+    fields: ['run_name', 'resume_from', 'seed'],
+  },
+  {
+    key: 'task',
+    title: 'Task & Architecture',
+    fields: ['task_name', 'input_dim', 'output_dim', 'trunk_dims'],
+  },
+  {
+    key: 'dopamine',
+    title: 'Dopamine Coverage',
+    fields: ['coverage_c', 'dopamine_m_override'],
+    summaryId: 'dopamine-preview-summary',
+  },
+  {
+    key: 'training',
+    title: 'Training',
+    fields: ['epochs', 'lambda', 'batch_size', 'lr_bp', 'eta_int', 'gamma'],
+  },
+  {
+    key: 'data',
+    title: 'Data',
+    fields: ['num_train', 'num_val', 'num_plot', 'x_min', 'x_max', 'enable_diagnostics'],
+  },
+];
+
+const FIELD_MAP = new Map(FORM_FIELDS.map((field) => [field.key, field]));
+
 const POLL_INTERVAL_MS = 1000;
 
 const state = {
@@ -43,6 +74,11 @@ const state = {
   taskNames: [],
   defaultGraphPayload: null,
   defaultPreviewState: null,
+  defaultPreviewSummary: null,
+  previewGraphPayload: null,
+  previewState: null,
+  previewSummary: null,
+  confirmedPayload: null,
   activeRun: null,
   cy: null,
   graphPayload: null,
@@ -51,6 +87,7 @@ const state = {
   selectedNodeId: null,
   selectedEdgeId: null,
   pollHandle: null,
+  isDirty: true,
 };
 
 function graphPayloadKey(payload) {
@@ -81,8 +118,51 @@ function getArchitecture(payload) {
   return payload?.architecture || state.activeRun?.architecture || null;
 }
 
-function getPreviewState() {
-  return state.activeRun || state.defaultPreviewState || null;
+function isRunActive(runState) {
+  return Boolean(runState && ['running', 'starting', 'stopping'].includes(runState.status));
+}
+
+function buildLiveSnapshot(runState) {
+  return {
+    node_activation_snapshot: runState?.node_activation_snapshot || {},
+    edge_weight_snapshot: runState?.edge_weight_snapshot || {},
+  };
+}
+
+function getCurrentGraphContext() {
+  if (isRunActive(state.activeRun) && state.activeRun?.graph_payload) {
+    return {
+      payload: state.activeRun.graph_payload,
+      previewState: buildLiveSnapshot(state.activeRun),
+    };
+  }
+
+  if (state.previewGraphPayload) {
+    const previewKey = graphPayloadKey(state.previewGraphPayload);
+    const activeKey = state.activeRun?.graph_payload ? graphPayloadKey(state.activeRun.graph_payload) : null;
+    if (activeKey && activeKey === previewKey) {
+      return {
+        payload: state.previewGraphPayload,
+        previewState: buildLiveSnapshot(state.activeRun),
+      };
+    }
+    return {
+      payload: state.previewGraphPayload,
+      previewState: state.previewState,
+    };
+  }
+
+  if (state.activeRun?.graph_payload) {
+    return {
+      payload: state.activeRun.graph_payload,
+      previewState: buildLiveSnapshot(state.activeRun),
+    };
+  }
+
+  return {
+    payload: state.defaultGraphPayload,
+    previewState: state.defaultPreviewState,
+  };
 }
 
 function createNodeElement(node, payload) {
@@ -205,26 +285,15 @@ function ensureGraph(payload) {
 function renderStatusPanel() {
   const panel = document.getElementById('status-panel');
   const activeRun = state.activeRun;
-  const payload = state.graphPayload;
-  const architecture = getArchitecture(payload);
 
   if (!activeRun) {
     panel.innerHTML = `
       <div class="detail-card">
-        <p class="detail-kicker">Dashboard status</p>
+        <p class="detail-kicker">Active run</p>
         <h2 class="detail-title">Idle</h2>
         <p class="muted">
-          Edit the config on the left, then start a single active run. The graph previews the
-          current hidden-dopamine network structure and default static assignment.
+          Confirm a preview on the left, then start or resume a single active run from the toolbar.
         </p>
-      </div>
-      <div class="detail-card">
-        <p class="detail-kicker">Preview architecture</p>
-        <table class="detail-table">
-          <tr><th>Input dim</th><td>${architecture?.input_dim ?? 'n/a'}</td></tr>
-          <tr><th>Output dim</th><td>${architecture?.output_dim ?? architecture?.y_dim ?? 'n/a'}</td></tr>
-          <tr><th>Trunk dims</th><td>${trunkDimsToText(architecture?.trunk_dims || []) || 'n/a'}</td></tr>
-        </table>
       </div>
     `;
     return;
@@ -268,21 +337,16 @@ function renderStatusPanel() {
           <p class="stat-label">Best val</p>
           <p class="stat-value">${formatMetric(activeRun.best_val_loss)}</p>
         </div>
-        <div class="stat-box">
-          <p class="stat-label">Lambda</p>
-          <p class="stat-value">${formatMetric(activeRun.lambda, 2)}</p>
-        </div>
       </div>
-      <table class="detail-table">
-        <tr><th>Task</th><td>${activeRun.task_name || 'n/a'}</td></tr>
-        <tr><th>Input / Output</th><td>${architecture?.input_dim ?? 'n/a'} -> ${architecture?.output_dim ?? architecture?.y_dim ?? 'n/a'}</td></tr>
-        <tr><th>Trunk dims</th><td>${trunkDimsToText(architecture?.trunk_dims || []) || 'n/a'}</td></tr>
-        <tr><th>Seed</th><td>${activeRun.seed ?? 'n/a'}</td></tr>
-        <tr><th>Coverage c</th><td>${activeRun.coverage_c ?? 'n/a'}</td></tr>
-        <tr><th>Dopamine m</th><td>${activeRun.dopamine_m ?? 'n/a'} (rec ${activeRun.recommended_dopamine_m ?? 'n/a'})</td></tr>
-        <tr><th>Run dir</th><td class="subtle-path">${activeRun.run_dir || 'n/a'}</td></tr>
-        <tr><th>Updated</th><td>${activeRun.updated_at || 'n/a'}</td></tr>
-      </table>
+      <div class="meta-strip">
+        <span class="meta-chip">task ${activeRun.task_name || 'n/a'}</span>
+        <span class="meta-chip">lambda ${formatMetric(activeRun.lambda, 2)}</span>
+        <span class="meta-chip">c ${activeRun.coverage_c ?? 'n/a'}</span>
+        <span class="meta-chip">m ${activeRun.dopamine_m ?? 'n/a'}</span>
+      </div>
+      <p class="run-dir-line" title="${escapeHtml(activeRun.run_dir || '')}">
+        Run dir: ${formatShortPath(activeRun.run_dir)}
+      </p>
       ${activeRun.error ? `<p class="muted">Error: ${escapeHtml(activeRun.error)}</p>` : ''}
     </div>
   `;
@@ -290,11 +354,11 @@ function renderStatusPanel() {
 
 function renderLossPanel() {
   const panel = document.getElementById('loss-panel');
-  const previewState = getPreviewState();
-  const localHistory = previewState?.local_loss_history || [];
-  const globalHistory = previewState?.global_loss_history || [];
+  const activeRun = state.activeRun;
+  const localHistory = activeRun?.local_loss_history || [];
+  const globalHistory = activeRun?.global_loss_history || [];
 
-  if (!previewState) {
+  if (!activeRun) {
     panel.innerHTML = `
       <div class="detail-card">
         <p class="detail-kicker">Live loss</p>
@@ -381,7 +445,6 @@ function renderLossChart(history, epochMode) {
 }
 
 function renderDefaultDetail(panel, payload) {
-  const architecture = getArchitecture(payload);
   panel.innerHTML = `
     <div class="detail-card">
       <p class="detail-kicker">Overview</p>
@@ -411,11 +474,6 @@ function renderDefaultDetail(panel, payload) {
           <p class="stat-value">${payload.dopamineM}</p>
         </div>
       </div>
-      <table class="detail-table">
-        <tr><th>Input dim</th><td>${architecture?.input_dim ?? 'n/a'}</td></tr>
-        <tr><th>Output dim</th><td>${architecture?.output_dim ?? architecture?.y_dim ?? 'n/a'}</td></tr>
-        <tr><th>Trunk dims</th><td>${trunkDimsToText(architecture?.trunk_dims || []) || 'n/a'}</td></tr>
-      </table>
     </div>
   `;
 }
@@ -455,7 +513,7 @@ function renderDopamineDetail(panel, nodeId, payload) {
     return acc;
   }, {});
 
-  const previewState = getPreviewState();
+  const previewState = getCurrentGraphContext().previewState;
   const activationValue = previewState?.node_activation_snapshot?.[nodeId];
   panel.innerHTML = `
     <div class="detail-card">
@@ -497,7 +555,7 @@ function renderDopamineDetail(panel, nodeId, payload) {
 }
 
 function renderNodeDetail(panel, nodeId, payload) {
-  const previewState = getPreviewState();
+  const previewState = getCurrentGraphContext().previewState;
   const activationValue = previewState?.node_activation_snapshot?.[nodeId];
   const node = payload.nodes.find((item) => item.id === nodeId);
   panel.innerHTML = `
@@ -518,7 +576,7 @@ function renderEdgeDetail(panel, edge, payload) {
     .map((nodeId) => `<span class="pill">${nodeId}</span>`)
     .join('');
   const layerLabel = edge.layerLabel || getLayerLabelMap(payload).get(edge.layerKey) || edge.layerKey;
-  const previewState = getPreviewState();
+  const previewState = getCurrentGraphContext().previewState;
   const weightValue = previewState?.edge_weight_snapshot?.[edge.id];
 
   panel.innerHTML = `
@@ -697,9 +755,29 @@ function createFieldMarkup(field) {
   `;
 }
 
+function createSectionMarkup(section) {
+  const fields = section.fields
+    .map((fieldKey) => createFieldMarkup(FIELD_MAP.get(fieldKey)))
+    .join('');
+  const summaryMarkup = section.summaryId
+    ? `<div id="${section.summaryId}" class="derived-summary"></div>`
+    : '';
+  return `
+    <section class="config-card">
+      <div class="config-card-header">
+        <h3>${section.title}</h3>
+      </div>
+      <div class="form-grid section-grid">
+        ${fields}
+      </div>
+      ${summaryMarkup}
+    </section>
+  `;
+}
+
 function renderConfigForm() {
-  const container = document.getElementById('config-fields');
-  container.innerHTML = FORM_FIELDS.map(createFieldMarkup).join('');
+  const container = document.getElementById('config-sections');
+  container.innerHTML = FORM_SECTIONS.map(createSectionMarkup).join('');
 }
 
 function fillForm(config) {
@@ -748,6 +826,38 @@ function readFormPayload() {
   return payload;
 }
 
+function renderDopaminePreviewSummary(summary) {
+  const container = document.getElementById('dopamine-preview-summary');
+  if (!container) {
+    return;
+  }
+  if (!summary) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = `
+    <div class="derived-summary-grid">
+      <div class="derived-item">
+        <span class="derived-label">recommended m</span>
+        <span class="derived-value">${summary.recommended_dopamine_m ?? 'n/a'}</span>
+      </div>
+      <div class="derived-item">
+        <span class="derived-label">effective m</span>
+        <span class="derived-value">${summary.effective_dopamine_m ?? 'n/a'}</span>
+      </div>
+      <div class="derived-item">
+        <span class="derived-label">hidden pool</span>
+        <span class="derived-value">${summary.hidden_pool_size ?? 'n/a'}</span>
+      </div>
+      <div class="derived-item">
+        <span class="derived-label">avg edges / dopamine</span>
+        <span class="derived-value">${formatMetric(summary.average_edges_per_dopamine, 2)}</span>
+      </div>
+    </div>
+    <p class="derived-footnote">This summary updates on Confirm and defines the previewed dopamine assignment.</p>
+  `;
+}
+
 function setFlashMessage(message, kind = 'info') {
   const box = document.getElementById('flash-message');
   if (!message) {
@@ -760,10 +870,13 @@ function setFlashMessage(message, kind = 'info') {
 }
 
 function updateButtons() {
+  const confirmBtn = document.getElementById('btn-confirm');
   const runBtn = document.getElementById('btn-run');
   const stopBtn = document.getElementById('btn-stop');
-  const running = Boolean(state.activeRun && ['running', 'starting', 'stopping'].includes(state.activeRun.status));
-  runBtn.disabled = running;
+  const running = isRunActive(state.activeRun);
+  const canRun = Boolean(state.confirmedPayload) && !state.isDirty && !running;
+  confirmBtn.disabled = running;
+  runBtn.disabled = !canRun;
   stopBtn.disabled = !running;
 }
 
@@ -788,11 +901,32 @@ function formatPercent(value) {
   return `${(Number(value) * 100).toFixed(1)}%`;
 }
 
+function formatShortPath(path) {
+  if (!path) {
+    return 'n/a';
+  }
+  const parts = String(path).split('/').filter(Boolean);
+  if (parts.length <= 3) {
+    return String(path);
+  }
+  return `.../${parts.slice(-3).join('/')}`;
+}
+
 function escapeHtml(text) {
   return String(text)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+function updateToolbarStatus() {
+  const previewEl = document.getElementById('toolbar-preview-state');
+  const statusEl = document.getElementById('toolbar-run-status');
+  const epochEl = document.getElementById('toolbar-global-epoch');
+  const previewStatus = state.confirmedPayload && !state.isDirty ? 'confirmed' : 'dirty';
+  previewEl.textContent = previewStatus;
+  statusEl.textContent = state.activeRun?.status || 'idle';
+  epochEl.textContent = String(state.activeRun?.global_epoch ?? 0);
 }
 
 async function fetchJson(url, options = {}) {
@@ -807,11 +941,13 @@ async function fetchJson(url, options = {}) {
 }
 
 function syncGraphFromState() {
-  const payload = state.activeRun?.graph_payload || state.defaultGraphPayload;
-  ensureGraph(payload);
+  const graphContext = getCurrentGraphContext();
+  ensureGraph(graphContext.payload);
+  renderDopaminePreviewSummary(state.previewSummary || state.defaultPreviewSummary);
   renderDetailPanel();
   renderStatusPanel();
   renderLossPanel();
+  updateToolbarStatus();
 }
 
 async function loadDefaults() {
@@ -820,9 +956,16 @@ async function loadDefaults() {
   state.taskNames = payload.task_names || [];
   state.defaultGraphPayload = payload.graph_payload || null;
   state.defaultPreviewState = payload.preview_state || null;
+  state.defaultPreviewSummary = payload.preview_summary || null;
+  state.previewGraphPayload = state.defaultGraphPayload;
+  state.previewState = state.defaultPreviewState;
+  state.previewSummary = state.defaultPreviewSummary;
+  state.confirmedPayload = null;
+  state.isDirty = true;
   renderConfigForm();
   fillForm(state.defaultConfig);
   syncGraphFromState();
+  updateButtons();
 }
 
 async function refreshState(showMessage = false) {
@@ -835,13 +978,41 @@ async function refreshState(showMessage = false) {
   }
 }
 
-async function handleRun() {
+async function handleConfirm() {
   try {
     const payload = readFormPayload();
-    const result = await fetchJson('/api/run', {
+    const result = await fetchJson('/api/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    });
+    state.previewGraphPayload = result.graph_payload;
+    state.previewState = result.preview_state;
+    state.previewSummary = result.preview_summary || null;
+    state.confirmedPayload = result.config;
+    state.isDirty = false;
+    fillForm(result.config);
+    state.selectedDopamineId = null;
+    state.selectedNodeId = null;
+    state.selectedEdgeId = null;
+    syncGraphFromState();
+    updateButtons();
+    setFlashMessage('Preview confirmed. Graph and dopamine assignment updated; Run is now enabled.', 'success');
+  } catch (error) {
+    setFlashMessage(error.message, 'error');
+  }
+}
+
+async function handleRun() {
+  if (!state.confirmedPayload || state.isDirty) {
+    setFlashMessage('Confirm the current configuration before starting a run.', 'error');
+    return;
+  }
+  try {
+    const result = await fetchJson('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state.confirmedPayload),
     });
     state.activeRun = result.active_run;
     syncGraphFromState();
@@ -874,6 +1045,7 @@ async function handleStop() {
 }
 
 function bindDashboardControls() {
+  document.getElementById('btn-confirm').addEventListener('click', handleConfirm);
   document.getElementById('btn-run').addEventListener('click', handleRun);
   document.getElementById('btn-stop').addEventListener('click', handleStop);
   document.getElementById('btn-refresh').addEventListener('click', () => refreshState(true).catch((error) => {
@@ -882,14 +1054,29 @@ function bindDashboardControls() {
   document.getElementById('btn-reset-form').addEventListener('click', () => {
     if (state.defaultConfig) {
       fillForm(state.defaultConfig);
-      if (!state.activeRun) {
-        state.selectedDopamineId = null;
-        state.selectedNodeId = null;
-        state.selectedEdgeId = null;
-        syncGraphFromState();
-      }
-      setFlashMessage('Form reset to default configuration.', 'info');
+      state.previewGraphPayload = state.defaultGraphPayload;
+      state.previewState = state.defaultPreviewState;
+      state.previewSummary = state.defaultPreviewSummary;
+      state.confirmedPayload = null;
+      state.isDirty = true;
+      state.selectedDopamineId = null;
+      state.selectedNodeId = null;
+      state.selectedEdgeId = null;
+      syncGraphFromState();
+      updateButtons();
+      setFlashMessage('Form reset to default values. Confirm again before running.', 'info');
     }
+  });
+
+  document.getElementById('config-form').addEventListener('input', () => {
+    state.isDirty = true;
+    updateButtons();
+    updateToolbarStatus();
+  });
+  document.getElementById('config-form').addEventListener('change', () => {
+    state.isDirty = true;
+    updateButtons();
+    updateToolbarStatus();
   });
 }
 
