@@ -95,38 +95,36 @@ def unflatten_internal_signal(
 def build_forward_edge_records(model) -> list[dict[str, object]]:
     """Build forward edge metadata in the same order as flattened controllable weights."""
     edges: list[dict[str, object]] = []
-    trunk1_dim, trunk2_dim = model.trunk_dims
+    for layer_idx, layer in enumerate(model.trunk, start=1):
+        in_dim = layer.in_features
+        out_dim = layer.out_features
+        layer_key = f"{'input' if layer_idx == 1 else f'hidden{layer_idx - 1}'}->hidden{layer_idx}"
+        for out_idx in range(out_dim):
+            for in_idx in range(in_dim):
+                source = f"x{in_idx}" if layer_idx == 1 else f"h{layer_idx - 1}_{in_idx}"
+                target = f"h{layer_idx}_{out_idx}"
+                edges.append({
+                    "id": f"trunk{layer_idx}[{out_idx},{in_idx}]",
+                    "source": source,
+                    "target": target,
+                    "layerKey": layer_key,
+                    "layerLabel": _layer_label_from_key(layer_key),
+                    "orderIndex": len(edges),
+                    "controllingDopamineIds": [],
+                })
 
-    for out_idx in range(trunk1_dim):
-        edges.append({
-            "id": f"trunk1[{out_idx},0]",
-            "source": "x0",
-            "target": f"h1_{out_idx}",
-            "layerKey": "input->trunk1",
-            "orderIndex": len(edges),
-            "controllingDopamineIds": [],
-        })
-
-    for out_idx in range(trunk2_dim):
-        for in_idx in range(trunk1_dim):
+    final_hidden_layer = len(model.trunk_dims)
+    for out_idx in range(model.y_head.out_features):
+        for in_idx in range(model.y_head.in_features):
             edges.append({
-                "id": f"trunk2[{out_idx},{in_idx}]",
-                "source": f"h1_{in_idx}",
-                "target": f"h2_{out_idx}",
-                "layerKey": "trunk1->trunk2",
+                "id": f"y_head[{out_idx},{in_idx}]",
+                "source": f"h{final_hidden_layer}_{in_idx}",
+                "target": f"y{out_idx}",
+                "layerKey": f"hidden{final_hidden_layer}->output",
+                "layerLabel": _layer_label_from_key(f"hidden{final_hidden_layer}->output"),
                 "orderIndex": len(edges),
                 "controllingDopamineIds": [],
             })
-
-    for in_idx in range(trunk2_dim):
-        edges.append({
-            "id": f"y_head[0,{in_idx}]",
-            "source": f"h2_{in_idx}",
-            "target": "y0",
-            "layerKey": "trunk2->y",
-            "orderIndex": len(edges),
-            "controllingDopamineIds": [],
-        })
 
     return edges
 
@@ -134,50 +132,71 @@ def build_forward_edge_records(model) -> list[dict[str, object]]:
 def build_graph_nodes(model, dopamine_node_ids: list[str]) -> list[dict[str, object]]:
     """Create front-end graph nodes with selected dopamine neurons marked."""
     dopamine_set = set(dopamine_node_ids)
-    nodes: list[dict[str, object]] = [{
-        "id": "x0",
-        "label": "x0",
-        "kind": "input",
-        "column": 0,
-        "row": 0,
-        "rowCount": 1,
-        "isDopamine": False,
-    }]
-
-    trunk1_dim, trunk2_dim = model.trunk_dims
-    for idx in range(trunk1_dim):
-        node_id = f"h1_{idx}"
+    nodes: list[dict[str, object]] = []
+    for idx in range(model.input_dim):
+        node_id = f"x{idx}"
         nodes.append({
             "id": node_id,
             "label": node_id,
-            "kind": "hidden",
-            "column": 1,
+            "kind": "input",
+            "column": 0,
             "row": idx,
-            "rowCount": trunk1_dim,
-            "isDopamine": node_id in dopamine_set,
+            "rowCount": model.input_dim,
+            "isDopamine": False,
         })
-    for idx in range(trunk2_dim):
-        node_id = f"h2_{idx}"
+
+    for layer_idx, layer_dim in enumerate(model.trunk_dims, start=1):
+        for neuron_idx in range(layer_dim):
+            node_id = f"h{layer_idx}_{neuron_idx}"
+            nodes.append({
+                "id": node_id,
+                "label": node_id,
+                "kind": "hidden",
+                "column": layer_idx,
+                "row": neuron_idx,
+                "rowCount": layer_dim,
+                "isDopamine": node_id in dopamine_set,
+            })
+
+    output_column = len(model.trunk_dims) + 1
+    for idx in range(model.y_dim):
+        node_id = f"y{idx}"
         nodes.append({
             "id": node_id,
             "label": node_id,
-            "kind": "hidden",
-            "column": 2,
+            "kind": "output",
+            "column": output_column,
             "row": idx,
-            "rowCount": trunk2_dim,
-            "isDopamine": node_id in dopamine_set,
+            "rowCount": model.y_dim,
+            "isDopamine": False,
         })
-
-    nodes.append({
-        "id": "y0",
-        "label": "y0",
-        "kind": "output",
-        "column": 3,
-        "row": 0,
-        "rowCount": 1,
-        "isDopamine": False,
-    })
     return nodes
+
+
+def _layer_label_from_key(layer_key: str) -> str:
+    source_key, target_key = layer_key.split("->", maxsplit=1)
+
+    def _format(part: str) -> str:
+        if part == "input":
+            return "Input"
+        if part == "output":
+            return "Output"
+        if part.startswith("hidden"):
+            return f"Hidden L{part.removeprefix('hidden')}"
+        return part
+
+    return f"{_format(source_key)} -> {_format(target_key)}"
+
+
+def build_layer_metadata(model) -> list[dict[str, object]]:
+    """Describe all forward layers for graph UIs and summaries."""
+    metadata: list[dict[str, object]] = []
+    for layer_idx in range(1, len(model.trunk_dims) + 1):
+        key = f"{'input' if layer_idx == 1 else f'hidden{layer_idx - 1}'}->hidden{layer_idx}"
+        metadata.append({"key": key, "label": _layer_label_from_key(key)})
+    key = f"hidden{len(model.trunk_dims)}->output"
+    metadata.append({"key": key, "label": _layer_label_from_key(key)})
+    return metadata
 
 
 def build_dopamine_assignment(
@@ -322,9 +341,11 @@ def build_graph_payload(model, assignment_metadata: dict[str, object]) -> dict[s
     return {
         "nodes": build_graph_nodes(model, selected_dopamine_node_ids),
         "edges": edge_records,
-        "totalNodes": 1 + model.hidden_pool_size() + model.y_dim,
+        "architecture": model.arch_dict(),
+        "layerMetadata": build_layer_metadata(model),
+        "totalNodes": model.input_dim + model.hidden_pool_size() + model.y_dim,
         "totalEdges": len(edge_records),
-        "totalLayers": 4,
+        "totalLayers": len(model.trunk_dims) + 2,
         "dopamineNodeIds": selected_dopamine_node_ids,
         "dopamineStats": assignment_metadata["dopamine_stats"],
         "coverageByRank": assignment_metadata["c_r"],

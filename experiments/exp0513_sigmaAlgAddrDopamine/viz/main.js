@@ -12,18 +12,15 @@ const EDGE_COLORS = {
   dimmed: '#c8d0db',
 };
 
-const LAYER_LABELS = {
-  'input->trunk1': 'Input -> Hidden L1',
-  'trunk1->trunk2': 'Hidden L1 -> Hidden L2',
-  'trunk2->y': 'Hidden L2 -> Output',
-};
-
 const FORM_FIELDS = [
   { key: 'run_name', label: 'Run name', type: 'text', wide: true },
   { key: 'task_name', label: 'Task name', type: 'select' },
   { key: 'seed', label: 'Seed', type: 'number', step: '1' },
   { key: 'epochs', label: 'Continue epochs', type: 'number', step: '1' },
   { key: 'lambda', label: 'Lambda', type: 'number', step: '0.01' },
+  { key: 'input_dim', label: 'Input dim', type: 'number', step: '1' },
+  { key: 'output_dim', label: 'Output dim', type: 'number', step: '1' },
+  { key: 'trunk_dims', label: 'Trunk dims', type: 'text', wide: true, placeholder: '16,16' },
   { key: 'coverage_c', label: 'Coverage c', type: 'number', step: '1' },
   { key: 'dopamine_m_override', label: 'Dopamine m override', type: 'number', step: '1', optional: true },
   { key: 'batch_size', label: 'Batch size', type: 'number', step: '1' },
@@ -58,9 +55,37 @@ function graphPayloadKey(payload) {
   return JSON.stringify(payload);
 }
 
-function createNodeElement(node) {
-  const xPositions = [-520, -180, 160, 500];
-  const x = xPositions[node.column] ?? 0;
+function trunkDimsToText(trunkDims) {
+  if (!Array.isArray(trunkDims)) {
+    return '';
+  }
+  return trunkDims.join(', ');
+}
+
+function parseTrunkDims(text) {
+  return String(text)
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => Number(part));
+}
+
+function getLayerLabelMap(payload) {
+  const entries = (payload?.layerMetadata || []).map((item) => [item.key, item.label]);
+  return new Map(entries);
+}
+
+function getArchitecture(payload) {
+  return payload?.architecture || state.activeRun?.architecture || null;
+}
+
+function createNodeElement(node, payload) {
+  const columnCount = Math.max(...payload.nodes.map((item) => item.column)) + 1;
+  const left = -520;
+  const right = 520;
+  const x = columnCount <= 1
+    ? 0
+    : left + (node.column / (columnCount - 1)) * (right - left);
   const spacing = node.isDopamine ? 52 : 46;
   const offset = (node.rowCount - 1) / 2;
   const y = (node.row - offset) * spacing;
@@ -86,6 +111,7 @@ function createEdgeElement(edge) {
       source: edge.source,
       target: edge.target,
       layerKey: edge.layerKey,
+      layerLabel: edge.layerLabel,
       controllingDopamineIds: edge.controllingDopamineIds,
       color: EDGE_COLORS.default,
       thickness: 1.6,
@@ -98,11 +124,11 @@ function createCy(payload) {
   return cytoscape({
     container: document.getElementById('cy'),
     elements: [
-      ...payload.nodes.map(createNodeElement),
+      ...payload.nodes.map((node) => createNodeElement(node, payload)),
       ...payload.edges.map(createEdgeElement),
     ],
     layout: { name: 'preset', fit: true, padding: 24 },
-    minZoom: 0.35,
+    minZoom: 0.25,
     maxZoom: 3,
     wheelSensitivity: 0.25,
     style: [
@@ -173,6 +199,8 @@ function ensureGraph(payload) {
 function renderStatusPanel() {
   const panel = document.getElementById('status-panel');
   const activeRun = state.activeRun;
+  const payload = state.graphPayload;
+  const architecture = getArchitecture(payload);
 
   if (!activeRun) {
     panel.innerHTML = `
@@ -181,8 +209,16 @@ function renderStatusPanel() {
         <h2 class="detail-title">Idle</h2>
         <p class="muted">
           Edit the config on the left, then start a single active run. The graph previews the
-          current hidden-dopamine assignment for the default configuration.
+          current hidden-dopamine network structure and default static assignment.
         </p>
+      </div>
+      <div class="detail-card">
+        <p class="detail-kicker">Preview architecture</p>
+        <table class="detail-table">
+          <tr><th>Input dim</th><td>${architecture?.input_dim ?? 'n/a'}</td></tr>
+          <tr><th>Output dim</th><td>${architecture?.output_dim ?? architecture?.y_dim ?? 'n/a'}</td></tr>
+          <tr><th>Trunk dims</th><td>${trunkDimsToText(architecture?.trunk_dims || []) || 'n/a'}</td></tr>
+        </table>
       </div>
     `;
     return;
@@ -233,6 +269,8 @@ function renderStatusPanel() {
       </div>
       <table class="detail-table">
         <tr><th>Task</th><td>${activeRun.task_name || 'n/a'}</td></tr>
+        <tr><th>Input / Output</th><td>${architecture?.input_dim ?? 'n/a'} -> ${architecture?.output_dim ?? architecture?.y_dim ?? 'n/a'}</td></tr>
+        <tr><th>Trunk dims</th><td>${trunkDimsToText(architecture?.trunk_dims || []) || 'n/a'}</td></tr>
         <tr><th>Seed</th><td>${activeRun.seed ?? 'n/a'}</td></tr>
         <tr><th>Coverage c</th><td>${activeRun.coverage_c ?? 'n/a'}</td></tr>
         <tr><th>Dopamine m</th><td>${activeRun.dopamine_m ?? 'n/a'} (rec ${activeRun.recommended_dopamine_m ?? 'n/a'})</td></tr>
@@ -244,7 +282,93 @@ function renderStatusPanel() {
   `;
 }
 
+function renderLossPanel() {
+  const panel = document.getElementById('loss-panel');
+  const activeRun = state.activeRun;
+  const history = activeRun?.loss_history || [];
+
+  if (!activeRun) {
+    panel.innerHTML = `
+      <div class="detail-card">
+        <p class="detail-kicker">Live loss</p>
+        <h2 class="detail-title">Waiting for run</h2>
+        <p class="muted">
+          Once training starts, this panel will redraw train and validation MSE in real time
+          using the current run's live JSON history.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="detail-card">
+      <p class="detail-kicker">Live loss</p>
+      <h2 class="detail-title">Current run curve</h2>
+      ${renderLossChart(history)}
+    </div>
+  `;
+}
+
+function renderLossChart(history) {
+  if (!history || history.length === 0) {
+    return `<p class="muted">No epochs completed yet. The curve will appear after the first validation pass.</p>`;
+  }
+
+  const width = 320;
+  const height = 180;
+  const padLeft = 42;
+  const padRight = 18;
+  const padTop = 16;
+  const padBottom = 28;
+  const xs = history.map((row) => Number(row.global_epoch));
+  const train = history.map((row) => Math.log10(Math.max(Number(row.train_loss), 1e-12)));
+  const val = history.map((row) => Math.log10(Math.max(Number(row.val_loss), 1e-12)));
+  const allY = [...train, ...val];
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...allY);
+  const maxY = Math.max(...allY);
+  const xSpan = Math.max(maxX - minX, 1);
+  const ySpan = Math.max(maxY - minY, 1e-6);
+
+  const scaleX = (value) => padLeft + ((value - minX) / xSpan) * (width - padLeft - padRight);
+  const scaleY = (value) => height - padBottom - ((value - minY) / ySpan) * (height - padTop - padBottom);
+  const toPolyline = (series) => series.map((value, idx) => `${scaleX(xs[idx]).toFixed(1)},${scaleY(value).toFixed(1)}`).join(' ');
+
+  const gridValues = [0, 0.5, 1].map((t) => minY + t * ySpan);
+  const gridSvg = gridValues.map((value) => {
+    const y = scaleY(value).toFixed(1);
+    const label = `1e${value.toFixed(1)}`;
+    return `
+      <g>
+        <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="#e2e8f0" stroke-width="1" />
+        <text x="${padLeft - 8}" y="${Number(y) + 4}" text-anchor="end" font-size="10" fill="#64748b">${label}</text>
+      </g>
+    `;
+  }).join('');
+
+  return `
+    <div class="loss-chart-shell">
+      <svg class="loss-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Live train and validation loss curves">
+        ${gridSvg}
+        <line x1="${padLeft}" y1="${height - padBottom}" x2="${width - padRight}" y2="${height - padBottom}" stroke="#94a3b8" stroke-width="1.2" />
+        <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${height - padBottom}" stroke="#94a3b8" stroke-width="1.2" />
+        <polyline fill="none" stroke="${EDGE_COLORS.highlight}" stroke-width="2.2" points="${toPolyline(train)}" />
+        <polyline fill="none" stroke="${NODE_COLORS.output}" stroke-width="2.2" points="${toPolyline(val)}" />
+        <text x="${padLeft}" y="${height - 6}" font-size="10" fill="#64748b">global ${minX}</text>
+        <text x="${width - padRight}" y="${height - 6}" text-anchor="end" font-size="10" fill="#64748b">global ${maxX}</text>
+      </svg>
+      <div class="loss-legend">
+        <span><span class="legend-swatch legend-train"></span>train</span>
+        <span><span class="legend-swatch legend-val"></span>val</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderDefaultDetail(panel, payload) {
+  const architecture = getArchitecture(payload);
   panel.innerHTML = `
     <div class="detail-card">
       <p class="detail-kicker">Overview</p>
@@ -274,6 +398,11 @@ function renderDefaultDetail(panel, payload) {
           <p class="stat-value">${payload.dopamineM}</p>
         </div>
       </div>
+      <table class="detail-table">
+        <tr><th>Input dim</th><td>${architecture?.input_dim ?? 'n/a'}</td></tr>
+        <tr><th>Output dim</th><td>${architecture?.output_dim ?? architecture?.y_dim ?? 'n/a'}</td></tr>
+        <tr><th>Trunk dims</th><td>${trunkDimsToText(architecture?.trunk_dims || []) || 'n/a'}</td></tr>
+      </table>
     </div>
   `;
 }
@@ -283,16 +412,16 @@ function buildLayerBreakdownHtml(layerCounts, payload) {
     acc[edge.layerKey] = (acc[edge.layerKey] || 0) + 1;
     return acc;
   }, {});
-  const orderedLayerKeys = ['input->trunk1', 'trunk1->trunk2', 'trunk2->y'];
-  return orderedLayerKeys
-    .map((layerKey) => {
-      const controlled = layerCounts[layerKey] ?? 0;
-      const layerTotal = totals[layerKey] ?? 0;
+  const layerMetadata = payload.layerMetadata || [];
+  return layerMetadata
+    .map((layer) => {
+      const controlled = layerCounts[layer.key] ?? 0;
+      const layerTotal = totals[layer.key] ?? 0;
       const widthPercent = layerTotal === 0 ? 0 : (controlled / layerTotal) * 100;
       return `
         <div class="layer-row">
           <div>
-            <p class="layer-name">${LAYER_LABELS[layerKey]}</p>
+            <p class="layer-name">${layer.label}</p>
             <div class="bar-track">
               <div class="bar-fill" style="width: ${widthPercent}%"></div>
             </div>
@@ -348,10 +477,11 @@ function renderDopamineDetail(panel, nodeId, payload) {
   `;
 }
 
-function renderEdgeDetail(panel, edge) {
+function renderEdgeDetail(panel, edge, payload) {
   const pills = (edge.controllingDopamineIds || [])
     .map((nodeId) => `<span class="pill">${nodeId}</span>`)
     .join('');
+  const layerLabel = edge.layerLabel || getLayerLabelMap(payload).get(edge.layerKey) || edge.layerKey;
 
   panel.innerHTML = `
     <div class="detail-card">
@@ -360,7 +490,7 @@ function renderEdgeDetail(panel, edge) {
       <table class="detail-table">
         <tr><th>Source</th><td><code>${edge.source}</code></td></tr>
         <tr><th>Target</th><td><code>${edge.target}</code></td></tr>
-        <tr><th>Layer</th><td>${LAYER_LABELS[edge.layerKey]}</td></tr>
+        <tr><th>Layer</th><td>${layerLabel}</td></tr>
         <tr><th>Order index</th><td>${edge.orderIndex}</td></tr>
       </table>
     </div>
@@ -385,7 +515,7 @@ function renderDetailPanel() {
   if (state.selectedEdgeId) {
     const edge = payload.edges.find((item) => item.id === state.selectedEdgeId);
     if (edge) {
-      renderEdgeDetail(panel, edge);
+      renderEdgeDetail(panel, edge, payload);
       return;
     }
   }
@@ -507,7 +637,9 @@ function createFieldMarkup(field) {
   }
 
   const stepAttr = field.step ? `step="${field.step}"` : '';
-  const placeholder = field.optional ? 'placeholder="auto"' : '';
+  const placeholder = field.placeholder
+    ? `placeholder="${field.placeholder}"`
+    : (field.optional ? 'placeholder="auto"' : '');
   return `
     <div class="form-field ${field.wide ? 'wide' : ''}">
       <label for="field-${field.key}">${field.label}</label>
@@ -535,6 +667,8 @@ function fillForm(config) {
     }
     if (field.type === 'checkbox') {
       element.checked = Boolean(config[field.key]);
+    } else if (field.key === 'trunk_dims') {
+      element.value = trunkDimsToText(config[field.key]);
     } else if (field.optional && (config[field.key] === null || config[field.key] === undefined)) {
       element.value = '';
     } else {
@@ -552,6 +686,10 @@ function readFormPayload() {
     }
     if (field.type === 'checkbox') {
       payload[field.key] = element.checked;
+      return;
+    }
+    if (field.key === 'trunk_dims') {
+      payload[field.key] = parseTrunkDims(element.value);
       return;
     }
     if (field.type === 'number') {
@@ -623,6 +761,7 @@ function syncGraphFromState() {
   ensureGraph(payload);
   renderDetailPanel();
   renderStatusPanel();
+  renderLossPanel();
 }
 
 async function loadDefaults() {

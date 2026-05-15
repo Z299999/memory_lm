@@ -22,26 +22,29 @@ class SelfModulatedMLP(nn.Module):
     def __init__(
         self,
         input_dim: int = 1,
-        trunk_dims: tuple[int, int] = (16, 16),
+        trunk_dims: tuple[int, ...] = (16, 16),
         y_dim: int = 1,
     ) -> None:
         super().__init__()
-        if trunk_dims != (16, 16):
-            raise ValueError("The current exp0513 plan fixes trunk_dims to (16, 16).")
-        if input_dim != 1:
-            raise ValueError("The current exp0513 plan fixes input_dim to 1.")
-        if y_dim != 1:
-            raise ValueError("The current exp0513 plan fixes y_dim to 1.")
+        if input_dim <= 0:
+            raise ValueError("input_dim must be positive.")
+        if y_dim <= 0:
+            raise ValueError("y_dim must be positive.")
+        if not trunk_dims:
+            raise ValueError("trunk_dims cannot be empty.")
+        if any(dim <= 0 for dim in trunk_dims):
+            raise ValueError("Every trunk dim must be positive.")
 
         self.input_dim = input_dim
-        self.trunk_dims = trunk_dims
+        self.trunk_dims = tuple(int(dim) for dim in trunk_dims)
         self.y_dim = y_dim
 
+        layer_dims = [input_dim, *self.trunk_dims]
         self.trunk = nn.ModuleList([
-            nn.Linear(input_dim, trunk_dims[0], bias=True),
-            nn.Linear(trunk_dims[0], trunk_dims[1], bias=True),
+            nn.Linear(in_dim, out_dim, bias=True)
+            for in_dim, out_dim in zip(layer_dims[:-1], layer_dims[1:])
         ])
-        self.y_head = nn.Linear(trunk_dims[-1], y_dim, bias=True)
+        self.y_head = nn.Linear(self.trunk_dims[-1], y_dim, bias=True)
         self.activation = torch.tanh
 
         for layer in self.trunk:
@@ -65,6 +68,7 @@ class SelfModulatedMLP(nn.Module):
         return {
             "input_dim": self.input_dim,
             "trunk_dims": list(self.trunk_dims),
+            "output_dim": self.y_dim,
             "y_dim": self.y_dim,
             "activation": "tanh",
             "hidden_pool_size": self.hidden_pool_size(),

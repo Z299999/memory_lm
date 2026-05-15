@@ -292,12 +292,14 @@ button.primary:hover:not(:disabled) {
 .legend-selected { border-top-color: var(--selected); }
 
 #status-panel,
+#loss-panel,
 #detail-panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
+#loss-panel,
 #detail-panel {
   margin-top: 14px;
 }
@@ -436,6 +438,43 @@ button.primary:hover:not(:disabled) {
   font-size: 12px;
   color: var(--muted);
   text-align: right;
+}
+
+.loss-chart-shell {
+  margin-top: 10px;
+}
+
+.loss-chart {
+  width: 100%;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.loss-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-radius: 999px;
+}
+
+.legend-train {
+  background: var(--accent);
+}
+
+.legend-val {
+  background: var(--danger);
 }
 
 .subtle-path {

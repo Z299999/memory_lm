@@ -26,10 +26,27 @@
 
 ### Network
 
+- 当前模型已泛化成：`input_dim -> trunk_dims -> output_dim`
 - 默认架构：`1 -> 16 -> 16 -> 1`
 - hidden pool 大小：`32`
 - controllable set：所有 weight
 - non-controllable set：所有 bias
+
+### Task System
+
+- 保留原有 1D 任务：
+  - `sin`
+  - `sin_mix`
+  - `poly_wave`
+  - `piecewise`
+- 新增固定命名 MIMO 任务：
+  - `coupled_trig_2d2d`
+  - `cross_poly_2d2d`
+  - `piecewise_2d2d`
+  - `mixed_field_3d3d`
+  - `coupled_trig_4d4d`
+- 每个任务都声明自己的合法 `input_dim/output_dim`
+- 当前默认支持到 `4D -> 4D`
 
 ### Dopamine Coverage
 
@@ -88,11 +105,13 @@
 - `Run / Stop / Refresh / Reset form`
 - 点击 dopamine hidden node 高亮它控制的 edges
 - 点击 edge 查看 controlling dopamine nodes
+- 右侧实时重绘当前 run 的 train/val loss 曲线
 - 显示：
   - local epoch
   - global epoch
   - global epoch range
   - train/val/best loss
+  - architecture
   - `coverage_c`
   - `dopamine_m`
 

@@ -4,6 +4,11 @@ seed: 42
 epochs: 1000
 lambda: 0.0
 resume_from: ""
+input_dim: 1
+output_dim: 1
+trunk_dims:
+  - 16
+  - 16
 batch_size: 64
 lr_bp: 0.01
 eta_int: 0.0001

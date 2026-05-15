@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import webbrowser
 
 from src.config import ExperimentConfig, config_from_user_dict, load_config_from_yaml
-from src.data import available_task_names
+from src.data import available_task_names, validate_task_dimensions
 from src.assignment import (
     build_dopamine_assignment,
     build_forward_edge_records,
@@ -42,10 +42,12 @@ class DashboardState:
 
     def load_default_config(self) -> dict[str, Any]:
         config = load_config_from_yaml(DEFAULT_CONFIG_PATH)
+        preview = self._build_preview_payload(config)
         return {
             "config": config.to_user_dict(),
             "task_names": available_task_names(),
-            "graph_payload": self._build_preview_payload(config)["graph_payload"],
+            "graph_payload": preview["graph_payload"],
+            "architecture": preview["graph_payload"].get("architecture"),
         }
 
     def get_state(self) -> dict[str, Any]:
@@ -102,6 +104,8 @@ class DashboardState:
             "run_dir": str(run_dir),
             "updated_at": None,
             "graph_payload": preview["graph_payload"],
+            "architecture": preview["graph_payload"].get("architecture"),
+            "loss_history": [],
         }
 
         with self.lock:
@@ -121,9 +125,7 @@ class DashboardState:
         return self.get_state()
 
     def _build_preview_payload(self, config: ExperimentConfig) -> dict[str, Any]:
-        model = SelfModulatedMLP()
-        edge_records = build_forward_edge_records(model)
-
+        validate_task_dimensions(config.task_name, config.input_dim, config.output_dim)
         if config.resume_from:
             checkpoint = load_experiment_checkpoint(config.resume_from)
             graph_payload = dict(checkpoint.get("graph_payload") or {})
@@ -135,6 +137,13 @@ class DashboardState:
                 "edge_count": int(checkpoint["edge_count"]),
                 "global_epoch_completed_before": int(checkpoint.get("global_epoch_completed", 0)),
             }
+
+        model = SelfModulatedMLP(
+            input_dim=config.input_dim,
+            trunk_dims=config.trunk_dims,
+            y_dim=config.output_dim,
+        )
+        edge_records = build_forward_edge_records(model)
 
         dopamine_m, recommended_dopamine_m = resolve_dopamine_m(
             coverage_c=config.coverage_c,

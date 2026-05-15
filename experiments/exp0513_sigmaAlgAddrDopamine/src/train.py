@@ -124,6 +124,8 @@ def _build_live_status(
     train_loss: float | None,
     val_loss: float | None,
     best_val_loss: float | None,
+    architecture: dict[str, object],
+    loss_history: list[dict[str, float]],
     error: str | None = None,
 ) -> dict[str, object]:
     """Create the live dashboard payload for the current run state."""
@@ -152,6 +154,8 @@ def _build_live_status(
         "run_dir": str(run_dir),
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "graph_payload": graph_payload,
+        "architecture": architecture,
+        "loss_history": loss_history,
     }
     if error:
         payload["error"] = error
@@ -176,6 +180,35 @@ def _evaluate(model: SelfModulatedMLP, x: torch.Tensor, y_true: torch.Tensor) ->
         y_pred, _ = model(x)
         mse = torch.mean((y_pred - y_true) ** 2).item()
     return float(mse)
+
+
+def _architecture_signature_dict(config: ExperimentConfig) -> dict[str, object]:
+    """Minimal architecture signature used for build and resume checks."""
+    return {
+        "input_dim": config.input_dim,
+        "output_dim": config.output_dim,
+        "trunk_dims": list(config.trunk_dims),
+        "activation": "tanh",
+        "dopamine_source": "hidden_activation",
+    }
+
+
+def _assert_resume_architecture(config: ExperimentConfig, checkpoint: dict[str, object]) -> None:
+    """Reject resume attempts whose checkpoint structure does not match the current config."""
+    expected = _architecture_signature_dict(config)
+    actual = dict(checkpoint.get("architecture") or {})
+    comparable = {
+        "input_dim": actual.get("input_dim"),
+        "output_dim": actual.get("output_dim", actual.get("y_dim")),
+        "trunk_dims": list(actual.get("trunk_dims", [])),
+        "activation": actual.get("activation"),
+        "dopamine_source": actual.get("dopamine_source"),
+    }
+    if comparable != expected:
+        raise ValueError(
+            "resume_from architecture does not match the current config. "
+            f"Expected {expected}, got {comparable}."
+        )
 
 
 def _epoch_train(
@@ -260,6 +293,8 @@ def plot_loss_curve(
 
     text = "\n".join([
         f"task={config.task_name}",
+        f"in={config.input_dim}, out={config.output_dim}",
+        f"trunk={list(config.trunk_dims)}",
         f"seed={config.seed}",
         f"lr_bp={config.lr_bp}",
         f"eta_int={config.eta_int}",
@@ -340,6 +375,7 @@ def _make_summary(
     return {
         "run_name": config.run_name,
         "task_name": config.task_name,
+        "architecture": _architecture_signature_dict(config),
         "epochs_added": len(train_history),
         "lambda": config.lambda_value,
         "final_train_loss": float(train_history[-1]),
@@ -373,7 +409,11 @@ def run_experiment(
     config = config or ExperimentConfig()
     torch.manual_seed(config.seed)
 
-    model = SelfModulatedMLP()
+    model = SelfModulatedMLP(
+        input_dim=config.input_dim,
+        trunk_dims=config.trunk_dims,
+        y_dim=config.output_dim,
+    )
     flat_weights, index_map = flatten_controllable_weights(model)
     edge_count = flat_weights.numel()
     edge_records = build_forward_edge_records(model)
@@ -395,6 +435,7 @@ def run_experiment(
     source_checkpoint: dict[str, object] | None = None
     if config.resume_from:
         source_checkpoint = load_experiment_checkpoint(config.resume_from)
+        _assert_resume_architecture(config, source_checkpoint)
         model.load_state_dict(source_checkpoint["model_state_dict"])
         assignment_metadata = dict(source_checkpoint["dopamine_assignment_metadata"])
         B, B_tilde = rebuild_assignment_tensors(edge_records, assignment_metadata)
@@ -450,6 +491,8 @@ def run_experiment(
 
     dataset = build_dataset(
         task_name=config.task_name,
+        input_dim=config.input_dim,
+        output_dim=config.output_dim,
         num_train=config.num_train,
         num_val=config.num_val,
         num_plot=config.num_plot,
@@ -466,6 +509,7 @@ def run_experiment(
     history: list[dict[str, float]] = []
     train_losses: list[float] = []
     val_losses: list[float] = []
+    loss_history: list[dict[str, float]] = []
     stopped_early = False
 
     write_live_status(
@@ -486,6 +530,8 @@ def run_experiment(
             train_loss=None,
             val_loss=None,
             best_val_loss=None,
+            architecture=model.arch_dict(),
+            loss_history=loss_history,
         ),
         status_callback=status_callback,
     )
@@ -505,6 +551,12 @@ def run_experiment(
             history.append(metrics)
             train_losses.append(train_loss)
             val_losses.append(val_loss)
+            loss_history.append({
+                "local_epoch": float(local_epoch),
+                "global_epoch": float(global_epoch),
+                "train_loss": float(train_loss),
+                "val_loss": float(val_loss),
+            })
 
             write_live_status(
                 live_status_path,
@@ -524,6 +576,8 @@ def run_experiment(
                     train_loss=train_loss,
                     val_loss=val_loss,
                     best_val_loss=min(val_losses),
+                    architecture=model.arch_dict(),
+                    loss_history=loss_history,
                 ),
                 status_callback=status_callback,
             )
@@ -551,6 +605,8 @@ def run_experiment(
                 train_loss=train_losses[-1] if train_losses else None,
                 val_loss=val_losses[-1] if val_losses else None,
                 best_val_loss=min(val_losses) if val_losses else None,
+                architecture=model.arch_dict(),
+                loss_history=loss_history,
                 error=str(exc),
             ),
             status_callback=status_callback,
@@ -623,6 +679,8 @@ def run_experiment(
             train_loss=train_losses[-1],
             val_loss=val_losses[-1],
             best_val_loss=min(val_losses),
+            architecture=model.arch_dict(),
+            loss_history=loss_history,
         ),
         status_callback=status_callback,
     )
