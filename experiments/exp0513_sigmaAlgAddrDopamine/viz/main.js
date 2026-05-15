@@ -362,7 +362,7 @@ function renderLossPanel() {
   if (!activeRun) {
     panel.innerHTML = `
       <div class="detail-card">
-        <p class="detail-kicker">Live loss</p>
+        <p class="detail-kicker">Loss</p>
         <h2 class="detail-title">Waiting for run</h2>
         <p class="muted">
           Once training starts, this panel will redraw train and validation MSE in real time
@@ -375,14 +375,15 @@ function renderLossPanel() {
 
   panel.innerHTML = `
     <div class="detail-card">
-      <p class="detail-kicker">Local loss</p>
-      <h2 class="detail-title">Current run curve</h2>
-      ${renderLossChart(localHistory, 'local')}
-    </div>
-    <div class="detail-card">
-      <p class="detail-kicker">Global loss</p>
-      <h2 class="detail-title">Accumulated curve</h2>
-      ${renderLossChart(globalHistory, 'global')}
+      <p class="detail-kicker">Loss</p>
+      <div class="loss-section">
+        <p class="loss-section-label">Local</p>
+        ${renderLossChart(localHistory, 'local')}
+      </div>
+      <div class="loss-section">
+        <p class="loss-section-label">Global</p>
+        ${renderLossChart(globalHistory, 'global')}
+      </div>
     </div>
   `;
 }
@@ -764,15 +765,13 @@ function createSectionMarkup(section) {
     ? `<div id="${section.summaryId}" class="derived-summary"></div>`
     : '';
   return `
-    <section class="config-card">
-      <div class="config-card-header">
-        <h3>${section.title}</h3>
-      </div>
+    <fieldset class="config-card">
+      <legend>${section.title}</legend>
       <div class="form-grid section-grid">
         ${fields}
       </div>
       ${summaryMarkup}
-    </section>
+    </fieldset>
   `;
 }
 

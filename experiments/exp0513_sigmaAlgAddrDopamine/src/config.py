@@ -53,13 +53,15 @@ class ExperimentConfig:
 def config_from_user_dict(raw: dict[str, object], base_dir: Path | None = None) -> ExperimentConfig:
     """Build an ExperimentConfig from user-facing keys."""
     defaults = ExperimentConfig()
-    valid_keys = set(asdict(defaults).keys()) | {"lambda"}
+    dashboard_only_keys = {"resume_latest"}
+    valid_keys = set(asdict(defaults).keys()) | {"lambda"} | dashboard_only_keys
     unknown = set(raw.keys()) - valid_keys
     if unknown:
         raise ValueError(f"Unknown config keys: {sorted(unknown)}")
 
     payload = asdict(defaults)
     normalized = dict(raw)
+    normalized.pop("resume_latest", None)
     if "lambda" in normalized:
         payload["lambda_value"] = normalized.pop("lambda")
     payload.update(normalized)

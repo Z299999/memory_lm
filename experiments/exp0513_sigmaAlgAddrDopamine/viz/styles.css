@@ -156,11 +156,6 @@ summary {
   margin-bottom: 10px;
 }
 
-.section-hint {
-  font-size: 11px;
-  color: var(--muted);
-}
-
 button {
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -224,21 +219,19 @@ button:disabled:hover {
 }
 
 .config-card {
+  min-inline-size: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: #fafafa;
-  padding: 10px;
+  padding: 8px 10px 10px;
 }
 
-.config-card-header {
-  margin-bottom: 8px;
-}
-
-.config-card-header h3 {
-  margin: 0;
+.config-card legend {
+  padding: 0 5px;
   font-size: 11px;
   font-weight: 400;
   color: var(--muted);
+  background: #ffffff;
 }
 
 .form-grid {
@@ -588,6 +581,21 @@ button:disabled:hover {
   font-size: 11px;
   color: var(--muted);
   text-align: right;
+}
+
+.loss-section + .loss-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.loss-section-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .loss-chart-shell {
