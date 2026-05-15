@@ -9,37 +9,26 @@
 </head>
 <body>
   <header id="toolbar">
-    <div class="toolbar-brand">
-      <h1>exp0513 Dashboard</h1>
-      <p class="panel-intro">
-        Confirm a dopamine preview first, then launch or resume a single active training run.
-      </p>
-    </div>
-    <div class="toolbar-actions">
+    <div class="toolbar-group">
       <button id="btn-confirm" class="primary">Confirm</button>
       <button id="btn-run">Run</button>
       <button id="btn-stop">Stop</button>
       <button id="btn-refresh">Refresh</button>
       <button id="btn-reset-form">Reset</button>
     </div>
-    <div class="toolbar-status">
-      <div class="toolbar-pill">
-        <span class="toolbar-pill-label">Preview</span>
-        <span id="toolbar-preview-state" class="toolbar-pill-value">dirty</span>
-      </div>
-      <div class="toolbar-pill">
-        <span class="toolbar-pill-label">Status</span>
-        <span id="toolbar-run-status" class="toolbar-pill-value">idle</span>
-      </div>
-      <div class="toolbar-pill">
-        <span class="toolbar-pill-label">Global epoch</span>
-        <span id="toolbar-global-epoch" class="toolbar-pill-value">0</span>
-      </div>
+    <div class="toolbar-group toolbar-stats">
+      <span>Preview: <strong id="toolbar-preview-state">dirty</strong></span>
+      <span>Status: <strong id="toolbar-run-status">idle</strong></span>
+      <span>Global epoch: <strong id="toolbar-global-epoch">0</strong></span>
     </div>
   </header>
 
   <main id="layout">
     <aside id="panel-left">
+      <h3>Parameters</h3>
+      <p class="panel-intro">
+        Confirm the preview first, then run training from the toolbar.
+      </p>
       <div id="flash-message" class="flash-message hidden"></div>
 
       <section class="panel-section">
@@ -90,8 +79,8 @@
 
     <section id="panel-center">
       <header id="graph-header">
-        <h2>exp0513 Dopamine Network Structure</h2>
-        <p>Confirm previews first, then use the toolbar to run or stop training.</p>
+        <h2>Network Structure</h2>
+        <p>Hidden dopamine coverage preview plus live training state.</p>
       </header>
       <div id="cy"></div>
     </section>
