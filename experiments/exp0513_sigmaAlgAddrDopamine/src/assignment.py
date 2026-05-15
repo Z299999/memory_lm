@@ -1,10 +1,10 @@
-"""Static assignment construction for exp0513 V1."""
+"""Static dopamine assignment helpers for exp0513."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import OrderedDict
-import itertools
+import random
 
 import torch
 
@@ -23,45 +23,44 @@ class ParameterSlice:
         return self.end - self.start
 
 
-def build_static_assignment(edge_count: int, m: int) -> tuple[torch.Tensor, torch.Tensor, dict]:
-    """Build a fixed binary assignment matrix and its energy-normalized version."""
-    codes = []
-    for code in itertools.product((0, 1), repeat=m):
-        if sum(code) == 0:
-            continue
-        codes.append(tuple(code))
+def recommend_dopamine_m(coverage_c: int) -> int:
+    """Recommend m so average edges per dopamine node stays at or below N/10."""
+    return 10 * int(coverage_c)
 
-    if edge_count > len(codes):
-        raise ValueError(f"Need {edge_count} unique nonzero addresses, but only have {len(codes)}.")
 
-    midpoint = m / 2.0
-    codes.sort(key=lambda code: (abs(sum(code) - midpoint), code))
-    selected = codes[:edge_count]
+def resolve_dopamine_m(
+    coverage_c: int,
+    hidden_pool_size: int,
+    dopamine_m_override: int | None,
+) -> tuple[int, int]:
+    """Resolve the effective m and the recommended m under the current defaults."""
+    coverage_c = int(coverage_c)
+    if coverage_c <= 0:
+        raise ValueError("coverage_c must be a positive integer.")
 
-    B = torch.tensor(selected, dtype=torch.float32)
-    k = B.sum(dim=0)
-    B_tilde = B / torch.sqrt(k).unsqueeze(0)
+    recommended_m = recommend_dopamine_m(coverage_c)
+    if dopamine_m_override is None:
+        if recommended_m > hidden_pool_size:
+            raise ValueError(
+                "Current hidden pool is too small for the recommended dopamine m. "
+                "Please reduce coverage_c or increase the hidden layer size."
+            )
+        dopamine_m = recommended_m
+    else:
+        dopamine_m = int(dopamine_m_override)
 
-    hamming_weights = [int(sum(code)) for code in selected]
-    metadata = {
-        "edge_count": edge_count,
-        "m": m,
-        "all_rows_nonzero": bool((B.sum(dim=1) > 0).all().item()),
-        "all_rows_unique": len({tuple(code) for code in selected}) == edge_count,
-        "k_i": [float(v) for v in k.tolist()],
-        "min_k": float(k.min().item()),
-        "max_k": float(k.max().item()),
-        "mean_k": float(k.mean().item()),
-        "address_hamming_weights": hamming_weights,
-        "min_hamming_weight": min(hamming_weights),
-        "max_hamming_weight": max(hamming_weights),
-        "selected_addresses_preview": [list(code) for code in selected[:16]],
-    }
-    return B, B_tilde, metadata
+    if dopamine_m <= 0:
+        raise ValueError("dopamine_m must be a positive integer.")
+    if dopamine_m > hidden_pool_size:
+        raise ValueError("dopamine_m cannot exceed the available hidden node count.")
+    if dopamine_m < coverage_c:
+        raise ValueError("dopamine_m must be at least coverage_c so average coverage is feasible.")
+
+    return dopamine_m, recommended_m
 
 
 def flatten_controllable_weights(model) -> tuple[torch.Tensor, list[ParameterSlice]]:
-    """Flatten controllable weights into the fixed V1 order."""
+    """Flatten controllable weights into the fixed order."""
     flat_chunks = []
     index_map: list[ParameterSlice] = []
     offset = 0
@@ -91,3 +90,244 @@ def unflatten_internal_signal(
     for entry in index_map:
         out[entry.name] = flat_signal[entry.start:entry.end].view(entry.shape)
     return out
+
+
+def build_forward_edge_records(model) -> list[dict[str, object]]:
+    """Build forward edge metadata in the same order as flattened controllable weights."""
+    edges: list[dict[str, object]] = []
+    trunk1_dim, trunk2_dim = model.trunk_dims
+
+    for out_idx in range(trunk1_dim):
+        edges.append({
+            "id": f"trunk1[{out_idx},0]",
+            "source": "x0",
+            "target": f"h1_{out_idx}",
+            "layerKey": "input->trunk1",
+            "orderIndex": len(edges),
+            "controllingDopamineIds": [],
+        })
+
+    for out_idx in range(trunk2_dim):
+        for in_idx in range(trunk1_dim):
+            edges.append({
+                "id": f"trunk2[{out_idx},{in_idx}]",
+                "source": f"h1_{in_idx}",
+                "target": f"h2_{out_idx}",
+                "layerKey": "trunk1->trunk2",
+                "orderIndex": len(edges),
+                "controllingDopamineIds": [],
+            })
+
+    for in_idx in range(trunk2_dim):
+        edges.append({
+            "id": f"y_head[0,{in_idx}]",
+            "source": f"h2_{in_idx}",
+            "target": "y0",
+            "layerKey": "trunk2->y",
+            "orderIndex": len(edges),
+            "controllingDopamineIds": [],
+        })
+
+    return edges
+
+
+def build_graph_nodes(model, dopamine_node_ids: list[str]) -> list[dict[str, object]]:
+    """Create front-end graph nodes with selected dopamine neurons marked."""
+    dopamine_set = set(dopamine_node_ids)
+    nodes: list[dict[str, object]] = [{
+        "id": "x0",
+        "label": "x0",
+        "kind": "input",
+        "column": 0,
+        "row": 0,
+        "rowCount": 1,
+        "isDopamine": False,
+    }]
+
+    trunk1_dim, trunk2_dim = model.trunk_dims
+    for idx in range(trunk1_dim):
+        node_id = f"h1_{idx}"
+        nodes.append({
+            "id": node_id,
+            "label": node_id,
+            "kind": "hidden",
+            "column": 1,
+            "row": idx,
+            "rowCount": trunk1_dim,
+            "isDopamine": node_id in dopamine_set,
+        })
+    for idx in range(trunk2_dim):
+        node_id = f"h2_{idx}"
+        nodes.append({
+            "id": node_id,
+            "label": node_id,
+            "kind": "hidden",
+            "column": 2,
+            "row": idx,
+            "rowCount": trunk2_dim,
+            "isDopamine": node_id in dopamine_set,
+        })
+
+    nodes.append({
+        "id": "y0",
+        "label": "y0",
+        "kind": "output",
+        "column": 3,
+        "row": 0,
+        "rowCount": 1,
+        "isDopamine": False,
+    })
+    return nodes
+
+
+def build_dopamine_assignment(
+    edge_records: list[dict[str, object]],
+    hidden_node_ids: list[str],
+    coverage_c: int,
+    dopamine_m: int,
+    seed: int,
+) -> tuple[torch.Tensor, torch.Tensor, dict[str, object]]:
+    """Build a static random hidden-dopamine to edge assignment."""
+    if dopamine_m > len(hidden_node_ids):
+        raise ValueError("dopamine_m cannot exceed the hidden node pool size.")
+
+    rng = random.Random(int(seed))
+    selected_dopamine_node_ids = rng.sample(hidden_node_ids, dopamine_m)
+    edge_ids = [str(edge["id"]) for edge in edge_records]
+    edge_count = len(edge_ids)
+    total_slots = int(coverage_c) * edge_count
+    if total_slots < edge_count:
+        raise ValueError("coverage_c must be at least 1 so every edge can be covered.")
+    if total_slots > edge_count * dopamine_m:
+        raise ValueError("Requested global average coverage is impossible for the current dopamine_m.")
+
+    B = torch.zeros((edge_count, dopamine_m), dtype=torch.float32)
+
+    shuffled_edges = list(range(edge_count))
+    rng.shuffle(shuffled_edges)
+    shuffled_dopamine = list(range(dopamine_m))
+    rng.shuffle(shuffled_dopamine)
+    for idx, dopamine_idx in enumerate(shuffled_dopamine):
+        if idx >= edge_count:
+            break
+        B[shuffled_edges[idx], dopamine_idx] = 1.0
+
+    for edge_idx in range(edge_count):
+        if B[edge_idx].sum().item() == 0:
+            dopamine_idx = rng.randrange(dopamine_m)
+            B[edge_idx, dopamine_idx] = 1.0
+
+    remaining_slots = total_slots - int(B.sum().item())
+    available_pairs = [
+        (edge_idx, dopamine_idx)
+        for edge_idx in range(edge_count)
+        for dopamine_idx in range(dopamine_m)
+        if B[edge_idx, dopamine_idx].item() == 0.0
+    ]
+    if remaining_slots > len(available_pairs):
+        raise ValueError("Not enough unique edge-dopamine pairs to satisfy the requested global average coverage.")
+    chosen_pairs = rng.sample(available_pairs, remaining_slots)
+    for edge_idx, dopamine_idx in chosen_pairs:
+        B[edge_idx, dopamine_idx] = 1.0
+
+    k = B.sum(dim=0)
+    B_tilde = B / torch.sqrt(k).unsqueeze(0)
+
+    edge_to_dopamine_ids: dict[str, list[str]] = {}
+    dopamine_to_edge_ids: dict[str, list[str]] = {node_id: [] for node_id in selected_dopamine_node_ids}
+    edge_coverage_counts: dict[str, int] = {}
+    for edge_idx, edge_id in enumerate(edge_ids):
+        controlling_ids = [
+            selected_dopamine_node_ids[dopamine_idx]
+            for dopamine_idx, value in enumerate(B[edge_idx].tolist())
+            if value > 0.0
+        ]
+        edge_to_dopamine_ids[edge_id] = controlling_ids
+        edge_coverage_counts[edge_id] = len(controlling_ids)
+        for node_id in controlling_ids:
+            dopamine_to_edge_ids[node_id].append(edge_id)
+
+    dopamine_stats_unsorted = []
+    for node_id in selected_dopamine_node_ids:
+        edge_count_for_node = len(dopamine_to_edge_ids[node_id])
+        dopamine_stats_unsorted.append({
+            "node_id": node_id,
+            "edge_count": edge_count_for_node,
+            "coverage_ratio": edge_count_for_node / edge_count,
+        })
+    ranked_stats = sorted(
+        dopamine_stats_unsorted,
+        key=lambda item: (-item["edge_count"], item["node_id"]),
+    )
+    for rank, stat in enumerate(ranked_stats, start=1):
+        stat["rank"] = rank
+        stat["c_r"] = stat["coverage_ratio"]
+
+    stat_lookup = {stat["node_id"]: stat for stat in ranked_stats}
+    metadata: dict[str, object] = {
+        "coverage_c": int(coverage_c),
+        "dopamine_m": dopamine_m,
+        "selected_dopamine_node_ids": selected_dopamine_node_ids,
+        "edge_count": edge_count,
+        "edge_ids": edge_ids,
+        "edge_to_dopamine_ids": edge_to_dopamine_ids,
+        "dopamine_to_edge_ids": dopamine_to_edge_ids,
+        "edge_coverage_counts": edge_coverage_counts,
+        "average_edge_coverage": float(B.sum(dim=1).mean().item()),
+        "average_edges_per_dopamine": float(k.mean().item()),
+        "min_edges_per_dopamine": int(k.min().item()),
+        "max_edges_per_dopamine": int(k.max().item()),
+        "dopamine_stats": ranked_stats,
+        "c_r": [float(stat["c_r"]) for stat in ranked_stats],
+        "ranked_dopamine_node_ids": [stat["node_id"] for stat in ranked_stats],
+        "column_loads": {node_id: int(stat_lookup[node_id]["edge_count"]) for node_id in selected_dopamine_node_ids},
+    }
+    return B, B_tilde, metadata
+
+
+def rebuild_assignment_tensors(
+    edge_records: list[dict[str, object]],
+    assignment_metadata: dict[str, object],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Rebuild B and B_tilde from saved dopamine assignment metadata."""
+    selected_dopamine_node_ids = list(assignment_metadata["selected_dopamine_node_ids"])
+    edge_to_dopamine_ids = {
+        str(edge_id): list(node_ids)
+        for edge_id, node_ids in dict(assignment_metadata["edge_to_dopamine_ids"]).items()
+    }
+    node_to_index = {node_id: idx for idx, node_id in enumerate(selected_dopamine_node_ids)}
+
+    B = torch.zeros((len(edge_records), len(selected_dopamine_node_ids)), dtype=torch.float32)
+    for edge_idx, edge in enumerate(edge_records):
+        edge_id = str(edge["id"])
+        for node_id in edge_to_dopamine_ids[edge_id]:
+            B[edge_idx, node_to_index[node_id]] = 1.0
+
+    k = B.sum(dim=0)
+    B_tilde = B / torch.sqrt(k).unsqueeze(0)
+    return B, B_tilde
+
+
+def build_graph_payload(model, assignment_metadata: dict[str, object]) -> dict[str, object]:
+    """Build the front-end graph payload for a fixed dopamine assignment."""
+    selected_dopamine_node_ids = list(assignment_metadata["selected_dopamine_node_ids"])
+    edge_to_dopamine_ids = {
+        str(edge_id): list(node_ids)
+        for edge_id, node_ids in dict(assignment_metadata["edge_to_dopamine_ids"]).items()
+    }
+    edge_records = build_forward_edge_records(model)
+    for edge in edge_records:
+        edge["controllingDopamineIds"] = edge_to_dopamine_ids[str(edge["id"])]
+
+    return {
+        "nodes": build_graph_nodes(model, selected_dopamine_node_ids),
+        "edges": edge_records,
+        "totalNodes": 1 + model.hidden_pool_size() + model.y_dim,
+        "totalEdges": len(edge_records),
+        "totalLayers": 4,
+        "dopamineNodeIds": selected_dopamine_node_ids,
+        "dopamineStats": assignment_metadata["dopamine_stats"],
+        "coverageByRank": assignment_metadata["c_r"],
+        "coverageC": assignment_metadata["coverage_c"],
+        "dopamineM": assignment_metadata["dopamine_m"],
+    }

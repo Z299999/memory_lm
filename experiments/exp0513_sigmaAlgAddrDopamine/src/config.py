@@ -24,6 +24,8 @@ class ExperimentConfig:
     lr_bp: float = 1e-2
     eta_int: float = 1e-4
     gamma: float = 1.0
+    coverage_c: int = 3
+    dopamine_m_override: int | None = None
     num_train: int = 500
     num_val: int = 200
     num_plot: int = 500
@@ -65,6 +67,18 @@ def config_from_user_dict(raw: dict[str, object], base_dir: Path | None = None) 
             anchor = base_dir or Path.cwd()
             resume_path = (anchor / resume_path).resolve()
         payload["resume_from"] = str(resume_path)
+
+    payload["coverage_c"] = int(payload["coverage_c"])
+    if payload["coverage_c"] <= 0:
+        raise ValueError("coverage_c must be a positive integer.")
+
+    dopamine_m_override = payload.get("dopamine_m_override")
+    if dopamine_m_override in ("", None):
+        payload["dopamine_m_override"] = None
+    else:
+        payload["dopamine_m_override"] = int(dopamine_m_override)
+        if payload["dopamine_m_override"] <= 0:
+            raise ValueError("dopamine_m_override must be a positive integer when provided.")
 
     return ExperimentConfig(**payload)
 

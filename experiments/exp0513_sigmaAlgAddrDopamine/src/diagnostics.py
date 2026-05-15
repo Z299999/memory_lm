@@ -1,4 +1,4 @@
-"""Diagnostics collection and plotting for exp0513 V1."""
+"""Diagnostics collection and plotting for exp0513 dopamine experiments."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ import matplotlib.pyplot as plt
 import torch
 
 
-def _safe_correlation_mean(q_batch: torch.Tensor) -> float:
-    """Mean absolute off-diagonal correlation across q dimensions."""
-    if q_batch.shape[0] < 2 or q_batch.shape[1] < 2:
+def _safe_correlation_mean(dopamine_batch: torch.Tensor) -> float:
+    """Mean absolute off-diagonal correlation across dopamine dimensions."""
+    if dopamine_batch.shape[0] < 2 or dopamine_batch.shape[1] < 2:
         return 0.0
-    centered = q_batch - q_batch.mean(dim=0, keepdim=True)
+    centered = dopamine_batch - dopamine_batch.mean(dim=0, keepdim=True)
     std = centered.std(dim=0, unbiased=False)
     valid = std > 1e-12
     if valid.sum().item() < 2:
@@ -27,8 +27,8 @@ def _safe_correlation_mean(q_batch: torch.Tensor) -> float:
 
 
 def collect_batch_metrics(
-    q_batch: torch.Tensor,
-    q_mean: torch.Tensor,
+    dopamine_batch: torch.Tensor,
+    dopamine_mean: torch.Tensor,
     s: torch.Tensor,
     bp_flat: torch.Tensor,
     int_flat: torch.Tensor,
@@ -36,8 +36,8 @@ def collect_batch_metrics(
     bp_mask: torch.Tensor,
 ) -> dict[str, float]:
     """Summarize one batch for later epoch aggregation."""
-    q_abs = q_batch.detach().abs()
-    q_sat = (q_abs > 0.95).float().mean().item()
+    dopamine_abs = dopamine_batch.detach().abs()
+    dopamine_sat = (dopamine_abs > 0.95).float().mean().item()
     bp_active = bp_flat[bp_mask]
     int_active = int_flat[bp_mask]
     bp_norm = float(bp_active.norm().item()) if bp_active.numel() else 0.0
@@ -48,11 +48,11 @@ def collect_batch_metrics(
         cosine = float(torch.nn.functional.cosine_similarity(bp_active, int_active, dim=0).item())
 
     return {
-        "q_abs_mean": float(q_abs.mean().item()),
-        "q_std_mean": float(q_batch.detach().std(dim=0, unbiased=False).mean().item()),
-        "q_corr_abs_mean": _safe_correlation_mean(q_batch.detach()),
-        "q_saturation_frac": float(q_sat),
-        "q_mean_norm": float(q_mean.norm().item()),
+        "dopamine_abs_mean": float(dopamine_abs.mean().item()),
+        "dopamine_std_mean": float(dopamine_batch.detach().std(dim=0, unbiased=False).mean().item()),
+        "dopamine_corr_abs_mean": _safe_correlation_mean(dopamine_batch.detach()),
+        "dopamine_saturation_frac": float(dopamine_sat),
+        "dopamine_mean_norm": float(dopamine_mean.norm().item()),
         "s_abs_mean": float(s.detach().abs().mean().item()),
         "s_std": float(s.detach().std(unbiased=False).item()),
         "s_max_abs": float(s.detach().abs().max().item()),
@@ -71,23 +71,23 @@ def average_epoch_metrics(batch_metrics: list[dict[str, float]]) -> dict[str, fl
     return {key: float(sum(item[key] for item in batch_metrics) / len(batch_metrics)) for key in keys}
 
 
-def plot_q_diagnostics(
+def plot_dopamine_diagnostics(
     history: list[dict[str, float]],
     output_path: Path,
 ) -> None:
-    """Plot q- and s-related diagnostics over training."""
+    """Plot dopamine- and s-related diagnostics over training."""
     epochs = [row["epoch"] for row in history]
     fig, axes = plt.subplots(2, 2, figsize=(11, 7))
-    fig.suptitle("exp0513 q/s diagnostics")
+    fig.suptitle("exp0513 dopamine/s diagnostics")
 
     def _plot(ax, key: str, title: str) -> None:
         ax.plot(epochs, [row[key] for row in history], linewidth=1.6)
         ax.set_title(title)
         ax.set_xlabel("epoch")
 
-    _plot(axes[0, 0], "q_abs_mean", "Mean |q|")
-    _plot(axes[0, 1], "q_corr_abs_mean", "Mean |corr(q_i, q_j)|")
-    _plot(axes[1, 0], "q_saturation_frac", "q saturation fraction")
+    _plot(axes[0, 0], "dopamine_abs_mean", "Mean |dopamine|")
+    _plot(axes[0, 1], "dopamine_corr_abs_mean", "Mean |corr(d_i, d_j)|")
+    _plot(axes[1, 0], "dopamine_saturation_frac", "Dopamine saturation fraction")
     _plot(axes[1, 1], "s_abs_mean", "Mean |s|")
 
     for ax in axes.ravel():

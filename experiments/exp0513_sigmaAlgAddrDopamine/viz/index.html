@@ -13,7 +13,7 @@
       <h1>exp0513 Dashboard</h1>
       <p class="panel-intro">
         Edit the run configuration, start a single active training run, and inspect the default
-        self-modulated network structure in the same page.
+        hidden-dopamine network structure in the same page.
       </p>
 
       <div id="flash-message" class="flash-message hidden"></div>
@@ -33,7 +33,7 @@
       <section class="panel-section">
         <div class="section-header">
           <h2>Configuration</h2>
-          <span class="section-hint">All fields mirror the training config.</span>
+          <span class="section-hint">All fields mirror the training config and resume semantics.</span>
         </div>
         <form id="config-form">
           <div id="config-fields" class="form-grid"></div>
@@ -43,19 +43,19 @@
       <section class="panel-section">
         <h2>Legend</h2>
         <div class="legend-item"><span class="legend-dot legend-input"></span> Input node</div>
-        <div class="legend-item"><span class="legend-dot legend-hidden"></span> Trunk neuron</div>
-        <div class="legend-item"><span class="legend-dot legend-y"></span> y head</div>
-        <div class="legend-item"><span class="legend-dot legend-q"></span> q head</div>
+        <div class="legend-item"><span class="legend-dot legend-hidden"></span> Hidden neuron</div>
+        <div class="legend-item"><span class="legend-dot legend-dopamine"></span> Dopamine hidden node</div>
+        <div class="legend-item"><span class="legend-dot legend-y"></span> Output node</div>
         <div class="legend-item"><span class="legend-line legend-forward"></span> Forward edge</div>
-        <div class="legend-item"><span class="legend-line legend-highlight"></span> Controlled by selected q</div>
+        <div class="legend-item"><span class="legend-line legend-highlight"></span> Controlled by selected dopamine node</div>
         <div class="legend-item"><span class="legend-line legend-selected"></span> Selected edge</div>
       </section>
 
       <section class="panel-section">
         <h2>Interaction</h2>
         <ul class="panel-list">
-          <li>Click a <code>q_i</code> node to highlight its controlled forward edges.</li>
-          <li>Click any forward edge to inspect its source, target, and controlling <code>q_i</code>.</li>
+          <li>Click a dopamine hidden node to highlight its controlled forward edges.</li>
+          <li>Click any forward edge to inspect its source, target, and controlling dopamine nodes.</li>
           <li>Training state refreshes automatically every second while a run is active.</li>
         </ul>
       </section>
@@ -63,8 +63,8 @@
 
     <section id="panel-center">
       <header id="graph-header">
-        <h2>Default exp0513 Network Structure</h2>
-        <p>Static forward graph with controllable-edge inspection plus live run control.</p>
+        <h2>exp0513 Dopamine Network Structure</h2>
+        <p>Forward graph with hidden dopamine node coverage inspection plus live run control.</p>
       </header>
       <div id="cy"></div>
     </section>

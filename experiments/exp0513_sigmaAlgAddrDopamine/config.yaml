@@ -8,6 +8,8 @@ batch_size: 64
 lr_bp: 0.01
 eta_int: 0.0001
 gamma: 1.0
+coverage_c: 3
+dopamine_m_override:
 num_train: 500
 num_val: 200
 num_plot: 500

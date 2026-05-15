@@ -1,4 +1,4 @@
-"""Training loop for exp0513 with single-run lambda control."""
+"""Training loop for exp0513 hidden-dopamine experiments."""
 
 from __future__ import annotations
 
@@ -25,17 +25,25 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:
-    from .assignment import build_static_assignment, flatten_controllable_weights
+    from .assignment import (
+        build_dopamine_assignment,
+        build_forward_edge_records,
+        build_graph_payload,
+        flatten_controllable_weights,
+        rebuild_assignment_tensors,
+        recommend_dopamine_m,
+        resolve_dopamine_m,
+    )
     from .config import ExperimentConfig, copy_config_to_run_dir, dump_config_to_yaml, write_resolved_config
     from .data import build_dataset
     from .diagnostics import (
         average_epoch_metrics,
         collect_batch_metrics,
-        plot_q_diagnostics,
+        plot_dopamine_diagnostics,
         plot_update_diagnostics,
         save_history_json,
     )
-    from .model import SelfModulatedMLP, solve_v1_q_dim
+    from .model import SelfModulatedMLP
     from .update_rule import (
         apply_updates,
         compute_internal_update,
@@ -44,17 +52,25 @@ try:
         mix_controllable_updates,
     )
 except ImportError:  # pragma: no cover - script mode
-    from assignment import build_static_assignment, flatten_controllable_weights
+    from assignment import (
+        build_dopamine_assignment,
+        build_forward_edge_records,
+        build_graph_payload,
+        flatten_controllable_weights,
+        rebuild_assignment_tensors,
+        recommend_dopamine_m,
+        resolve_dopamine_m,
+    )
     from config import ExperimentConfig, copy_config_to_run_dir, dump_config_to_yaml, write_resolved_config
     from data import build_dataset
     from diagnostics import (
         average_epoch_metrics,
         collect_batch_metrics,
-        plot_q_diagnostics,
+        plot_dopamine_diagnostics,
         plot_update_diagnostics,
         save_history_json,
     )
-    from model import SelfModulatedMLP, solve_v1_q_dim
+    from model import SelfModulatedMLP
     from update_rule import (
         apply_updates,
         compute_internal_update,
@@ -79,14 +95,32 @@ def _write_json_atomic(output_path: Path, payload: dict[str, object]) -> None:
     tmp_path.replace(output_path)
 
 
+def load_experiment_checkpoint(resume_from: str) -> dict[str, object]:
+    """Load a modern exp0513 checkpoint for continuation."""
+    payload = torch.load(resume_from, map_location="cpu")
+    if "model_state_dict" not in payload:
+        raise ValueError(f"Checkpoint at {resume_from} does not contain model_state_dict.")
+    if "dopamine_assignment_metadata" not in payload:
+        raise ValueError(
+            f"Checkpoint at {resume_from} is missing dopamine_assignment_metadata and is not compatible with the current architecture."
+        )
+    return payload
+
+
 def _build_live_status(
     *,
     config: ExperimentConfig,
     run_dir: Path,
-    q_dim: int,
     edge_count: int,
+    dopamine_m: int,
+    recommended_dopamine_m: int,
+    coverage_c: int,
+    graph_payload: dict[str, object],
     status: str,
-    epoch: int,
+    local_epoch: int,
+    global_epoch: int,
+    global_epoch_start: int,
+    global_epoch_end: int,
     train_loss: float | None,
     val_loss: float | None,
     best_val_loss: float | None,
@@ -97,18 +131,27 @@ def _build_live_status(
         "run_name": config.run_name,
         "task_name": config.task_name,
         "status": status,
-        "epoch": epoch,
+        "epoch": local_epoch,
         "epochs_total": config.epochs,
+        "local_epoch": local_epoch,
+        "local_epochs_total": config.epochs,
+        "global_epoch": global_epoch,
+        "global_epoch_start": global_epoch_start,
+        "global_epoch_end": global_epoch_end,
         "lambda": config.lambda_value,
         "train_loss": train_loss,
         "val_loss": val_loss,
         "best_val_loss": best_val_loss,
         "seed": config.seed,
-        "m": q_dim,
+        "m": dopamine_m,
+        "dopamine_m": dopamine_m,
+        "recommended_dopamine_m": recommended_dopamine_m,
+        "coverage_c": coverage_c,
         "N": edge_count,
         "resume_from": config.resume_from,
         "run_dir": str(run_dir),
         "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "graph_payload": graph_payload,
     }
     if error:
         payload["error"] = error
@@ -126,13 +169,13 @@ def write_live_status(
         status_callback(payload)
 
 
-def _evaluate(model: SelfModulatedMLP, x: torch.Tensor, y_true: torch.Tensor) -> tuple[float, torch.Tensor, torch.Tensor]:
+def _evaluate(model: SelfModulatedMLP, x: torch.Tensor, y_true: torch.Tensor) -> float:
     """Evaluate full-batch MSE on a split."""
     model.eval()
     with torch.no_grad():
-        y_pred, q = model(x)
+        y_pred, _ = model(x)
         mse = torch.mean((y_pred - y_true) ** 2).item()
-    return float(mse), y_pred, q
+    return float(mse)
 
 
 def _epoch_train(
@@ -140,26 +183,27 @@ def _epoch_train(
     loader: DataLoader,
     B_tilde: torch.Tensor,
     index_map,
+    dopamine_node_ids: list[str],
     config: ExperimentConfig,
 ) -> tuple[float, dict[str, float]]:
     """Run one epoch for the current fixed-lambda configuration."""
     model.train()
     batch_losses: list[float] = []
     batch_metric_rows: list[dict[str, float]] = []
-    q_head_start = index_map[-1].start
 
     for bx, by in loader:
         for param in model.parameters():
             if param.grad is not None:
                 param.grad = None
 
-        y_pred, q_batch = model(bx)
+        y_pred, hidden_states = model(bx)
+        dopamine_batch = model.collect_dopamine_batch(hidden_states, dopamine_node_ids)
         loss = torch.mean((y_pred - by) ** 2)
         loss.backward()
 
         bp_flat, _ = extract_flat_bp_update(model, index_map, config.lr_bp)
         bias_updates = extract_bias_bp_updates(model, config.lr_bp)
-        int_flat, s, q_mean = compute_internal_update(q_batch, B_tilde, config.eta_int, config.gamma)
+        int_flat, s, dopamine_mean = compute_internal_update(dopamine_batch, B_tilde, config.eta_int, config.gamma)
         total_flat, controllable_updates, total_mask = mix_controllable_updates(
             bp_flat=bp_flat,
             int_flat=int_flat,
@@ -171,8 +215,8 @@ def _epoch_train(
         batch_losses.append(float(loss.item()))
         batch_metric_rows.append(
             collect_batch_metrics(
-                q_batch=q_batch.detach(),
-                q_mean=q_mean.detach(),
+                dopamine_batch=dopamine_batch.detach(),
+                dopamine_mean=dopamine_mean.detach(),
                 s=s.detach(),
                 bp_flat=bp_flat.detach(),
                 int_flat=int_flat.detach(),
@@ -194,18 +238,20 @@ def _format_resume_label(resume_from: str) -> str:
 def plot_loss_curve(
     history: list[dict[str, float]],
     config: ExperimentConfig,
-    q_dim: int,
+    dopamine_m: int,
+    recommended_dopamine_m: int,
+    coverage_c: int,
     edge_count: int,
     output_path: Path,
 ) -> None:
     """Plot train/validation MSE with a compact config text box."""
-    epochs = [row["epoch"] for row in history]
+    global_epochs = [row["global_epoch"] for row in history]
     train_losses = [max(row["train_loss"], 1e-12) for row in history]
     val_losses = [max(row["val_loss"], 1e-12) for row in history]
     fig, ax = plt.subplots(figsize=(10, 5.5))
-    ax.plot(epochs, train_losses, label="train", linewidth=1.8)
-    ax.plot(epochs, val_losses, label="val", linewidth=1.8)
-    ax.set_xlabel("epoch")
+    ax.plot(global_epochs, train_losses, label="train", linewidth=1.8)
+    ax.plot(global_epochs, val_losses, label="val", linewidth=1.8)
+    ax.set_xlabel("global epoch")
     ax.set_ylabel("MSE (log scale)")
     ax.set_yscale("log")
     ax.set_title(f"exp0513 loss curve | task={config.task_name}")
@@ -219,9 +265,10 @@ def plot_loss_curve(
         f"eta_int={config.eta_int}",
         f"gamma={config.gamma}",
         f"lambda={config.lambda_value}",
-        f"epochs={config.epochs}",
+        f"epochs(+)= {config.epochs}",
         f"batch={config.batch_size}",
-        f"m={q_dim}",
+        f"c={coverage_c}",
+        f"m={dopamine_m} (rec {recommended_dopamine_m})",
         f"N={edge_count}",
         f"resume={_format_resume_label(config.resume_from)}",
     ])
@@ -244,20 +291,30 @@ def plot_loss_curve(
 def _checkpoint_payload(
     model: SelfModulatedMLP,
     config: ExperimentConfig,
-    assignment_metadata: dict,
+    assignment_metadata: dict[str, object],
+    graph_payload: dict[str, object],
     edge_count: int,
     summary: dict[str, object],
     source_checkpoint: dict[str, object] | None,
+    global_epoch_completed: int,
+    dopamine_m: int,
+    recommended_dopamine_m: int,
+    coverage_c: int,
 ) -> dict[str, object]:
     """Final checkpoint payload for resume support."""
     return {
-        "format_version": "exp0513_v2",
+        "format_version": "exp0513_v3",
         "config": config.to_resolved_dict(),
-        "epochs": config.epochs,
+        "epochs_added": config.epochs,
         "lambda": config.lambda_value,
-        "assignment_metadata": assignment_metadata,
+        "coverage_c": coverage_c,
+        "effective_dopamine_m": dopamine_m,
+        "recommended_dopamine_m": recommended_dopamine_m,
+        "dopamine_node_ids": assignment_metadata["selected_dopamine_node_ids"],
+        "dopamine_assignment_metadata": assignment_metadata,
+        "graph_payload": graph_payload,
         "edge_count": edge_count,
-        "q_dim": solve_v1_q_dim(),
+        "global_epoch_completed": global_epoch_completed,
         "architecture": model.arch_dict(),
         "model_state_dict": model.state_dict(),
         "summary": summary,
@@ -269,34 +326,39 @@ def _make_summary(
     config: ExperimentConfig,
     train_history: list[float],
     val_history: list[float],
-    q_weight_change_norm: float,
-    q_dim: int,
+    dopamine_m: int,
+    recommended_dopamine_m: int,
+    coverage_c: int,
     edge_count: int,
     resume_info: dict[str, object] | None,
+    assignment_metadata: dict[str, object],
+    global_epoch_start: int,
+    global_epoch_end: int,
+    global_epoch_completed: int,
 ) -> dict[str, object]:
     """Compact JSON summary for the current run."""
     return {
         "run_name": config.run_name,
         "task_name": config.task_name,
-        "epochs": len(train_history),
+        "epochs_added": len(train_history),
         "lambda": config.lambda_value,
         "final_train_loss": float(train_history[-1]),
         "final_val_loss": float(val_history[-1]),
         "best_val_loss": float(min(val_history)),
-        "q_head_weight_change_norm": float(q_weight_change_norm),
         "resume_from": config.resume_from,
-        "m": q_dim,
+        "coverage_c": coverage_c,
+        "dopamine_m": dopamine_m,
+        "recommended_dopamine_m": recommended_dopamine_m,
         "N": edge_count,
+        "average_edge_coverage": assignment_metadata["average_edge_coverage"],
+        "average_edges_per_dopamine": assignment_metadata["average_edges_per_dopamine"],
+        "dopamine_node_ids": assignment_metadata["selected_dopamine_node_ids"],
+        "c_r": assignment_metadata["c_r"],
         "resume_info": resume_info,
+        "global_epoch_start": global_epoch_start,
+        "global_epoch_end": global_epoch_end,
+        "global_epoch_completed": global_epoch_completed,
     }
-
-
-def _load_resume_checkpoint(resume_from: str) -> dict[str, object]:
-    """Load an old or new exp0513 checkpoint for continuation."""
-    payload = torch.load(resume_from, map_location="cpu")
-    if "model_state_dict" not in payload:
-        raise ValueError(f"Checkpoint at {resume_from} does not contain model_state_dict.")
-    return payload
 
 
 def run_experiment(
@@ -307,17 +369,16 @@ def run_experiment(
     stop_requested: Callable[[], bool] | None = None,
     status_callback: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
-    """Run one exp0513 training job using the current lambda configuration."""
+    """Run one exp0513 training job using hidden dopamine modulators."""
     config = config or ExperimentConfig()
     torch.manual_seed(config.seed)
 
-    q_dim = solve_v1_q_dim()
-    model = SelfModulatedMLP(
-        q_dim=q_dim,
-    )
+    model = SelfModulatedMLP()
     flat_weights, index_map = flatten_controllable_weights(model)
     edge_count = flat_weights.numel()
-    _, B_tilde, assignment_metadata = build_static_assignment(edge_count, q_dim)
+    edge_records = build_forward_edge_records(model)
+    hidden_node_ids = model.hidden_node_ids()
+    hidden_pool_size = len(hidden_node_ids)
 
     base_dir = Path(__file__).resolve().parents[1] / "runs"
     run_dir = run_dir or make_run_dir(base_dir, config.run_name)
@@ -329,27 +390,63 @@ def run_experiment(
         copy_config_to_run_dir(config_path, run_dir)
     else:
         dump_config_to_yaml(config, run_dir / "config.yaml")
+
+    resume_info: dict[str, object] | None = None
+    source_checkpoint: dict[str, object] | None = None
+    if config.resume_from:
+        source_checkpoint = load_experiment_checkpoint(config.resume_from)
+        model.load_state_dict(source_checkpoint["model_state_dict"])
+        assignment_metadata = dict(source_checkpoint["dopamine_assignment_metadata"])
+        B, B_tilde = rebuild_assignment_tensors(edge_records, assignment_metadata)
+        dopamine_m = int(source_checkpoint["effective_dopamine_m"])
+        recommended_dopamine_m = int(source_checkpoint.get("recommended_dopamine_m", recommend_dopamine_m(int(source_checkpoint["coverage_c"]))))
+        coverage_c = int(source_checkpoint["coverage_c"])
+        global_epoch_completed_before = int(source_checkpoint.get("global_epoch_completed", 0))
+        graph_payload = dict(source_checkpoint.get("graph_payload") or build_graph_payload(model, assignment_metadata))
+        resume_info = {
+            "path": str(Path(config.resume_from).resolve()),
+            "source_lambda": source_checkpoint.get("lambda"),
+            "source_epochs_added": source_checkpoint.get("epochs_added"),
+            "source_global_epoch_completed": global_epoch_completed_before,
+            "source_summary": source_checkpoint.get("summary"),
+            "assignment_locked_from_checkpoint": True,
+        }
+    else:
+        dopamine_m, recommended_dopamine_m = resolve_dopamine_m(
+            coverage_c=config.coverage_c,
+            hidden_pool_size=hidden_pool_size,
+            dopamine_m_override=config.dopamine_m_override,
+        )
+        coverage_c = config.coverage_c
+        B, B_tilde, assignment_metadata = build_dopamine_assignment(
+            edge_records=edge_records,
+            hidden_node_ids=hidden_node_ids,
+            coverage_c=coverage_c,
+            dopamine_m=dopamine_m,
+            seed=config.seed,
+        )
+        graph_payload = build_graph_payload(model, assignment_metadata)
+        global_epoch_completed_before = 0
+
+    dopamine_node_ids = list(assignment_metadata["selected_dopamine_node_ids"])
+    global_epoch_start = global_epoch_completed_before + 1
+    global_epoch_end = global_epoch_completed_before + config.epochs
+
     write_resolved_config(
         config,
         extra={
-            "resolved_q_dim": q_dim,
             "architecture": model.arch_dict(),
             "N": edge_count,
+            "hidden_pool_size": hidden_pool_size,
+            "coverage_c_effective": coverage_c,
+            "dopamine_m_effective": dopamine_m,
+            "dopamine_m_recommended": recommended_dopamine_m,
+            "global_epoch_start": global_epoch_start,
+            "global_epoch_end": global_epoch_end,
+            "assignment_locked_from_checkpoint": bool(config.resume_from),
         },
         output_path=run_dir / "resolved_config.json",
     )
-
-    resume_info: dict[str, object] | None = None
-    if config.resume_from:
-        resume_payload = _load_resume_checkpoint(config.resume_from)
-        model.load_state_dict(resume_payload["model_state_dict"])
-        resume_info = {
-            "path": str(Path(config.resume_from).resolve()),
-            "source_lambda": resume_payload.get("lambda"),
-            "source_epochs": resume_payload.get("epochs"),
-            "source_summary": resume_payload.get("summary"),
-            "source_phase": resume_payload.get("phase"),
-        }
 
     dataset = build_dataset(
         task_name=config.task_name,
@@ -369,8 +466,6 @@ def run_experiment(
     history: list[dict[str, float]] = []
     train_losses: list[float] = []
     val_losses: list[float] = []
-
-    q_head_before = model.q_head.weight.detach().clone()
     stopped_early = False
 
     write_live_status(
@@ -378,10 +473,16 @@ def run_experiment(
         _build_live_status(
             config=config,
             run_dir=run_dir,
-            q_dim=q_dim,
             edge_count=edge_count,
+            dopamine_m=dopamine_m,
+            recommended_dopamine_m=recommended_dopamine_m,
+            coverage_c=coverage_c,
+            graph_payload=graph_payload,
             status="running",
-            epoch=0,
+            local_epoch=0,
+            global_epoch=global_epoch_completed_before,
+            global_epoch_start=global_epoch_start,
+            global_epoch_end=global_epoch_end,
             train_loss=None,
             val_loss=None,
             best_val_loss=None,
@@ -390,11 +491,14 @@ def run_experiment(
     )
 
     try:
-        for epoch in range(1, config.epochs + 1):
-            train_loss, metrics = _epoch_train(model, loader, B_tilde, index_map, config)
-            val_loss, _, _ = _evaluate(model, dataset.x_val, dataset.y_val)
+        for local_epoch in range(1, config.epochs + 1):
+            train_loss, metrics = _epoch_train(model, loader, B_tilde, index_map, dopamine_node_ids, config)
+            val_loss = _evaluate(model, dataset.x_val, dataset.y_val)
+            global_epoch = global_epoch_completed_before + local_epoch
             metrics.update({
-                "epoch": epoch,
+                "epoch": local_epoch,
+                "local_epoch": local_epoch,
+                "global_epoch": global_epoch,
                 "train_loss": train_loss,
                 "val_loss": val_loss,
             })
@@ -407,10 +511,16 @@ def run_experiment(
                 _build_live_status(
                     config=config,
                     run_dir=run_dir,
-                    q_dim=q_dim,
                     edge_count=edge_count,
+                    dopamine_m=dopamine_m,
+                    recommended_dopamine_m=recommended_dopamine_m,
+                    coverage_c=coverage_c,
+                    graph_payload=graph_payload,
                     status="running",
-                    epoch=epoch,
+                    local_epoch=local_epoch,
+                    global_epoch=global_epoch,
+                    global_epoch_start=global_epoch_start,
+                    global_epoch_end=global_epoch_end,
                     train_loss=train_loss,
                     val_loss=val_loss,
                     best_val_loss=min(val_losses),
@@ -422,15 +532,22 @@ def run_experiment(
                 stopped_early = True
                 break
     except Exception as exc:
+        current_global_epoch = global_epoch_completed_before + len(train_losses)
         write_live_status(
             live_status_path,
             _build_live_status(
                 config=config,
                 run_dir=run_dir,
-                q_dim=q_dim,
                 edge_count=edge_count,
+                dopamine_m=dopamine_m,
+                recommended_dopamine_m=recommended_dopamine_m,
+                coverage_c=coverage_c,
+                graph_payload=graph_payload,
                 status="failed",
-                epoch=len(train_losses),
+                local_epoch=len(train_losses),
+                global_epoch=current_global_epoch,
+                global_epoch_start=global_epoch_start,
+                global_epoch_end=global_epoch_end,
                 train_loss=train_losses[-1] if train_losses else None,
                 val_loss=val_losses[-1] if val_losses else None,
                 best_val_loss=min(val_losses) if val_losses else None,
@@ -440,15 +557,20 @@ def run_experiment(
         )
         raise
 
-    q_weight_change = float((model.q_head.weight.detach() - q_head_before).norm().item())
+    global_epoch_completed = global_epoch_completed_before + len(train_losses)
     summary = _make_summary(
         config=config,
         train_history=train_losses,
         val_history=val_losses,
-        q_weight_change_norm=q_weight_change,
-        q_dim=q_dim,
+        dopamine_m=dopamine_m,
+        recommended_dopamine_m=recommended_dopamine_m,
+        coverage_c=coverage_c,
         edge_count=edge_count,
         resume_info=resume_info,
+        assignment_metadata=assignment_metadata,
+        global_epoch_start=global_epoch_start,
+        global_epoch_end=global_epoch_end,
+        global_epoch_completed=global_epoch_completed,
     )
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     torch.save(
@@ -456,16 +578,29 @@ def run_experiment(
             model=model,
             config=config,
             assignment_metadata=assignment_metadata,
+            graph_payload=graph_payload,
             edge_count=edge_count,
             summary=summary,
-            source_checkpoint=resume_info,
+            source_checkpoint=source_checkpoint,
+            global_epoch_completed=global_epoch_completed,
+            dopamine_m=dopamine_m,
+            recommended_dopamine_m=recommended_dopamine_m,
+            coverage_c=coverage_c,
         ),
         run_dir / "model.pt",
     )
 
-    plot_loss_curve(history, config, q_dim, edge_count, run_dir / "loss_curve.png")
+    plot_loss_curve(
+        history,
+        config,
+        dopamine_m,
+        recommended_dopamine_m,
+        coverage_c,
+        edge_count,
+        run_dir / "loss_curve.png",
+    )
     if config.enable_diagnostics:
-        plot_q_diagnostics(history, run_dir / "q_diagnostics.png")
+        plot_dopamine_diagnostics(history, run_dir / "dopamine_diagnostics.png")
         plot_update_diagnostics(history, run_dir / "update_diagnostics.png")
         save_history_json(history, run_dir / "diagnostics_history.json")
 
@@ -475,10 +610,16 @@ def run_experiment(
         _build_live_status(
             config=config,
             run_dir=run_dir,
-            q_dim=q_dim,
             edge_count=edge_count,
+            dopamine_m=dopamine_m,
+            recommended_dopamine_m=recommended_dopamine_m,
+            coverage_c=coverage_c,
+            graph_payload=graph_payload,
             status=final_status,
-            epoch=len(train_losses),
+            local_epoch=len(train_losses),
+            global_epoch=global_epoch_completed,
+            global_epoch_start=global_epoch_start,
+            global_epoch_end=global_epoch_end,
             train_loss=train_losses[-1],
             val_loss=val_losses[-1],
             best_val_loss=min(val_losses),

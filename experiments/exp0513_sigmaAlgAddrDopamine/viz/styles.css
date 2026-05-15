@@ -19,7 +19,7 @@
   --input: #4a90d9;
   --hidden: #7f848f;
   --yhead: #d94a4a;
-  --qhead: #2d936c;
+  --dopamine: #2d936c;
 }
 
 * {
@@ -286,7 +286,7 @@ button.primary:hover:not(:disabled) {
 .legend-input { background: var(--input); }
 .legend-hidden { background: var(--hidden); }
 .legend-y { background: var(--yhead); }
-.legend-q { background: var(--qhead); }
+.legend-dopamine { background: var(--dopamine); }
 .legend-forward { border-top-color: var(--edge); }
 .legend-highlight { border-top-color: var(--highlight); }
 .legend-selected { border-top-color: var(--selected); }

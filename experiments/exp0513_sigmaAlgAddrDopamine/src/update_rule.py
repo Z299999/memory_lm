@@ -47,23 +47,26 @@ def extract_bias_bp_updates(
     return out
 
 
-def compute_internal_signal(q_batch: torch.Tensor, B_tilde: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Aggregate q over the batch and map it to edge-level modulation signals."""
-    q_mean = q_batch.detach().mean(dim=0)
-    s = B_tilde.to(q_batch.device, q_batch.dtype).matmul(q_mean)
-    return s, q_mean
+def compute_internal_signal(
+    dopamine_batch: torch.Tensor,
+    B_tilde: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Aggregate hidden dopamine activations and map them to edge-level signals."""
+    dopamine_mean = dopamine_batch.detach().mean(dim=0)
+    s = B_tilde.to(dopamine_batch.device, dopamine_batch.dtype).matmul(dopamine_mean)
+    return s, dopamine_mean
 
 
 def compute_internal_update(
-    q_batch: torch.Tensor,
+    dopamine_batch: torch.Tensor,
     B_tilde: torch.Tensor,
     eta_int: float,
     gamma: float,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Compute the batch-aggregated edge-level internal update."""
-    s, q_mean = compute_internal_signal(q_batch, B_tilde)
+    s, dopamine_mean = compute_internal_signal(dopamine_batch, B_tilde)
     delta_int = eta_int * torch.tanh(gamma * s)
-    return delta_int, s, q_mean
+    return delta_int, s, dopamine_mean
 
 
 def mix_controllable_updates(
@@ -72,15 +75,9 @@ def mix_controllable_updates(
     index_map: list[ParameterSlice],
     lambda_value: float,
 ) -> tuple[torch.Tensor, OrderedDict[str, torch.Tensor], torch.Tensor]:
-    """Mix BP and internal updates for the current lambda-controlled run."""
-    total = torch.empty_like(bp_flat)
-    bp_mask = torch.zeros_like(bp_flat, dtype=torch.bool)
-    q_head_start = index_map[-1].start
-    q_head_end = index_map[-1].end
-    bp_mask[:q_head_start] = True
-
-    total[bp_mask] = (1.0 - lambda_value) * bp_flat[bp_mask] + lambda_value * int_flat[bp_mask]
-    total[q_head_start:q_head_end] = lambda_value * int_flat[q_head_start:q_head_end]
+    """Mix BP and internal updates for all controllable weights."""
+    bp_mask = torch.ones_like(bp_flat, dtype=torch.bool)
+    total = (1.0 - lambda_value) * bp_flat + lambda_value * int_flat
     per_param = unflatten_internal_signal(total, index_map)
     return total, per_param, bp_mask
 

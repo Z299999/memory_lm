@@ -1,16 +1,8 @@
-const ARCH = {
-  inputDim: 1,
-  trunk1Dim: 16,
-  trunk2Dim: 16,
-  yDim: 1,
-  qDim: 9,
-};
-
 const NODE_COLORS = {
   input: '#4a90d9',
   hidden: '#7f848f',
-  y: '#d94a4a',
-  q: '#2d936c',
+  output: '#d94a4a',
+  dopamine: '#2d936c',
 };
 
 const EDGE_COLORS = {
@@ -21,18 +13,19 @@ const EDGE_COLORS = {
 };
 
 const LAYER_LABELS = {
-  'input->trunk1': 'Input -> Trunk L1',
-  'trunk1->trunk2': 'Trunk L1 -> Trunk L2',
-  'trunk2->y': 'Trunk L2 -> y head',
-  'trunk2->q': 'Trunk L2 -> q head',
+  'input->trunk1': 'Input -> Hidden L1',
+  'trunk1->trunk2': 'Hidden L1 -> Hidden L2',
+  'trunk2->y': 'Hidden L2 -> Output',
 };
 
 const FORM_FIELDS = [
   { key: 'run_name', label: 'Run name', type: 'text', wide: true },
   { key: 'task_name', label: 'Task name', type: 'select' },
   { key: 'seed', label: 'Seed', type: 'number', step: '1' },
-  { key: 'epochs', label: 'Epochs', type: 'number', step: '1' },
+  { key: 'epochs', label: 'Continue epochs', type: 'number', step: '1' },
   { key: 'lambda', label: 'Lambda', type: 'number', step: '0.01' },
+  { key: 'coverage_c', label: 'Coverage c', type: 'number', step: '1' },
+  { key: 'dopamine_m_override', label: 'Dopamine m override', type: 'number', step: '1', optional: true },
   { key: 'batch_size', label: 'Batch size', type: 'number', step: '1' },
   { key: 'lr_bp', label: 'Learning rate', type: 'number', step: '0.0001' },
   { key: 'eta_int', label: 'Internal eta', type: 'number', step: '0.00001' },
@@ -51,200 +44,63 @@ const POLL_INTERVAL_MS = 1000;
 const state = {
   defaultConfig: null,
   taskNames: [],
+  defaultGraphPayload: null,
   activeRun: null,
   cy: null,
-  data: null,
-  selectedQId: null,
+  graphPayload: null,
+  graphKey: null,
+  selectedDopamineId: null,
   selectedEdgeId: null,
   pollHandle: null,
 };
 
-function createNode(id, label, kind, column, row, rowCount) {
-  const xPositions = [-520, -240, 40, 320, 540];
-  const x = xPositions[column] ?? 0;
-  const spacing = kind === 'q' ? 54 : 46;
-  const offset = (rowCount - 1) / 2;
-  const y = (row - offset) * spacing;
+function graphPayloadKey(payload) {
+  return JSON.stringify(payload);
+}
 
+function createNodeElement(node) {
+  const xPositions = [-520, -180, 160, 500];
+  const x = xPositions[node.column] ?? 0;
+  const spacing = node.isDopamine ? 52 : 46;
+  const offset = (node.rowCount - 1) / 2;
+  const y = (node.row - offset) * spacing;
   return {
     group: 'nodes',
     data: {
-      id,
-      label,
-      kind,
-      color: NODE_COLORS[kind],
+      id: node.id,
+      label: node.label,
+      kind: node.kind,
+      isDopamine: node.isDopamine,
+      color: node.isDopamine ? NODE_COLORS.dopamine : NODE_COLORS[node.kind],
     },
     position: { x, y },
-    classes: kind === 'q' ? 'q-node' : '',
+    classes: node.isDopamine ? 'dopamine-node' : '',
   };
 }
 
-function buildNodes() {
-  const nodes = [];
-  nodes.push(createNode('x0', 'x0', 'input', 0, 0, 1));
-
-  for (let i = 0; i < ARCH.trunk1Dim; i += 1) {
-    nodes.push(createNode(`h1_${i}`, `h1_${i}`, 'hidden', 1, i, ARCH.trunk1Dim));
-  }
-  for (let i = 0; i < ARCH.trunk2Dim; i += 1) {
-    nodes.push(createNode(`h2_${i}`, `h2_${i}`, 'hidden', 2, i, ARCH.trunk2Dim));
-  }
-
-  nodes.push(createNode('y0', 'y0', 'y', 3, 0, 1));
-
-  for (let i = 0; i < ARCH.qDim; i += 1) {
-    nodes.push(createNode(`q${i}`, `q${i}`, 'q', 4, i, ARCH.qDim));
-  }
-
-  return nodes;
-}
-
-function buildForwardEdges() {
-  const edges = [];
-
-  for (let outIdx = 0; outIdx < ARCH.trunk1Dim; outIdx += 1) {
-    edges.push({
-      id: `trunk1[${outIdx},0]`,
-      source: 'x0',
-      target: `h1_${outIdx}`,
-      layerKey: 'input->trunk1',
-    });
-  }
-
-  for (let outIdx = 0; outIdx < ARCH.trunk2Dim; outIdx += 1) {
-    for (let inIdx = 0; inIdx < ARCH.trunk1Dim; inIdx += 1) {
-      edges.push({
-        id: `trunk2[${outIdx},${inIdx}]`,
-        source: `h1_${inIdx}`,
-        target: `h2_${outIdx}`,
-        layerKey: 'trunk1->trunk2',
-      });
-    }
-  }
-
-  for (let inIdx = 0; inIdx < ARCH.trunk2Dim; inIdx += 1) {
-    edges.push({
-      id: `y_head[0,${inIdx}]`,
-      source: `h2_${inIdx}`,
-      target: 'y0',
-      layerKey: 'trunk2->y',
-    });
-  }
-
-  for (let outIdx = 0; outIdx < ARCH.qDim; outIdx += 1) {
-    for (let inIdx = 0; inIdx < ARCH.trunk2Dim; inIdx += 1) {
-      edges.push({
-        id: `q_head[${outIdx},${inIdx}]`,
-        source: `h2_${inIdx}`,
-        target: `q${outIdx}`,
-        layerKey: 'trunk2->q',
-      });
-    }
-  }
-
-  return edges.map((edge, index) => ({
-    ...edge,
-    orderIndex: index,
-    controllingQIds: [],
-  }));
-}
-
-function generateNonzeroBinaryCodes(length) {
-  const codes = [];
-  const total = 2 ** length;
-  for (let value = 1; value < total; value += 1) {
-    const bits = value
-      .toString(2)
-      .padStart(length, '0')
-      .split('')
-      .map((digit) => Number(digit));
-    codes.push(bits);
-  }
-  return codes;
-}
-
-function compareCodes(a, b, midpoint) {
-  const weightA = a.reduce((sum, bit) => sum + bit, 0);
-  const weightB = b.reduce((sum, bit) => sum + bit, 0);
-  const balanceDiff = Math.abs(weightA - midpoint) - Math.abs(weightB - midpoint);
-  if (balanceDiff !== 0) {
-    return balanceDiff;
-  }
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) {
-      return a[i] - b[i];
-    }
-  }
-  return 0;
-}
-
-function buildStaticAssignment(edgeCount, m) {
-  const midpoint = m / 2;
-  const codes = generateNonzeroBinaryCodes(m);
-  codes.sort((a, b) => compareCodes(a, b, midpoint));
-  return codes.slice(0, edgeCount);
-}
-
-function enrichEdgesWithControl(edges, assignmentRows) {
-  const qToEdges = new Map();
-  for (let qIndex = 0; qIndex < ARCH.qDim; qIndex += 1) {
-    qToEdges.set(`q${qIndex}`, []);
-  }
-
-  edges.forEach((edge, edgeIndex) => {
-    const code = assignmentRows[edgeIndex];
-    const controlling = [];
-    code.forEach((bit, qIndex) => {
-      if (bit === 1) {
-        const qId = `q${qIndex}`;
-        controlling.push(qId);
-        qToEdges.get(qId).push(edge.id);
-      }
-    });
-    edge.controllingQIds = controlling;
-  });
-
-  return qToEdges;
-}
-
-function buildVizData() {
-  const nodes = buildNodes();
-  const edges = buildForwardEdges();
-  const assignmentRows = buildStaticAssignment(edges.length, ARCH.qDim);
-  const qToEdges = enrichEdgesWithControl(edges, assignmentRows);
-
+function createEdgeElement(edge) {
   return {
-    nodes,
-    edges,
-    qToEdges,
-    totalNodes: nodes.length,
-    totalEdges: edges.length,
-    totalLayers: 5,
-  };
-}
-
-function createCytoscapeElements(data) {
-  const edgeElements = data.edges.map((edge) => ({
     group: 'edges',
     data: {
       id: edge.id,
       source: edge.source,
       target: edge.target,
       layerKey: edge.layerKey,
-      controllingQIds: edge.controllingQIds,
+      controllingDopamineIds: edge.controllingDopamineIds,
       color: EDGE_COLORS.default,
       thickness: 1.6,
       opacity: 0.68,
     },
-  }));
-
-  return [...data.nodes, ...edgeElements];
+  };
 }
 
-function createCy(data) {
+function createCy(payload) {
   return cytoscape({
     container: document.getElementById('cy'),
-    elements: createCytoscapeElements(data),
+    elements: [
+      ...payload.nodes.map(createNodeElement),
+      ...payload.edges.map(createEdgeElement),
+    ],
     layout: { name: 'preset', fit: true, padding: 24 },
     minZoom: 0.35,
     maxZoom: 3,
@@ -267,14 +123,14 @@ function createCy(data) {
         },
       },
       {
-        selector: 'node.q-node',
+        selector: 'node.dopamine-node',
         style: {
-          width: 28,
-          height: 28,
+          width: 30,
+          height: 30,
         },
       },
       {
-        selector: 'node.selected-q',
+        selector: 'node.selected-dopamine',
         style: {
           'border-width': 4,
           'border-color': EDGE_COLORS.highlight,
@@ -296,6 +152,24 @@ function createCy(data) {
   });
 }
 
+function ensureGraph(payload) {
+  if (!payload) {
+    return;
+  }
+  const key = graphPayloadKey(payload);
+  if (state.cy && state.graphKey === key) {
+    return;
+  }
+  if (state.cy) {
+    state.cy.destroy();
+  }
+  state.graphPayload = payload;
+  state.graphKey = key;
+  state.cy = createCy(payload);
+  bindGraphInteractions(state.cy);
+  applyGraphSelection();
+}
+
 function renderStatusPanel() {
   const panel = document.getElementById('status-panel');
   const activeRun = state.activeRun;
@@ -306,8 +180,8 @@ function renderStatusPanel() {
         <p class="detail-kicker">Dashboard status</p>
         <h2 class="detail-title">Idle</h2>
         <p class="muted">
-          Load the default configuration, edit any parameter in the left panel, and click <code>Run</code>
-          to start a single active training session.
+          Edit the config on the left, then start a single active run. The graph previews the
+          current hidden-dopamine assignment for the default configuration.
         </p>
       </div>
     `;
@@ -315,7 +189,10 @@ function renderStatusPanel() {
   }
 
   const statusClass = `status-${activeRun.status || 'idle'}`;
-  const epochDisplay = `${activeRun.epoch ?? 0} / ${activeRun.epochs_total ?? '-'}`;
+  const localDisplay = `${activeRun.local_epoch ?? activeRun.epoch ?? 0} / ${activeRun.local_epochs_total ?? activeRun.epochs_total ?? '-'}`;
+  const globalDisplay = `${activeRun.global_epoch ?? 0}`;
+  const globalRange = `${activeRun.global_epoch_start ?? '?'}-${activeRun.global_epoch_end ?? '?'}`;
+
   panel.innerHTML = `
     <div class="detail-card">
       <p class="detail-kicker">Active run</p>
@@ -326,8 +203,16 @@ function renderStatusPanel() {
           <p class="stat-value">${activeRun.status || 'idle'}</p>
         </div>
         <div class="stat-box">
-          <p class="stat-label">Epoch</p>
-          <p class="stat-value">${epochDisplay}</p>
+          <p class="stat-label">Local epoch</p>
+          <p class="stat-value">${localDisplay}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">Global epoch</p>
+          <p class="stat-value">${globalDisplay}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">Global range</p>
+          <p class="stat-value">${globalRange}</p>
         </div>
         <div class="stat-box">
           <p class="stat-label">Train loss</p>
@@ -349,6 +234,8 @@ function renderStatusPanel() {
       <table class="detail-table">
         <tr><th>Task</th><td>${activeRun.task_name || 'n/a'}</td></tr>
         <tr><th>Seed</th><td>${activeRun.seed ?? 'n/a'}</td></tr>
+        <tr><th>Coverage c</th><td>${activeRun.coverage_c ?? 'n/a'}</td></tr>
+        <tr><th>Dopamine m</th><td>${activeRun.dopamine_m ?? 'n/a'} (rec ${activeRun.recommended_dopamine_m ?? 'n/a'})</td></tr>
         <tr><th>Run dir</th><td class="subtle-path">${activeRun.run_dir || 'n/a'}</td></tr>
         <tr><th>Updated</th><td>${activeRun.updated_at || 'n/a'}</td></tr>
       </table>
@@ -357,14 +244,14 @@ function renderStatusPanel() {
   `;
 }
 
-function renderDefaultDetail(panel, data) {
+function renderDefaultDetail(panel, payload) {
   panel.innerHTML = `
     <div class="detail-card">
       <p class="detail-kicker">Overview</p>
       <h2 class="detail-title">Structure summary</h2>
       <p class="muted">
-        Click a <code>q_i</code> node to inspect which forward edges it controls,
-        or click any forward edge to inspect its source, target, and controlling heads.
+        Click a dopamine hidden node to inspect which forward edges it controls,
+        or click any forward edge to inspect its source, target, and controlling dopamine nodes.
       </p>
     </div>
     <div class="detail-card">
@@ -372,36 +259,35 @@ function renderDefaultDetail(panel, data) {
       <div class="stats-grid">
         <div class="stat-box">
           <p class="stat-label">Layers</p>
-          <p class="stat-value">${data.totalLayers}</p>
+          <p class="stat-value">${payload.totalLayers}</p>
         </div>
         <div class="stat-box">
           <p class="stat-label">Nodes</p>
-          <p class="stat-value">${data.totalNodes}</p>
+          <p class="stat-value">${payload.totalNodes}</p>
         </div>
         <div class="stat-box">
           <p class="stat-label">Controllable edges</p>
-          <p class="stat-value">${data.totalEdges}</p>
+          <p class="stat-value">${payload.totalEdges}</p>
         </div>
         <div class="stat-box">
-          <p class="stat-label">q heads</p>
-          <p class="stat-value">${ARCH.qDim}</p>
+          <p class="stat-label">Dopamine nodes</p>
+          <p class="stat-value">${payload.dopamineM}</p>
         </div>
       </div>
     </div>
   `;
 }
 
-function buildLayerBreakdownHtml(layerCounts) {
-  const orderedLayerKeys = ['input->trunk1', 'trunk1->trunk2', 'trunk2->y', 'trunk2->q'];
+function buildLayerBreakdownHtml(layerCounts, payload) {
+  const totals = payload.edges.reduce((acc, edge) => {
+    acc[edge.layerKey] = (acc[edge.layerKey] || 0) + 1;
+    return acc;
+  }, {});
+  const orderedLayerKeys = ['input->trunk1', 'trunk1->trunk2', 'trunk2->y'];
   return orderedLayerKeys
     .map((layerKey) => {
       const controlled = layerCounts[layerKey] ?? 0;
-      const layerTotal = {
-        'input->trunk1': 16,
-        'trunk1->trunk2': 256,
-        'trunk2->y': 16,
-        'trunk2->q': 144,
-      }[layerKey];
+      const layerTotal = totals[layerKey] ?? 0;
       const widthPercent = layerTotal === 0 ? 0 : (controlled / layerTotal) * 100;
       return `
         <div class="layer-row">
@@ -418,45 +304,53 @@ function buildLayerBreakdownHtml(layerCounts) {
     .join('');
 }
 
-function renderQDetail(panel, qId, data) {
-  const controlledEdgeIds = data.qToEdges.get(qId) ?? [];
-  const controlledEdges = data.edges.filter((edge) => controlledEdgeIds.includes(edge.id));
+function renderDopamineDetail(panel, nodeId, payload) {
+  const dopamineStats = new Map((payload.dopamineStats || []).map((item) => [item.node_id, item]));
+  const selectedStat = dopamineStats.get(nodeId);
+  const controlledEdges = payload.edges.filter((edge) => (edge.controllingDopamineIds || []).includes(nodeId));
   const layerCounts = controlledEdges.reduce((acc, edge) => {
-    acc[edge.layerKey] = (acc[edge.layerKey] ?? 0) + 1;
+    acc[edge.layerKey] = (acc[edge.layerKey] || 0) + 1;
     return acc;
   }, {});
-  const coverage = ((controlledEdges.length / data.totalEdges) * 100).toFixed(1);
 
   panel.innerHTML = `
     <div class="detail-card">
-      <p class="detail-kicker">Selected q head</p>
-      <h2 class="detail-title">${qId}</h2>
+      <p class="detail-kicker">Selected dopamine node</p>
+      <h2 class="detail-title">${nodeId}</h2>
       <p class="muted">
-        Highlighting every forward edge whose assignment code includes <code>${qId}</code>.
+        Highlighting every forward edge currently assigned to this hidden dopamine neuron.
       </p>
     </div>
     <div class="detail-card">
-      <p class="detail-kicker">Control summary</p>
+      <p class="detail-kicker">Coverage summary</p>
       <div class="stats-grid">
         <div class="stat-box">
           <p class="stat-label">Controlled edges</p>
-          <p class="stat-value">${controlledEdges.length}</p>
+          <p class="stat-value">${selectedStat?.edge_count ?? controlledEdges.length}</p>
         </div>
         <div class="stat-box">
-          <p class="stat-label">Coverage</p>
-          <p class="stat-value">${coverage}%</p>
+          <p class="stat-label">Coverage ratio</p>
+          <p class="stat-value">${formatPercent(selectedStat?.coverage_ratio)}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">Rank</p>
+          <p class="stat-value">${selectedStat?.rank ?? 'n/a'}</p>
+        </div>
+        <div class="stat-box">
+          <p class="stat-label">c_r</p>
+          <p class="stat-value">${formatPercent(selectedStat?.c_r)}</p>
         </div>
       </div>
       <div class="layer-breakdown">
-        ${buildLayerBreakdownHtml(layerCounts)}
+        ${buildLayerBreakdownHtml(layerCounts, payload)}
       </div>
     </div>
   `;
 }
 
 function renderEdgeDetail(panel, edge) {
-  const qPills = edge.controllingQIds
-    .map((qId) => `<span class="pill">${qId}</span>`)
+  const pills = (edge.controllingDopamineIds || [])
+    .map((nodeId) => `<span class="pill">${nodeId}</span>`)
     .join('');
 
   panel.innerHTML = `
@@ -471,26 +365,31 @@ function renderEdgeDetail(panel, edge) {
       </table>
     </div>
     <div class="detail-card">
-      <p class="detail-kicker">Controlling q heads</p>
-      <div class="pill-list">${qPills}</div>
+      <p class="detail-kicker">Controlling dopamine nodes</p>
+      <div class="pill-list">${pills}</div>
     </div>
   `;
 }
 
 function renderDetailPanel() {
   const panel = document.getElementById('detail-panel');
-  if (state.selectedQId) {
-    renderQDetail(panel, state.selectedQId, state.data);
+  const payload = state.graphPayload;
+  if (!payload) {
+    panel.innerHTML = '';
+    return;
+  }
+  if (state.selectedDopamineId) {
+    renderDopamineDetail(panel, state.selectedDopamineId, payload);
     return;
   }
   if (state.selectedEdgeId) {
-    const edge = state.data.edges.find((item) => item.id === state.selectedEdgeId);
+    const edge = payload.edges.find((item) => item.id === state.selectedEdgeId);
     if (edge) {
       renderEdgeDetail(panel, edge);
       return;
     }
   }
-  renderDefaultDetail(panel, state.data);
+  renderDefaultDetail(panel, payload);
 }
 
 function clearEdgeStyling(cy) {
@@ -499,16 +398,15 @@ function clearEdgeStyling(cy) {
     edgeEle.data('thickness', 1.6);
     edgeEle.data('opacity', 0.68);
   });
-  cy.nodes('.selected-q').removeClass('selected-q');
+  cy.nodes('.selected-dopamine').removeClass('selected-dopamine');
 }
 
-function highlightEdgesForQ(cy, qId) {
+function highlightEdgesForDopamine(cy, nodeId) {
   clearEdgeStyling(cy);
-  cy.getElementById(qId).addClass('selected-q');
-
+  cy.getElementById(nodeId).addClass('selected-dopamine');
   cy.edges().forEach((edgeEle) => {
-    const controlling = edgeEle.data('controllingQIds') || [];
-    if (controlling.includes(qId)) {
+    const controlling = edgeEle.data('controllingDopamineIds') || [];
+    if (controlling.includes(nodeId)) {
       edgeEle.data('color', EDGE_COLORS.highlight);
       edgeEle.data('thickness', 3.2);
       edgeEle.data('opacity', 0.95);
@@ -539,8 +437,8 @@ function applyGraphSelection() {
   if (!state.cy) {
     return;
   }
-  if (state.selectedQId) {
-    highlightEdgesForQ(state.cy, state.selectedQId);
+  if (state.selectedDopamineId) {
+    highlightEdgesForDopamine(state.cy, state.selectedDopamineId);
   } else if (state.selectedEdgeId) {
     highlightSelectedEdge(state.cy, state.selectedEdgeId);
   } else {
@@ -548,13 +446,13 @@ function applyGraphSelection() {
   }
 }
 
-function bindGraphInteractions(cy, data) {
+function bindGraphInteractions(cy) {
   cy.on('tap', 'node', (event) => {
     const node = event.target;
-    if (node.data('kind') !== 'q') {
+    if (!node.data('isDopamine')) {
       return;
     }
-    state.selectedQId = node.id();
+    state.selectedDopamineId = node.id();
     state.selectedEdgeId = null;
     applyGraphSelection();
     renderDetailPanel();
@@ -562,14 +460,14 @@ function bindGraphInteractions(cy, data) {
 
   cy.on('tap', 'edge', (event) => {
     state.selectedEdgeId = event.target.id();
-    state.selectedQId = null;
+    state.selectedDopamineId = null;
     applyGraphSelection();
     renderDetailPanel();
   });
 
   cy.on('tap', (event) => {
     if (event.target === cy) {
-      state.selectedQId = null;
+      state.selectedDopamineId = null;
       state.selectedEdgeId = null;
       applyGraphSelection();
       renderDetailPanel();
@@ -609,6 +507,7 @@ function createFieldMarkup(field) {
   }
 
   const stepAttr = field.step ? `step="${field.step}"` : '';
+  const placeholder = field.optional ? 'placeholder="auto"' : '';
   return `
     <div class="form-field ${field.wide ? 'wide' : ''}">
       <label for="field-${field.key}">${field.label}</label>
@@ -617,6 +516,7 @@ function createFieldMarkup(field) {
         name="${field.key}"
         type="${field.type}"
         ${stepAttr}
+        ${placeholder}
       >
     </div>
   `;
@@ -635,6 +535,8 @@ function fillForm(config) {
     }
     if (field.type === 'checkbox') {
       element.checked = Boolean(config[field.key]);
+    } else if (field.optional && (config[field.key] === null || config[field.key] === undefined)) {
+      element.value = '';
     } else {
       element.value = config[field.key] ?? '';
     }
@@ -653,7 +555,11 @@ function readFormPayload() {
       return;
     }
     if (field.type === 'number') {
-      payload[field.key] = Number(element.value);
+      if (field.optional && element.value.trim() === '') {
+        payload[field.key] = null;
+      } else {
+        payload[field.key] = Number(element.value);
+      }
       return;
     }
     payload[field.key] = element.value;
@@ -687,6 +593,13 @@ function formatMetric(value, digits = 4) {
   return Number(value).toFixed(digits);
 }
 
+function formatPercent(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'n/a';
+  }
+  return `${(Number(value) * 100).toFixed(1)}%`;
+}
+
 function escapeHtml(text) {
   return String(text)
     .replaceAll('&', '&amp;')
@@ -705,19 +618,27 @@ async function fetchJson(url, options = {}) {
   return payload;
 }
 
+function syncGraphFromState() {
+  const payload = state.activeRun?.graph_payload || state.defaultGraphPayload;
+  ensureGraph(payload);
+  renderDetailPanel();
+  renderStatusPanel();
+}
+
 async function loadDefaults() {
   const payload = await fetchJson('/api/default-config');
   state.defaultConfig = payload.config;
   state.taskNames = payload.task_names || [];
+  state.defaultGraphPayload = payload.graph_payload || null;
   renderConfigForm();
   fillForm(state.defaultConfig);
+  syncGraphFromState();
 }
 
 async function refreshState(showMessage = false) {
   const payload = await fetchJson('/api/state');
   state.activeRun = payload.active_run;
-  renderStatusPanel();
-  renderDetailPanel();
+  syncGraphFromState();
   updateButtons();
   if (showMessage) {
     setFlashMessage('Dashboard state refreshed.', 'info');
@@ -733,14 +654,14 @@ async function handleRun() {
       body: JSON.stringify(payload),
     });
     state.activeRun = result.active_run;
-    renderStatusPanel();
+    syncGraphFromState();
     updateButtons();
     setFlashMessage('Training run started.', 'success');
   } catch (error) {
     const payload = error.payload || {};
     if (payload.active_run !== undefined) {
       state.activeRun = payload.active_run;
-      renderStatusPanel();
+      syncGraphFromState();
       updateButtons();
     }
     setFlashMessage(error.message, 'error');
@@ -754,7 +675,7 @@ async function handleStop() {
       headers: { 'Content-Type': 'application/json' },
     });
     state.activeRun = result.active_run;
-    renderStatusPanel();
+    syncGraphFromState();
     updateButtons();
     setFlashMessage('Stop requested. Training will finish the current epoch and then write artifacts.', 'info');
   } catch (error) {
@@ -771,6 +692,11 @@ function bindDashboardControls() {
   document.getElementById('btn-reset-form').addEventListener('click', () => {
     if (state.defaultConfig) {
       fillForm(state.defaultConfig);
+      if (!state.activeRun) {
+        state.selectedDopamineId = null;
+        state.selectedEdgeId = null;
+        syncGraphFromState();
+      }
       setFlashMessage('Form reset to default configuration.', 'info');
     }
   });
@@ -788,14 +714,8 @@ function startPolling() {
 }
 
 async function initializeDashboard() {
-  state.data = buildVizData();
-  state.cy = createCy(state.data);
-  bindGraphInteractions(state.cy, state.data);
-
   await loadDefaults();
   bindDashboardControls();
-  renderStatusPanel();
-  renderDetailPanel();
   await refreshState(false);
   startPolling();
 }

@@ -16,7 +16,14 @@ import webbrowser
 
 from src.config import ExperimentConfig, config_from_user_dict, load_config_from_yaml
 from src.data import available_task_names
-from src.train import make_run_dir, run_experiment
+from src.assignment import (
+    build_dopamine_assignment,
+    build_forward_edge_records,
+    build_graph_payload,
+    resolve_dopamine_m,
+)
+from src.model import SelfModulatedMLP
+from src.train import load_experiment_checkpoint, make_run_dir, run_experiment
 
 
 ROOT = Path(__file__).resolve().parent
@@ -38,6 +45,7 @@ class DashboardState:
         return {
             "config": config.to_user_dict(),
             "task_names": available_task_names(),
+            "graph_payload": self._build_preview_payload(config)["graph_payload"],
         }
 
     def get_state(self) -> dict[str, Any]:
@@ -64,6 +72,7 @@ class DashboardState:
                 raise RuntimeError("A training run is already in progress.")
 
         config = config_from_user_dict(user_payload, base_dir=self.root)
+        preview = self._build_preview_payload(config)
         run_dir = make_run_dir(self.root / "runs", config.run_name)
         live_status_path = run_dir / "live_viewer.json"
 
@@ -74,16 +83,25 @@ class DashboardState:
             "status": "starting",
             "epoch": 0,
             "epochs_total": config.epochs,
+            "local_epoch": 0,
+            "local_epochs_total": config.epochs,
+            "global_epoch": preview["global_epoch_completed_before"],
+            "global_epoch_start": preview["global_epoch_completed_before"] + 1,
+            "global_epoch_end": preview["global_epoch_completed_before"] + config.epochs,
             "lambda": config.lambda_value,
             "train_loss": None,
             "val_loss": None,
             "best_val_loss": None,
             "seed": config.seed,
-            "m": None,
-            "N": None,
+            "m": preview["dopamine_m"],
+            "N": preview["edge_count"],
+            "dopamine_m": preview["dopamine_m"],
+            "recommended_dopamine_m": preview["recommended_dopamine_m"],
+            "coverage_c": preview["coverage_c"],
             "resume_from": config.resume_from,
             "run_dir": str(run_dir),
             "updated_at": None,
+            "graph_payload": preview["graph_payload"],
         }
 
         with self.lock:
@@ -101,6 +119,43 @@ class DashboardState:
             self.worker_thread = worker
         worker.start()
         return self.get_state()
+
+    def _build_preview_payload(self, config: ExperimentConfig) -> dict[str, Any]:
+        model = SelfModulatedMLP()
+        edge_records = build_forward_edge_records(model)
+
+        if config.resume_from:
+            checkpoint = load_experiment_checkpoint(config.resume_from)
+            graph_payload = dict(checkpoint.get("graph_payload") or {})
+            return {
+                "graph_payload": graph_payload,
+                "dopamine_m": int(checkpoint["effective_dopamine_m"]),
+                "recommended_dopamine_m": int(checkpoint.get("recommended_dopamine_m", checkpoint["effective_dopamine_m"])),
+                "coverage_c": int(checkpoint["coverage_c"]),
+                "edge_count": int(checkpoint["edge_count"]),
+                "global_epoch_completed_before": int(checkpoint.get("global_epoch_completed", 0)),
+            }
+
+        dopamine_m, recommended_dopamine_m = resolve_dopamine_m(
+            coverage_c=config.coverage_c,
+            hidden_pool_size=model.hidden_pool_size(),
+            dopamine_m_override=config.dopamine_m_override,
+        )
+        _, _, assignment_metadata = build_dopamine_assignment(
+            edge_records=edge_records,
+            hidden_node_ids=model.hidden_node_ids(),
+            coverage_c=config.coverage_c,
+            dopamine_m=dopamine_m,
+            seed=config.seed,
+        )
+        return {
+            "graph_payload": build_graph_payload(model, assignment_metadata),
+            "dopamine_m": dopamine_m,
+            "recommended_dopamine_m": recommended_dopamine_m,
+            "coverage_c": config.coverage_c,
+            "edge_count": len(edge_records),
+            "global_epoch_completed_before": 0,
+        }
 
     def _update_live_state(self, payload: dict[str, Any]) -> None:
         with self.lock:
