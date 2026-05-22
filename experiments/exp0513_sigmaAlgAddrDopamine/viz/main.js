@@ -13,28 +13,28 @@ const EDGE_COLORS = {
 };
 
 const FORM_FIELDS = [
-  { key: 'run_name', label: 'Run name', type: 'text', wide: true },
-  { key: 'resume_latest', label: 'Resume latest model.pt', type: 'checkbox', wide: true },
-  { key: 'task_name', label: 'Task name', type: 'select' },
-  { key: 'seed', label: 'Seed', type: 'number', step: '1' },
-  { key: 'epochs', label: 'Continue epochs', type: 'number', step: '1' },
-  { key: 'lambda', label: 'Lambda', type: 'number', step: '0.01' },
-  { key: 'input_dim', label: 'Input dim', type: 'number', step: '1' },
-  { key: 'output_dim', label: 'Output dim', type: 'number', step: '1' },
-  { key: 'trunk_dims', label: 'Trunk dims', type: 'text', wide: true, placeholder: '16,16' },
-  { key: 'coverage_c', label: 'Coverage c', type: 'number', step: '1' },
-  { key: 'dopamine_m_override', label: 'Dopamine m override', type: 'number', step: '1', optional: true },
-  { key: 'batch_size', label: 'Batch size', type: 'number', step: '1' },
-  { key: 'lr_bp', label: 'Learning rate', type: 'number', step: '0.0001' },
-  { key: 'eta_int', label: 'Internal eta', type: 'number', step: '0.00001' },
-  { key: 'gamma', label: 'Gamma', type: 'number', step: '0.1' },
-  { key: 'num_train', label: 'Train samples', type: 'number', step: '1' },
-  { key: 'num_val', label: 'Val samples', type: 'number', step: '1' },
-  { key: 'num_plot', label: 'Plot samples', type: 'number', step: '1' },
-  { key: 'x_min', label: 'x min', type: 'number', step: '0.1' },
-  { key: 'x_max', label: 'x max', type: 'number', step: '0.1' },
-  { key: 'resume_from', label: 'Resume from', type: 'text', wide: true },
-  { key: 'enable_diagnostics', label: 'Enable diagnostics', type: 'checkbox', wide: true },
+  { key: 'run_name', label: 'run_name', type: 'text', wide: true },
+  { key: 'resume_latest', label: 'resume latest model.pt', type: 'checkbox', wide: true },
+  { key: 'resume_from', label: 'resume_from', type: 'text', wide: true },
+  { key: 'seed', label: 'seed', type: 'number', step: '1' },
+  { key: 'task_name', label: 'task_name', type: 'select' },
+  { key: 'input_dim', label: 'input_dim', type: 'number', step: '1' },
+  { key: 'output_dim', label: 'output_dim', type: 'number', step: '1' },
+  { key: 'trunk_dims', label: 'trunk_dims', type: 'text', wide: true, placeholder: '16,16' },
+  { key: 'num_train', label: 'train samples', type: 'number', step: '1' },
+  { key: 'num_val', label: 'val samples', type: 'number', step: '1' },
+  { key: 'num_plot', label: 'plot samples', type: 'number', step: '1' },
+  { key: 'x_min', label: 'x_min', type: 'number', step: '0.1' },
+  { key: 'x_max', label: 'x_max', type: 'number', step: '0.1' },
+  { key: 'coverage_c', label: 'c (average edge coverage)', type: 'number', step: '1' },
+  { key: 'dopamine_m_override', label: 'm (dopamine node count)', type: 'number', step: '1', optional: true },
+  { key: 'epochs', label: 'epochs (continue)', type: 'number', step: '1' },
+  { key: 'lambda', label: 'λ (ratio of dopamine regulation)', type: 'number', step: '0.01' },
+  { key: 'batch_size', label: 'batch_size', type: 'number', step: '1' },
+  { key: 'lr_bp', label: 'lr_bp', type: 'number', step: '0.0001' },
+  { key: 'eta_int', label: 'η_int (internal update scale)', type: 'number', step: '0.00001' },
+  { key: 'gamma', label: 'γ (internal saturation gain)', type: 'number', step: '0.1' },
+  { key: 'enable_diagnostics', label: 'enable diagnostics', type: 'checkbox', wide: true },
 ];
 
 const FORM_SECTIONS = [
@@ -44,15 +44,15 @@ const FORM_SECTIONS = [
     fields: ['run_name', 'resume_latest', 'resume_from', 'seed'],
   },
   {
-    key: 'task',
-    title: 'Task & Architecture',
-    fields: ['task_name', 'input_dim', 'output_dim', 'trunk_dims'],
+    key: 'setup',
+    title: 'Setup',
+    fields: ['task_name', 'input_dim', 'output_dim', 'trunk_dims', 'num_train', 'num_val', 'num_plot', 'x_min', 'x_max'],
   },
   {
     key: 'dopamine',
-    title: 'Dopamine Coverage',
+    title: 'Dopamine',
     fields: ['coverage_c', 'dopamine_m_override'],
-    summaryId: 'dopamine-preview-summary',
+    infoTrigger: 'dopamine',
   },
   {
     key: 'training',
@@ -60,9 +60,10 @@ const FORM_SECTIONS = [
     fields: ['epochs', 'lambda', 'batch_size', 'lr_bp', 'eta_int', 'gamma'],
   },
   {
-    key: 'data',
-    title: 'Data',
-    fields: ['num_train', 'num_val', 'num_plot', 'x_min', 'x_max', 'enable_diagnostics'],
+    key: 'evaluation',
+    title: 'Evaluation',
+    fields: ['enable_diagnostics'],
+    extraId: 'evaluation-extra',
   },
 ];
 
@@ -300,9 +301,7 @@ function renderStatusPanel() {
     return;
   }
 
-  const statusClass = `status-${activeRun.status || 'idle'}`;
   const localDisplay = `${activeRun.local_epoch ?? activeRun.epoch ?? 0} / ${activeRun.local_epochs_total ?? activeRun.epochs_total ?? '-'}`;
-  const globalDisplay = `${activeRun.global_epoch ?? 0}`;
   const globalRange = `${activeRun.global_epoch_start ?? '?'}-${activeRun.global_epoch_end ?? '?'}`;
 
   panel.innerHTML = `
@@ -310,17 +309,9 @@ function renderStatusPanel() {
       <p class="detail-kicker">Active run</p>
       <h2 class="detail-title">${activeRun.run_name || 'unnamed run'}</h2>
       <div class="stats-grid">
-        <div class="stat-box ${statusClass}">
-          <p class="stat-label">Status</p>
-          <p class="stat-value">${activeRun.status || 'idle'}</p>
-        </div>
         <div class="stat-box">
           <p class="stat-label">Local epoch</p>
           <p class="stat-value">${localDisplay}</p>
-        </div>
-        <div class="stat-box">
-          <p class="stat-label">Global epoch</p>
-          <p class="stat-value">${globalDisplay}</p>
         </div>
         <div class="stat-box">
           <p class="stat-label">Global range</p>
@@ -341,13 +332,10 @@ function renderStatusPanel() {
       </div>
       <div class="meta-strip">
         <span class="meta-chip">task ${activeRun.task_name || 'n/a'}</span>
-        <span class="meta-chip">lambda ${formatMetric(activeRun.lambda, 2)}</span>
+        <span class="meta-chip">λ ${formatMetric(activeRun.lambda, 2)}</span>
         <span class="meta-chip">c ${activeRun.coverage_c ?? 'n/a'}</span>
         <span class="meta-chip">m ${activeRun.dopamine_m ?? 'n/a'}</span>
       </div>
-      <p class="run-dir-line" title="${escapeHtml(activeRun.run_dir || '')}">
-        Run dir: ${formatShortPath(activeRun.run_dir)}
-      </p>
       ${activeRun.error ? `<p class="muted">Error: ${escapeHtml(activeRun.error)}</p>` : ''}
     </div>
   `;
@@ -600,6 +588,31 @@ function renderEdgeDetail(panel, edge, payload) {
   `;
 }
 
+function showGraphPopup(lines, x, y) {
+  const popup = document.getElementById('graph-popup');
+  const center = document.getElementById('panel-center');
+  if (!popup || !center) {
+    return;
+  }
+  popup.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+  popup.classList.remove('hidden');
+  const popupWidth = 210;
+  const popupHeight = Math.max(56, lines.length * 18 + 12);
+  const maxX = Math.max(center.clientWidth - popupWidth - 8, 8);
+  const maxY = Math.max(center.clientHeight - popupHeight - 8, 8);
+  popup.style.left = `${Math.min(x + 8, maxX)}px`;
+  popup.style.top = `${Math.min(y + 8, maxY)}px`;
+}
+
+function hideGraphPopup() {
+  const popup = document.getElementById('graph-popup');
+  if (!popup) {
+    return;
+  }
+  popup.classList.add('hidden');
+  popup.innerHTML = '';
+}
+
 function renderDetailPanel() {
   const panel = document.getElementById('detail-panel');
   const payload = state.graphPayload;
@@ -682,19 +695,51 @@ function applyGraphSelection() {
 function bindGraphInteractions(cy) {
   cy.on('tap', 'node', (event) => {
     const node = event.target;
+    const payload = state.graphPayload;
+    const previewState = getCurrentGraphContext().previewState;
+    const activationValue = previewState?.node_activation_snapshot?.[node.id()];
+    const isDopamine = Boolean(node.data('isDopamine'));
+    const controlledCount = payload
+      ? payload.edges.filter((edge) => (edge.controllingDopamineIds || []).includes(node.id())).length
+      : 0;
     state.selectedDopamineId = node.data('isDopamine') ? node.id() : null;
     state.selectedNodeId = node.id();
     state.selectedEdgeId = null;
     applyGraphSelection();
     renderDetailPanel();
+    showGraphPopup(
+      [
+        `<strong>${escapeHtml(node.id())}</strong>`,
+        `kind: ${escapeHtml(node.data('kind') || 'n/a')}`,
+        `activation: ${escapeHtml(formatMaybeMetric(activationValue))}`,
+        ...(isDopamine ? [`controlled edges: ${controlledCount}`] : []),
+      ],
+      event.renderedPosition?.x ?? 0,
+      event.renderedPosition?.y ?? 0,
+    );
   });
 
   cy.on('tap', 'edge', (event) => {
-    state.selectedEdgeId = event.target.id();
+    const edgeId = event.target.id();
+    const payload = state.graphPayload;
+    const edge = payload?.edges.find((item) => item.id === edgeId);
+    const previewState = getCurrentGraphContext().previewState;
+    const weightValue = previewState?.edge_weight_snapshot?.[edgeId];
+    state.selectedEdgeId = edgeId;
     state.selectedDopamineId = null;
     state.selectedNodeId = null;
     applyGraphSelection();
     renderDetailPanel();
+    showGraphPopup(
+      [
+        `<strong>${escapeHtml(edgeId)}</strong>`,
+        `weight: ${escapeHtml(formatMaybeMetric(weightValue))}`,
+        edge ? `${escapeHtml(edge.source)} → ${escapeHtml(edge.target)}` : 'edge',
+        `dopamine nodes: ${edge?.controllingDopamineIds?.length ?? 0}`,
+      ],
+      event.renderedPosition?.x ?? 0,
+      event.renderedPosition?.y ?? 0,
+    );
   });
 
   cy.on('tap', (event) => {
@@ -704,6 +749,7 @@ function bindGraphInteractions(cy) {
       state.selectedEdgeId = null;
       applyGraphSelection();
       renderDetailPanel();
+      hideGraphPopup();
     }
   });
 
@@ -757,20 +803,33 @@ function createFieldMarkup(field) {
   `;
 }
 
+function createSectionExtraMarkup(section) {
+  if (section.extraId === 'evaluation-extra') {
+    return `
+      <div class="section-extra evaluation-extra">
+        <button type="button" class="secondary-action" disabled>Evaluate latest checkpoint</button>
+        <p class="muted">Reserved for post-training evaluation and testing entrypoints.</p>
+      </div>
+    `;
+  }
+  return '';
+}
+
 function createSectionMarkup(section) {
   const fields = section.fields
     .map((fieldKey) => createFieldMarkup(FIELD_MAP.get(fieldKey)))
     .join('');
-  const summaryMarkup = section.summaryId
-    ? `<div id="${section.summaryId}" class="derived-summary"></div>`
+  const legendControls = section.infoTrigger
+    ? `<button type="button" class="legend-help" data-help="${section.infoTrigger}" title="Show section help">?</button>`
     : '';
+  const extraMarkup = createSectionExtraMarkup(section);
   return `
     <fieldset class="config-card">
-      <legend>${section.title}</legend>
+      <legend><span>${section.title}</span>${legendControls}</legend>
       <div class="form-grid section-grid">
         ${fields}
       </div>
-      ${summaryMarkup}
+      ${extraMarkup}
     </fieldset>
   `;
 }
@@ -782,6 +841,13 @@ function renderConfigForm() {
   if (resumeLatest) {
     resumeLatest.addEventListener('change', syncResumeModeUi);
   }
+  container.querySelectorAll('.legend-help').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      if (event.currentTarget.dataset.help === 'dopamine') {
+        toggleDopamineInfoPopover(event.currentTarget);
+      }
+    });
+  });
 }
 
 function fillForm(config) {
@@ -851,16 +917,15 @@ function syncResumeModeUi() {
   }
 }
 
-function renderDopaminePreviewSummary(summary) {
-  const container = document.getElementById('dopamine-preview-summary');
-  if (!container) {
-    return;
-  }
+function getCurrentPreviewSummary() {
+  return state.previewSummary || state.defaultPreviewSummary || null;
+}
+
+function buildDopamineInfoHtml(summary) {
   if (!summary) {
-    container.innerHTML = '';
-    return;
+    return `<p class="muted">No dopamine preview has been computed yet.</p>`;
   }
-  container.innerHTML = `
+  return `
     <div class="derived-summary-grid">
       <div class="derived-item">
         <span class="derived-label">recommended m</span>
@@ -879,8 +944,40 @@ function renderDopaminePreviewSummary(summary) {
         <span class="derived-value">${formatMetric(summary.average_edges_per_dopamine, 2)}</span>
       </div>
     </div>
-    <p class="derived-footnote">This summary updates on Confirm and defines the previewed dopamine assignment.</p>
   `;
+}
+
+function hideDopamineInfoPopover() {
+  const popover = document.getElementById('dopamine-info-popover');
+  if (!popover) {
+    return;
+  }
+  popover.classList.add('hidden');
+  popover.innerHTML = '';
+}
+
+function toggleDopamineInfoPopover(anchor) {
+  const popover = document.getElementById('dopamine-info-popover');
+  if (!popover || !anchor) {
+    return;
+  }
+  if (!popover.classList.contains('hidden')) {
+    hideDopamineInfoPopover();
+    return;
+  }
+
+  const summary = getCurrentPreviewSummary();
+  popover.innerHTML = `
+    <button type="button" class="popover-close" title="Close">×</button>
+    <h4>Dopamine coverage</h4>
+    ${buildDopamineInfoHtml(summary)}
+    <p class="derived-footnote">These preview values update after Confirm and define the current dopamine assignment.</p>
+  `;
+  const anchorRect = anchor.getBoundingClientRect();
+  popover.style.top = `${anchorRect.bottom + 6}px`;
+  popover.style.left = `${Math.max(anchorRect.left - 150, 12)}px`;
+  popover.classList.remove('hidden');
+  popover.querySelector('.popover-close')?.addEventListener('click', hideDopamineInfoPopover);
 }
 
 function setFlashMessage(message, kind = 'info') {
@@ -968,7 +1065,6 @@ async function fetchJson(url, options = {}) {
 function syncGraphFromState() {
   const graphContext = getCurrentGraphContext();
   ensureGraph(graphContext.payload);
-  renderDopaminePreviewSummary(state.previewSummary || state.defaultPreviewSummary);
   renderDetailPanel();
   renderStatusPanel();
   renderLossPanel();
@@ -1020,6 +1116,7 @@ async function handleConfirm() {
     state.selectedDopamineId = null;
     state.selectedNodeId = null;
     state.selectedEdgeId = null;
+    hideGraphPopup();
     syncGraphFromState();
     updateButtons();
     setFlashMessage('Preview confirmed. Graph and dopamine assignment updated; Run is now enabled.', 'success');
@@ -1087,9 +1184,33 @@ function bindDashboardControls() {
       state.selectedDopamineId = null;
       state.selectedNodeId = null;
       state.selectedEdgeId = null;
+      hideGraphPopup();
+      hideDopamineInfoPopover();
       syncGraphFromState();
       updateButtons();
       setFlashMessage('Form reset to default values. Confirm again before running.', 'info');
+    }
+  });
+
+  document.getElementById('btn-help').addEventListener('click', () => {
+    document.getElementById('help-overlay')?.classList.remove('hidden');
+  });
+  document.getElementById('btn-help-close').addEventListener('click', () => {
+    document.getElementById('help-overlay')?.classList.add('hidden');
+  });
+  document.getElementById('help-overlay').addEventListener('click', (event) => {
+    if (event.target?.id === 'help-overlay') {
+      document.getElementById('help-overlay')?.classList.add('hidden');
+    }
+  });
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      !target.closest('#dopamine-info-popover') &&
+      !target.closest('.legend-help')
+    ) {
+      hideDopamineInfoPopover();
     }
   });
 

@@ -15,6 +15,7 @@
       <button id="btn-stop">Stop</button>
       <button id="btn-refresh">Refresh</button>
       <button id="btn-reset-form">Reset</button>
+      <button id="btn-help" class="toolbar-help" title="Show help">?</button>
     </div>
     <div class="toolbar-group toolbar-stats">
       <span>Preview: <strong id="toolbar-preview-state">dirty</strong></span>
@@ -24,60 +25,63 @@
   </header>
 
   <main id="layout">
+    <div id="help-overlay" class="help-overlay hidden">
+      <div class="help-content">
+        <button id="btn-help-close" class="help-close" title="Close help">×</button>
+        <h2>exp0513 Dashboard Help</h2>
+
+        <h3>Legend</h3>
+        <ul>
+          <li><strong>Blue</strong>: input node</li>
+          <li><strong>Gray</strong>: hidden neuron</li>
+          <li><strong>Green</strong>: dopamine hidden node</li>
+          <li><strong>Red</strong>: output node</li>
+          <li><strong>Blue-highlighted edge</strong>: controlled by the selected dopamine node</li>
+          <li><strong>Orange edge</strong>: currently selected edge</li>
+        </ul>
+
+        <h3>Interaction</h3>
+        <ul>
+          <li>Click a dopamine hidden node to highlight every forward edge it controls.</li>
+          <li>Click any node or edge to see a small value popup at the click location.</li>
+          <li>The right panel keeps the complete detail view while the graph popup shows only the key values.</li>
+        </ul>
+
+        <h3>Diagnostics</h3>
+        <ul>
+          <li>Preview-only states show initialized edge weights immediately.</li>
+          <li>Node activations appear after the first validation pass of a real run.</li>
+          <li>Local loss tracks only the current continuation run; global loss spans all resumes.</li>
+        </ul>
+
+        <h3>Resume semantics</h3>
+        <ul>
+          <li><strong>Resume latest model.pt</strong> automatically points at the newest checkpoint in <code>runs/</code>.</li>
+          <li><strong>epochs</strong> means how many additional epochs to continue, not the total historical epoch count.</li>
+        </ul>
+
+        <h3>Dopamine coverage semantics</h3>
+        <ul>
+          <li><strong>c</strong> is the average edge coverage: how many dopamine nodes cover an edge on average.</li>
+          <li><strong>m</strong> is the dopamine node count. If left blank, the dashboard recommends a value from the current architecture.</li>
+        </ul>
+      </div>
+    </div>
+
     <aside id="panel-left">
-      <h3>Parameters</h3>
-      <p class="panel-intro">
-        Confirm the preview first, then run training from the toolbar.
-      </p>
       <div id="flash-message" class="flash-message hidden"></div>
 
       <section class="panel-section">
-        <div class="section-header">
-          <h2>Configuration</h2>
-        </div>
+        <h2>Configuration</h2>
         <form id="config-form">
           <div id="config-sections" class="config-sections"></div>
         </form>
-      </section>
-
-      <section class="panel-section fold-stack">
-        <details class="panel-fold">
-          <summary>Legend</summary>
-          <div class="fold-body">
-            <div class="legend-item"><span class="legend-dot legend-input"></span> Input node</div>
-            <div class="legend-item"><span class="legend-dot legend-hidden"></span> Hidden neuron</div>
-            <div class="legend-item"><span class="legend-dot legend-dopamine"></span> Dopamine hidden node</div>
-            <div class="legend-item"><span class="legend-dot legend-y"></span> Output node</div>
-            <div class="legend-item"><span class="legend-line legend-forward"></span> Forward edge</div>
-            <div class="legend-item"><span class="legend-line legend-highlight"></span> Controlled by selected dopamine node</div>
-            <div class="legend-item"><span class="legend-line legend-selected"></span> Selected edge</div>
-          </div>
-        </details>
-        <details class="panel-fold">
-          <summary>Interaction</summary>
-          <div class="fold-body">
-            <ul class="panel-list">
-              <li>Click a dopamine hidden node to highlight its controlled forward edges.</li>
-              <li>Click any forward edge to inspect its source, target, weight, and controlling dopamine nodes.</li>
-              <li>Training state refreshes automatically every second while a run is active.</li>
-            </ul>
-          </div>
-        </details>
-        <details class="panel-fold">
-          <summary>Diagnostics</summary>
-          <div class="fold-body">
-            <ul class="panel-list">
-              <li>Preview-only states show initialized edge weights immediately.</li>
-              <li>Node activations appear after the first validation pass of a real run.</li>
-              <li>Local loss tracks only the current continuation run; global loss spans all resumes.</li>
-            </ul>
-          </div>
-        </details>
       </section>
     </aside>
 
     <section id="panel-center">
       <div id="cy"></div>
+      <div id="graph-popup" class="graph-popup hidden"></div>
     </section>
 
     <aside id="panel-right">
@@ -86,6 +90,8 @@
       <div id="detail-panel"></div>
     </aside>
   </main>
+
+  <div id="dopamine-info-popover" class="mini-popover hidden"></div>
 
   <script type="module" src="main.js"></script>
 </body>
