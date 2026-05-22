@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
-import os
 from pathlib import Path
 import random
 from typing import Any
@@ -13,26 +12,15 @@ import numpy as np
 import torch
 from torch import nn
 
-# Keep matplotlib/font caches inside the experiment workspace.
-_RUNTIME_CACHE = Path(__file__).resolve().parents[1] / ".runtime_cache"
-_MPL_CACHE = _RUNTIME_CACHE / "mpl"
-_XDG_CACHE = _RUNTIME_CACHE / "xdg"
-_MPL_CACHE.mkdir(parents=True, exist_ok=True)
-_XDG_CACHE.mkdir(parents=True, exist_ok=True)
-os.environ.setdefault("MPLCONFIGDIR", str(_MPL_CACHE))
-os.environ.setdefault("XDG_CACHE_HOME", str(_XDG_CACHE))
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
 try:
     from .config import ExperimentConfig, copy_config_to_run_dir, write_resolved_config
     from .model import ExternalClockMLP
+    from .plots import plot_rollout_diagnostics, plot_training_curves
     from .task import build_rollout_targets
 except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig, copy_config_to_run_dir, write_resolved_config
     from model import ExternalClockMLP
+    from plots import plot_rollout_diagnostics, plot_training_curves
     from task import build_rollout_targets
 
 
@@ -228,88 +216,6 @@ def _save_rollout_csv(
     output_path.write_text("\n".join(",".join(str(value) for value in row) for row in rows))
 
 
-def _plot_training_curves(
-    full_history: list[dict[str, float]],
-    baseline_history: list[dict[str, float]],
-    output_path: Path,
-    *,
-    dpi: int,
-) -> None:
-    fig, ax = plt.subplots(figsize=(8, 5))
-    epochs = [row["epoch"] for row in full_history]
-    ax.plot(epochs, [row["train_loss"] for row in full_history], label="full train", linewidth=1.8)
-    ax.plot(epochs, [row["val_loss"] for row in full_history], label="full val", linewidth=1.4)
-    ax.plot(epochs, [row["train_loss"] for row in baseline_history], label="baseline train", linewidth=1.8)
-    ax.plot(epochs, [row["val_loss"] for row in baseline_history], label="baseline val", linewidth=1.4)
-    ax.set_yscale("log")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("MSE")
-    ax.set_title("exp0522 training curves")
-    ax.grid(True, alpha=0.25)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi)
-    plt.close(fig)
-
-
-def _plot_rollout_comparison(
-    *,
-    normal_eval: dict[str, Any],
-    baseline_eval: dict[str, Any],
-    mute_deaf_eval: dict[str, Any],
-    output_path: Path,
-    title: str,
-    dpi: int,
-) -> None:
-    steps = np.arange(len(normal_eval["target"]))
-    fig, axes = plt.subplots(3, 1, figsize=(11, 9), sharex=True)
-    labels = [
-        ("full", normal_eval["prediction"].numpy()),
-        ("baseline", baseline_eval["prediction"].numpy()),
-        ("mute_deaf", mute_deaf_eval["prediction"].numpy()),
-    ]
-    for ax, (label, pred) in zip(axes, labels):
-        ax.plot(steps, normal_eval["target"].numpy(), label="target", linewidth=2.0)
-        ax.plot(steps, pred, label=label, linewidth=1.8)
-        ax.set_ylabel("value")
-        ax.grid(True, alpha=0.25)
-        ax.legend(loc="upper right")
-    axes[-1].set_xlabel("step")
-    fig.suptitle(title)
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi)
-    plt.close(fig)
-
-
-def _plot_message_traces(
-    *,
-    rollout: dict[str, Any],
-    output_path: Path,
-    dpi: int,
-) -> None:
-    messages = rollout["messages"].numpy()
-    steps = np.arange(messages.shape[0])
-
-    fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
-    if messages.shape[1] > 0:
-        for idx in range(messages.shape[1]):
-            axes[0].plot(steps, messages[:, idx], linewidth=1.5, label=f"m{idx}")
-        axes[0].legend(loc="upper right", ncol=2)
-    axes[0].set_ylabel("message")
-    axes[0].set_title("Language channel traces")
-    axes[0].grid(True, alpha=0.25)
-
-    axes[1].plot(steps, rollout["message_norm"].numpy(), color="black", linewidth=1.8)
-    axes[1].set_xlabel("step")
-    axes[1].set_ylabel("||m_t||")
-    axes[1].set_title("Message norm")
-    axes[1].grid(True, alpha=0.25)
-
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi)
-    plt.close(fig)
-
-
 def _build_summary(
     *,
     config: ExperimentConfig,
@@ -468,32 +374,21 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         language_dim=config.language_dim,
     )
 
-    _plot_training_curves(
+    plot_training_curves(
         full_history=full_result["history"],
         baseline_history=baseline_result["history"],
         output_path=plots_dir / "training_curves.png",
-        dpi=config.plot_dpi,
+        config=config,
     )
-    _plot_rollout_comparison(
-        normal_eval=full_eval,
-        baseline_eval=baseline_eval,
-        mute_deaf_eval=full_mute_eval,
-        output_path=plots_dir / "eval_rollout.png",
-        title="exp0522 eval rollout",
-        dpi=config.plot_dpi,
-    )
-    _plot_rollout_comparison(
-        normal_eval=full_long,
-        baseline_eval=baseline_long,
-        mute_deaf_eval=full_mute_long,
-        output_path=plots_dir / "long_rollout.png",
-        title="exp0522 long rollout",
-        dpi=config.plot_dpi,
-    )
-    _plot_message_traces(
-        rollout=full_eval,
-        output_path=plots_dir / "message_traces.png",
-        dpi=config.plot_dpi,
+    plot_rollout_diagnostics(
+        short_full=full_eval,
+        short_baseline=baseline_eval,
+        short_mute_deaf=full_mute_eval,
+        long_full=full_long,
+        long_baseline=baseline_long,
+        long_mute_deaf=full_mute_long,
+        output_path=plots_dir / "rollout_diagnostics.png",
+        config=config,
     )
 
     _save_checkpoint(

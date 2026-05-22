@@ -1,17 +1,44 @@
-run_name: exp0522_clock_v0
-seed: 42
-epochs: 400
-lr: 0.003
-weight_decay: 0.0
-grad_clip: 1.0
-trunk_dims:
-  - 32
-language_dim: 4
-cycle_steps: 32
-train_steps: 128
-eval_steps: 128
-long_steps: 512
-pulse_value: 1.0
-log_every: 25
-output_root: runs
-plot_dpi: 160
+run:
+  run_name: exp0522_clock_v0   # run folder suffix
+  seed: 42                     # random seed for model init and fixed language readout
+  log_every: 25                # print training status every N epochs
+  output_root: runs            # where timestamped run folders are created
+
+model:
+  trunk_dims:
+    - 32                       # hidden width of the MLP trunk
+    # - 32
+  language_dim: 8              # number of language input/output heads
+
+task:
+  cycle_steps: 32              # number of steps in one full sine cycle
+  train_steps: 128             # rollout length used for final training stage
+  eval_steps: 128              # in-distribution evaluation rollout length
+  long_steps: 512              # long-horizon rollout length for stress test
+  pulse_value: 1.0             # constant ordinary input x_t at every step
+
+train:
+  epochs: 400                  # total training epochs
+  lr: 0.003                    # Adam learning rate
+  weight_decay: 0.0            # L2 regularization
+  grad_clip: 1.0               # gradient clipping threshold
+
+plot:
+  plot_dpi: 160                # dpi for saved plots
+  plot_training_fig_width: 8.0 # width of training_curves.png
+  plot_training_fig_height: 5.0 # height of training_curves.png
+  plot_diag_fig_width: 12.0    # width of rollout_diagnostics.png
+  plot_diag_fig_height: 15.0   # height of rollout_diagnostics.png
+  plot_short_steps: 128        # number of short-rollout steps shown in the diagnostics figure
+  plot_long_steps: 512         # number of long-rollout steps shown in the diagnostics figure
+  plot_error_steps: 128        # number of steps shown in the short-rollout error panel
+  plot_message_steps: 128      # number of steps shown for message traces and message norm
+  plot_grid_alpha: 0.25        # grid transparency used in plots
+  plot_title_fontsize: 14      # title fontsize for the combined diagnostics figure
+  plot_target_linewidth: 2.1   # line width for the target trajectory
+  plot_series_linewidth: 1.7   # main line width for the full model curves
+  plot_aux_linewidth: 1.5      # auxiliary line width for baseline, mute-deaf, and message traces
+  plot_zero_linewidth: 1.0     # line width for the zero-error reference line
+  plot_prediction_legend_ncols: 4 # legend columns for rollout panels
+  plot_error_legend_ncols: 3   # legend columns for the error panel
+  plot_message_legend_ncols: 2 # legend columns for message traces
