@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eco-Evo Graph Simulation</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- CDN libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Top toolbar -->
+  <header id="toolbar">
+    <div class="toolbar-group">
+      <button id="btn-play" title="Play / Pause">Play</button>
+      <button id="btn-step" title="Single step">Step</button>
+      <button id="btn-reset" title="Reset simulation">Reset</button>
+      <button id="btn-test-toggle" title="Impulse response test">Start test</button>
+      <button id="btn-help" class="toolbar-help" title="Show tutorial">?</button>
+    </div>
+    <div class="toolbar-group toolbar-stats">
+      <span>t = <strong id="stat-step">0</strong></span>
+      <span>Nodes: <strong id="stat-nodes">0</strong></span>
+      <span>Edges: <strong id="stat-edges">0</strong></span>
+    </div>
+    <div class="toolbar-group">
+      <label>Speed
+        <input type="range" id="param-speed" min="1" max="200" value="10" step="1">
+        <span id="param-speed-val">10</span> steps/s
+      </label>
+    </div>
+  </header>
+
+  <!-- Main layout: left panel | center graph | right chart -->
+  <main id="layout">
+    <!-- Help overlay -->
+    <div id="help-overlay" class="help-overlay" style="display: none;">
+      <div class="help-content">
+        <button id="btn-help-close" class="help-close" title="Close help">×</button>
+        <h2>Eco-Evo Graph Simulation – Tutorial</h2>
+        <p>
+          This demo simulates a directed, weighted graph with evolving structure and weights.
+          Use the left panel to configure the graph at reset (Genesis), the Runtime sliders to
+          tune evolution, and Test mode to probe the frozen graph with impulse/constant signals.
+        </p>
+
+        <h3>Top toolbar</h3>
+        <ul>
+          <li><strong>Play</strong>: run evolution continuously.</li>
+          <li><strong>Step</strong>: advance a single simulation step.</li>
+          <li><strong>Reset</strong>: rebuild the graph using the current Genesis parameters.</li>
+          <li><strong>Start test</strong>: enter / exit test mode (frozen graph).</li>
+        </ul>
+
+        <h3>Genesis (applied on Reset)</h3>
+        <ul>
+          <li><strong>m (inputs), n (outputs)</strong>: number of input and output nodes.</li>
+          <li><strong>k (internal nodes)</strong>: number of internal nodes at genesis (z-nodes).</li>
+          <li><strong>Graph construction</strong>:
+            <ul>
+              <li><strong>Bridging growth</strong>: starts from a fully connected z-core and grows via bridge events.</li>
+              <li><strong>Random growth</strong>: disables bridging; edges/nodes are added stochastically.</li>
+            </ul>
+          </li>
+          <li><strong>Input source</strong>:
+            <ul>
+              <li><strong>Noise</strong>: i.i.d. Uniform(-1,1) noise on each input.</li>
+              <li><strong>Constant (1)</strong>: all inputs fixed to 1.</li>
+              <li><strong>Sine</strong>: sine waves with different phases/frequencies per input.</li>
+            </ul>
+          </li>
+          <li><strong>Activation</strong>:
+            <ul>
+              <li><strong>tanh</strong>: smooth saturating nonlinearity.</li>
+              <li><strong>ReLU</strong>: max(0, z).</li>
+              <li><strong>ReLU (with threshold)</strong>: max(0, z − θ) with global θ.</li>
+              <li><strong>Identity</strong>: linear units.</li>
+              <li><strong>max |w_i x_i|</strong>: node picks the single strongest incoming contribution.</li>
+            </ul>
+          </li>
+          <li><strong>Edge weight control</strong>:
+            <ul>
+              <li><strong>drifted Brownian motion</strong> (vanilla): random walk with drift μ on w.</li>
+              <li><strong>drifted BM with tanh constraint</strong>: same, but contributions use tanh(w·x).</li>
+              <li><strong>Ornstein–Uhlenbeck (OU)</strong>: w follows an OU process with mean m and noise σ.</li>
+              <li><strong>BM with Hebbian drift</strong>: Brownian motion plus Hebbian drift ∝ |a_pre a_post|.</li>
+              <li><strong>BM Hebbian + tanh constraint</strong>: Hebbian drift with tanh(w·x) contributions.</li>
+              <li><strong>Hebb OU (Hebb mean + OU)</strong>: OU on w whose mean is an instantaneous Hebbian
+                function of the previous-step activations.</li>
+            </ul>
+          </li>
+        </ul>
+
+        <h3>Runtime (evolution parameters)</h3>
+        <ul>
+          <li><strong>μ (drift)</strong>: constant drift in Brownian modes (vanilla / tanh).</li>
+          <li><strong>σ (mutation)</strong>: noise strength for all weight dynamics.</li>
+          <li><strong>p_flip</strong>: probability that near-zero edges flip sign instead of being removed.</li>
+          <li><strong>T_bridge</strong>: activation threshold for triggering bridge events.</li>
+          <li><strong>ω (bridge feedback)</strong>: strength of stabilizing feedback edges around bridges.</li>
+          <li><strong>ε (near-zero)</strong>: threshold below which edges are considered “near zero” and may flip or be deleted.</li>
+          <li><strong>K (bridge cooldown)</strong>: minimum steps between bridge events at the same node.</li>
+          <li><strong>θ_hebb</strong>: Hebbian co-activation threshold; only edges with |a_pre a_post| above this are updated by Hebb.</li>
+          <li><strong>η_hebb</strong>: Hebbian learning rate; larger values make Hebbian effects stronger.</li>
+        </ul>
+
+        <h3>Test mode (frozen graph)</h3>
+        <ul>
+          <li><strong>Signal type</strong>:
+            <ul>
+              <li><strong>Impulse</strong>: one-step spike on input i, then 0.</li>
+              <li><strong>Constant</strong>: constant amplitude A on input i for all test steps.</li>
+            </ul>
+          </li>
+          <li><strong>Input index i</strong>: which input node receives the test signal.</li>
+          <li><strong>Amplitude A</strong>: magnitude of the injected signal.</li>
+          <li><strong>Test steps</strong>: number of test iterations in frozen-graph mode.</li>
+        </ul>
+
+        <h3>Graph view and plots</h3>
+        <ul>
+          <li>Click a node to see its current activation (popup near the cursor).</li>
+          <li>Click an edge to see its current weight.</li>
+          <li>Right panel shows ‖y(t)‖₂ over time and histograms of activations, weights, and degree.</li>
+        </ul>
+
+        <p>
+          For exact update equations and more details, see the README in the
+          <code>demo/</code> directory of this project.
+        </p>
+      </div>
+    </div>
+
+    <!-- Left: control panel -->
+    <aside id="panel-left">
+      <h3>Parameters</h3>
+
+      <fieldset>
+        <legend>Genesis (apply on Reset)</legend>
+        <label class="inline-pair">
+          <span>m (inputs)</span>
+          <input type="number" id="param-m" min="1" max="50" value="3">
+          <span>n (outputs)</span>
+          <input type="number" id="param-n" min="1" max="50" value="2">
+        </label>
+        <label>
+          Initial architecture
+          <select id="param-arch">
+            <option value="core9">9-node complete graph</option>
+            <option value="mlp2" selected>2 hidden layer MLP (size = m)</option>
+          </select>
+        </label>
+        <label>
+          Graph construction
+          <select id="param-construction">
+            <option value="bridge">Bridging growth</option>
+            <option value="random" selected>Random growth</option>
+          </select>
+        </label>
+        <label>
+          Input source
+          <select id="param-input-source">
+            <option value="noise">Noise</option>
+            <option value="constant">Constant (1)</option>
+            <option value="sine">Sine</option>
+          </select>
+        </label>
+        <label>
+          Activation
+          <select id="param-activation">
+            <option value="tanh" selected>tanh</option>
+            <option value="relu">ReLU</option>
+            <option value="relu-thresh">ReLU (with threshold)</option>
+            <option value="identity">Identity</option>
+            <option value="maxabs">max |w_i x_i|</option>
+          </select>
+        </label>
+        <label>
+          Edge weight control
+          <select id="param-weight-control">
+            <option value="vanilla">drifted Brownian motion</option>
+            <option value="tanh" selected>drifted BM with tanh constraint</option>
+            <option value="ou">Ornstein–Uhlenbeck (OU)</option>
+            <option value="hebbian">BM with Hebbian drift</option>
+            <option value="hebbian-tanh">BM Hebbian + tanh constraint</option>
+            <option value="hebb-ou">Hebb OU (Hebb mean + OU)</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset id="fieldset-runtime">
+        <legend>Runtime</legend>
+        <label id="label-mu">
+          &mu; (drift)
+          <input type="range" id="param-mu" min="-0.1" max="0.1" value="0.0" step="0.001">
+          <span id="param-mu-val">0.01</span>
+        </label>
+        <label>
+          p_flip (flip probability)
+          <input type="range" id="param-pflip" min="0" max="1" value="0.1" step="0.01">
+          <span id="param-pflip-val">0.1</span>
+        </label>
+        <label>
+          T_bridge (bridging threshold)
+          <input type="range" id="param-tbridge" min="0" max="1" value="0.8" step="0.01">
+          <span id="param-tbridge-val">0.8</span>
+        </label>
+        <label>
+          &sigma; (mutation)
+          <input type="range" id="param-sigma" min="0" max="0.05" value="0.02" step="0.001">
+          <span id="param-sigma-val">0.02</span>
+        </label>
+        <label id="label-eta-hebb" class="disabled-slider">
+          η_hebb (Hebbian drift)
+          <input type="range" id="param-eta-hebb" min="0" max="2" value="0.1" step="0.01" disabled>
+          <span id="param-eta-hebb-val">0.1</span>
+        </label>
+        <label id="label-hebb-thresh" class="disabled-slider">
+          θ_hebb (Hebbian activation threshold)
+          <input type="range" id="param-hebb-thresh" min="0" max="1" value="0.1" step="0.01" disabled>
+          <span id="param-hebb-thresh-val">0.1</span>
+        </label>
+        <label>
+          &omega; (bridge feedback)
+          <input type="range" id="param-omega" min="0" max="0.2" value="0.05" step="0.005">
+          <span id="param-omega-val">0.05</span>
+        </label>
+        <label>
+          &epsilon; (near-zero threshold)
+          <input type="range" id="param-epszero" min="0" max="0.01" value="0.001" step="0.0001">
+          <span id="param-epszero-val">0.001</span>
+        </label>
+        <label>
+          K (bridge cooldown)
+          <input type="range" id="param-K" min="0" max="50" value="10" step="1">
+          <span id="param-K-val">10</span>
+        </label>
+        <label>
+          p_add_edge (random)
+          <input type="range" id="param-p-add-edge" min="0" max="1" value="0.1" step="0.001" disabled>
+          <span id="param-p-add-edge-val">0.1</span>
+        </label>
+        <label>
+          p_add_node (random)
+          <input type="range" id="param-p-add-node" min="0" max="1" value="0.1" step="0.001" disabled>
+          <span id="param-p-add-node-val">0.1</span>
+        </label>
+        <label>
+          α (random distance exponent)
+          <input type="range" id="param-rand-alpha" min="1" max="3" value="1.5" step="0.1" disabled>
+          <span id="param-rand-alpha-val">1.5</span>
+        </label>
+        <label>
+          d_max (random max distance)
+          <input type="range" id="param-rand-dmax" min="1" max="6" value="4" step="1" disabled>
+          <span id="param-rand-dmax-val">4</span>
+        </label>
+        <label>
+          &theta; (activation threshold)
+          <input type="range" id="param-theta" min="0" max="1" value="0.03" step="0.01">
+          <span id="param-theta-val">0.03</span>
+        </label>
+        <label id="label-ou-mean">
+          m (OU mean)
+          <input type="range" id="param-ou-mean" min="0" max="1" value="0" step="0.05">
+          <span id="param-ou-mean-val">0.0</span>
+        </label>
+      </fieldset>
+
+      <fieldset id="fieldset-test" style="display: none;">
+        <legend>Test mode (frozen graph)</legend>
+        <label>
+          Signal type
+          <select id="param-test-signal-type">
+            <option value="impulse" selected>Impulse (one-step)</option>
+            <option value="constant">Constant (all steps)</option>
+          </select>
+        </label>
+        <label>
+          Input index (i)
+          <input type="number" id="param-test-input" min="0" value="0" step="1">
+        </label>
+        <label>
+          Amplitude A
+          <input type="number" id="param-test-amp" min="0" value="1" step="0.1">
+        </label>
+        <label>
+          Test steps
+          <input type="number" id="param-test-steps" min="1" value="200" step="10">
+        </label>
+        <button id="btn-test-inject" type="button">Inject</button>
+        <button id="btn-test-stop-recording" type="button">Stop</button>
+      </fieldset>
+
+      <div class="legend-box">
+        <h4>Legend</h4>
+        <div class="legend-item"><span class="dot dot-input"></span> Input node</div>
+        <div class="legend-item"><span class="dot dot-internal"></span> Internal node</div>
+        <div class="legend-item"><span class="dot dot-output"></span> Output node</div>
+        <div class="legend-item"><span class="line line-pos"></span> Positive weight</div>
+        <div class="legend-item"><span class="line line-neg"></span> Negative weight</div>
+        <div class="legend-item"><span class="dot dot-bridged"></span> Growth trigger</div>
+      </div>
+    </aside>
+
+    <!-- Center: graph viewport -->
+    <section id="panel-center">
+      <div id="cy"></div>
+    </section>
+
+    <!-- Right: output magnitude + degree distribution -->
+    <aside id="panel-right">
+      <h3>Output Signal</h3>
+      <div class="output-box">
+        <div class="output-label">‖y(t)‖<sub>2</sub></div>
+        <div class="output-value" id="stat-output-norm">0.00</div>
+      </div>
+
+      <div class="output-chart-container">
+        <canvas id="output-chart"></canvas>
+      </div>
+      <select id="output-window" class="output-window">
+        <option value="50">last 50 steps</option>
+        <option value="100" selected>last 100 steps</option>
+        <option value="500">last 500 steps</option>
+        <option value="1000">last 1000 steps</option>
+        <option value="5000">last 5000 steps</option>
+        <option value="all">all steps</option>
+      </select>
+
+      <h3>Node Activation Distribution</h3>
+      <div class="chart-container">
+        <canvas id="activation-chart"></canvas>
+      </div>
+
+      <h3>Edge Weight Distribution</h3>
+      <div class="chart-container">
+        <canvas id="weight-chart"></canvas>
+      </div>
+
+      <h3>Degree Distribution</h3>
+      <div class="chart-container">
+        <canvas id="degree-chart"></canvas>
+      </div>
+    </aside>
+
+  </main>
+
+  <script type="module" src="main.js?v=2"></script>
+</body>
+</html>
