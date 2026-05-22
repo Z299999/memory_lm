@@ -1,0 +1,121 @@
+# ==============================================================================
+# Eco-Evolutionary Hunting Simulation Configuration
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Quick Tuning Parameters (most commonly adjusted)
+# ------------------------------------------------------------------------------
+T_days: 150000          # Total simulation days  (often tuned)
+eps_birth_cost: 0.25    # Energy per edge paid for reproduction (often tuned)
+eps_birth_energy: 0.25  # Initial energy per edge for offspring (often tuned)
+max_speed: 6.0           # Maximum speed (velocity clamp, often tuned)
+e0: 0.01                # Basal metabolic cost per edge per day (often tuned)
+motion_cost_coef: 0.5  # Motion cost coefficient e_motion (often tuned)
+e_prey: 900             # Energy per prey item (often tuned)
+T_prey: 50              # Shelf-life of prey (days before rotting, often tuned)
+E_f: 9000               # Total prey energy injected per day (often tuned)
+
+gains:
+  scent_gain: 1.0       # Global gain for nose inputs (0 = ignore nose)
+  birth_gain: 1.0       # Gain on birth output channel (0 = no births)
+
+checkpoint:
+  enabled: true
+  resume: true          # Resume from latest checkpoint on startup (often tuned)
+  resume_mode: exact_replay  # or "exact_replay"
+  resume_strict: true    # Error if incompatible (false = start fresh)
+  dir: checkpoints
+  every_days: 500        # Save every N days (0 = only at end)
+  keep_last: 40          # Keep last N checkpoints (0 = keep all)
+
+# ------------------------------------------------------------------------------
+# Simulation Control
+# ------------------------------------------------------------------------------
+seed: 0                 # Random seed for reproducibility
+dt: 1.0                 # Time step (days)
+log_every: 10           # Print metrics every N days
+
+# ------------------------------------------------------------------------------
+# World Parameters
+# ------------------------------------------------------------------------------
+omega_x: [0, 150]       # Domain x-bounds
+omega_y: [0, 150]       # Domain y-bounds
+boundary_mode: periodic # "periodic" (wrap-around) or "reflect" (elastic)
+
+# ------------------------------------------------------------------------------
+# Agent Parameters
+# ------------------------------------------------------------------------------
+n: 1000                 # Initial number of agents
+R: 10.0                 # Detection radius for scent perception
+r_eat: 1.0              # Hunting radius (distance to catch prey)
+A: 2000                 # Maximum age (days)
+delta: 0.01             # Mutation amplitude for offspring
+
+# Per-edge energy parameters (mass = number of edges in neural network)
+eps_survival: 0         # Energy per edge to survive (E0 = mass * eps_survival)
+
+# ------------------------------------------------------------------------------
+# Neural Controller
+# ------------------------------------------------------------------------------
+hidden_sizes: [6, 6]    # Hidden layer sizes for MLP
+theta_birth: 0.0        # Birth intent threshold (reproduce if y_birth > theta)
+
+# ------------------------------------------------------------------------------
+# Metabolism Model (unified basal + aging)
+# ------------------------------------------------------------------------------
+# Model: E(age, m) = m * e0 * (1 + c_age * sigmoid(k * (age - a0(m))))
+# Where: a0(m) = a0_ref * (m / m_ref)^lifespan_exp
+# Larger individuals age more slowly (quarter-power lifespan scaling)
+
+metabolism:
+  enabled: true
+  mode: sigmoid_age     # "sigmoid_age" = unified model
+  sigmoid:
+    k: 0.02             # Sigmoid steepness (higher = sharper transition)
+    a0_ref: 150         # Onset age at reference mass
+    m_ref: 150          # Reference mass (edges)
+    lifespan_exp: 0.25  # Quarter-power scaling for lifespan
+  c_age: 20.0           # Max old-age metabolic multiplier (cost up to 1+c_age)
+  precompute:
+    enabled: true       # Precompute sigmoid lookup table
+    max_age: 10000      # Max age for lookup table
+
+# ------------------------------------------------------------------------------
+# Prey / Hunting Parameters
+# ------------------------------------------------------------------------------
+eta_window_days: 100    # Rolling window for utilization metrics (eta, rot)
+
+hunting:
+  intake_rate_per_edge: 2  # Max energy intake per edge per day
+
+# ------------------------------------------------------------------------------
+# Sensing
+# ------------------------------------------------------------------------------
+sensing:
+  scent_mode: stencil   # "vector" (5D) or "stencil" (11D: nose 9D + 2 internal)
+  stencil_h: 2.0        # Sampling distance for nose stencil points
+  R_eye: 16.0           # Reserved for future eye experiments (unused)
+
+# ------------------------------------------------------------------------------
+# Video Output
+# ------------------------------------------------------------------------------
+make_video: true
+video_fps: 24
+frames_per_day: 1
+save_last_seconds: 30   # Only save last N seconds (0 = save all)
+
+# ------------------------------------------------------------------------------
+# Post-Processing Plots
+# ------------------------------------------------------------------------------
+postprocess:
+  plot_after_run: true
+
+plots:
+  eta: true
+  mass: true
+  birth_death: true
+  pop_energy: true
+  energy_flux: true
+  energy_budget: true
+  age_distribution_final: true
+  smooth_window: 50     # Moving average window (days) for time-series
