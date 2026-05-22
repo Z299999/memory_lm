@@ -1,0 +1,17 @@
+run_name: exp0522_clock_v0
+seed: 42
+epochs: 400
+lr: 0.003
+weight_decay: 0.0
+grad_clip: 1.0
+trunk_dims:
+  - 32
+language_dim: 4
+cycle_steps: 32
+train_steps: 128
+eval_steps: 128
+long_steps: 512
+pulse_value: 1.0
+log_every: 25
+output_root: runs
+plot_dpi: 160
