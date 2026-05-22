@@ -30,6 +30,14 @@
         <button id="btn-help-close" class="help-close" title="Close help">×</button>
         <h2>exp0513 Dashboard Help</h2>
 
+        <h3>Workflow</h3>
+        <ul>
+          <li>Edit the configuration fields in the left panel.</li>
+          <li>Press <strong>Confirm</strong> to validate the config and refresh the dopamine/graph preview.</li>
+          <li>Press <strong>Run</strong> only after a successful confirm. If you edit the form again, confirm once more before running.</li>
+          <li>Use <strong>Stop</strong> to request an epoch-boundary stop, <strong>Refresh</strong> to pull the latest dashboard state, and <strong>Reset</strong> to restore the default configuration form.</li>
+        </ul>
+
         <h3>Legend</h3>
         <ul>
           <li><strong>Blue</strong>: input node</li>
@@ -57,6 +65,7 @@
         <h3>Resume semantics</h3>
         <ul>
           <li><strong>Resume latest model.pt</strong> automatically points at the newest checkpoint in <code>runs/</code>.</li>
+          <li><strong>resume_from</strong> stays editable only when <strong>Resume latest model.pt</strong> is unchecked.</li>
           <li><strong>epochs</strong> means how many additional epochs to continue, not the total historical epoch count.</li>
         </ul>
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import socket
 
-from server import serve_dashboard
+from src.dashboard_server import serve_dashboard
 
 
 def parse_args() -> argparse.Namespace:

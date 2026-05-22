@@ -14,19 +14,19 @@ from typing import Any
 from urllib.parse import urlparse
 import webbrowser
 
-from src.config import ExperimentConfig, config_from_user_dict, load_config_from_yaml
-from src.data import available_task_names, validate_task_dimensions
-from src.assignment import (
+from .config import ExperimentConfig, config_from_user_dict, load_config_from_yaml
+from .data import available_task_names, validate_task_dimensions
+from .assignment import (
     build_dopamine_assignment,
     build_forward_edge_records,
     build_graph_payload,
     resolve_dopamine_m,
 )
-from src.model import SelfModulatedMLP
-from src.train import _build_edge_weight_snapshot, load_experiment_checkpoint, make_run_dir, run_experiment
+from .model import SelfModulatedMLP
+from .train import _build_edge_weight_snapshot, load_experiment_checkpoint, make_run_dir, run_experiment
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = ROOT / "config.yaml"
 
 
@@ -379,7 +379,7 @@ def serve_dashboard(host: str = "127.0.0.1", port: int = 8000, open_browser: boo
             server.serve_forever()
     except PermissionError as exc:
         raise SystemExit(
-            f"Could not bind to {host}:{port}. Try a different port, for example `python3 server.py --port 8765`."
+            f"Could not bind to {host}:{port}. Try a different port, for example `python3 viz.py --port 8765`."
         ) from exc
     except OSError as exc:
         raise SystemExit(f"Could not start dashboard server on {host}:{port}: {exc}") from exc
