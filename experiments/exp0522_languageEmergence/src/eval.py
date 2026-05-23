@@ -29,7 +29,7 @@ _CONDITION_FLAGS: dict[str, tuple[bool, bool]] = {
     "neither":     (True,  True),
 }
 
-_CONDITIONS_NEEDING_ERROR = frozenset({"sole_speech", "neither", "late_blind", "blink"})
+_CONDITIONS_NEEDING_ERROR = frozenset({"sole_speech", "neither", "late_blind", "blink", "stutter"})
 
 
 def _condition_flags(condition_name: str) -> tuple[bool, bool]:
@@ -162,12 +162,14 @@ def _evaluate_late_transition_rollout(
     }
 
 
-def _evaluate_blink_rollout(
+def _evaluate_temporary_loss_rollout(
     model: ExternalClockMLP,
     *,
     num_steps: int,
-    blind_start: int,
-    blind_end: int,
+    loss_start: int,
+    loss_end: int,
+    phase2_force_zero_error: bool,
+    phase2_disable_language: bool,
     cycle_steps: int,
     pulse_value: float,
     target_kind: str,
@@ -177,7 +179,7 @@ def _evaluate_blink_rollout(
     initial_error: torch.Tensor | None = None,
     detach_error_input: bool = True,
 ) -> dict[str, Any]:
-    """Full → sole_speech [blind_start, blind_end) → full again."""
+    """Full model → temporarily lose a channel [loss_start, loss_end) → full again."""
     def _rollout(n: int, s: int, msg, err, fze: bool, dl: bool) -> dict[str, Any]:
         return _evaluate_rollout(
             model,
@@ -194,18 +196,20 @@ def _evaluate_blink_rollout(
             disable_language=dl,
         )
 
-    p1_steps = min(blind_start, num_steps)
+    p1_steps = min(loss_start, num_steps)
     p1 = _rollout(p1_steps, start_step, initial_message, initial_error, False, False)
     if p1_steps >= num_steps:
         return p1
 
-    p2_steps = min(blind_end - blind_start, num_steps - p1_steps)
-    p2 = _rollout(p2_steps, start_step + p1_steps, p1["final_message"], p1["final_error"], True, False)
+    p2_steps = min(loss_end - loss_start, num_steps - p1_steps)
+    p2 = _rollout(p2_steps, start_step + p1_steps, p1["final_message"], p1["final_error"],
+                  phase2_force_zero_error, phase2_disable_language)
     if p1_steps + p2_steps >= num_steps:
         parts = [p1, p2]
     else:
         p3_steps = num_steps - p1_steps - p2_steps
-        p3 = _rollout(p3_steps, start_step + p1_steps + p2_steps, p2["final_message"], p2["final_error"], False, False)
+        p3 = _rollout(p3_steps, start_step + p1_steps + p2_steps,
+                      p2["final_message"], p2["final_error"], False, False)
         parts = [p1, p2, p3]
 
     prediction = torch.cat([p["prediction"] for p in parts])
@@ -223,6 +227,12 @@ def _evaluate_blink_rollout(
         "start_step": int(start_step),
     }
 
+
+# Phase-2 flags for temporary-loss conditions: (force_zero_error, disable_language)
+_TEMPORARY_LOSS_FLAGS: dict[str, tuple[bool, bool]] = {
+    "blink":   (True,  False),  # temporarily lose error channel
+    "stutter": (False, True),   # temporarily lose language channel
+}
 
 # Post-transition flags for each late-transition condition.
 _LATE_TRANSITION_FLAGS: dict[str, tuple[bool, bool]] = {
@@ -460,12 +470,17 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
 
     def _run_condition(condition: str, num_steps: int, start_step: int = 0,
                        initial_message=None, initial_error=None) -> dict[str, Any]:
-        if condition == "blink":
-            return _evaluate_blink_rollout(
+        if condition in _TEMPORARY_LOSS_FLAGS:
+            p2_fze, p2_dl = _TEMPORARY_LOSS_FLAGS[condition]
+            loss_start = config.eval_blink_blind_start if condition == "blink" else config.eval_stutter_mute_start
+            loss_end   = config.eval_blink_blind_end   if condition == "blink" else config.eval_stutter_mute_end
+            return _evaluate_temporary_loss_rollout(
                 model,
                 num_steps=num_steps,
-                blind_start=config.eval_blink_blind_start,
-                blind_end=config.eval_blink_blind_end,
+                loss_start=loss_start,
+                loss_end=loss_end,
+                phase2_force_zero_error=p2_fze,
+                phase2_disable_language=p2_dl,
                 start_step=start_step,
                 initial_message=initial_message,
                 initial_error=initial_error,
@@ -512,7 +527,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
             ) if continuous_warmup_steps > 0 else None
             init_msg = warmup_result["final_message"] if warmup_result and model.use_language else None
             init_err = warmup_result["final_error"] if warmup_result and model.use_error_input else None
-            if condition in _LATE_TRANSITION_FLAGS or condition == "blink":
+            if condition in _LATE_TRANSITION_FLAGS or condition in _TEMPORARY_LOSS_FLAGS:
                 continuous_evals[condition] = _run_condition(
                     condition, config.continuous_eval_steps,
                     start_step=continuous_warmup_steps,

@@ -38,6 +38,8 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "eval_late_mute_step",
         "eval_blink_blind_start",
         "eval_blink_blind_end",
+        "eval_stutter_mute_start",
+        "eval_stutter_mute_end",
     ),
     "analysis": (
         "enable_continuous_collapse",
@@ -89,7 +91,7 @@ LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither", "late_blind", "late_mute", "blink"})
+_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither", "late_blind", "late_mute", "blink", "stutter"})
 
 
 @dataclass
@@ -124,6 +126,8 @@ class ExperimentConfig:
     eval_late_mute_step: int = 60
     eval_blink_blind_start: int = 40
     eval_blink_blind_end: int = 80
+    eval_stutter_mute_start: int = 40
+    eval_stutter_mute_end: int = 80
     enable_continuous_collapse: bool = True
     checkpoint_epochs: tuple[int, ...] = (1, 10, 50, 100, 500, 1000)
     pulse_value: float = 1.0
@@ -272,6 +276,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "eval_late_mute_step",
         "eval_blink_blind_start",
         "eval_blink_blind_end",
+        "eval_stutter_mute_start",
+        "eval_stutter_mute_end",
     ):
         payload[key] = int(payload[key])
     for key in (
@@ -380,6 +386,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("eval_blink_blind_start must be >= 0.")
     if payload["eval_blink_blind_end"] <= payload["eval_blink_blind_start"]:
         raise ValueError("eval_blink_blind_end must be > eval_blink_blind_start.")
+    if payload["eval_stutter_mute_start"] < 0:
+        raise ValueError("eval_stutter_mute_start must be >= 0.")
+    if payload["eval_stutter_mute_end"] <= payload["eval_stutter_mute_start"]:
+        raise ValueError("eval_stutter_mute_end must be > eval_stutter_mute_start.")
 
     raw_components = payload["mixed_sin_components"]
     if not isinstance(raw_components, (list, tuple)) or not raw_components:

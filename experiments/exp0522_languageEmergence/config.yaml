@@ -46,11 +46,14 @@ eval:
   long_steps: 512              # long-horizon rollout length for stress test
   continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
   eval_phase_mode: both        # which evals to write: reset, continuous, or both
-  eval_conditions: [full, late_blind, late_mute, blink]  # ablation conditions: full | sole_eye | sole_speech | neither | late_blind | late_mute | blink
+  eval_conditions: [full, late_mute, blink, stutter]
+  # ablation conditions: full | sole_eye | sole_speech | neither | late_blind | late_mute | blink | stutter
   eval_late_blind_step: 40        # step at which late_blind switches from full to sole_speech
   eval_late_mute_step: 200        # step at which late_mute switches from full to sole_eye
   eval_blink_blind_start: 40      # step at which blink goes blind (full → sole_speech)
-  eval_blink_blind_end: 100        # step at which blink regains sight (sole_speech → full)
+  eval_blink_blind_end: 100       # step at which blink regains sight (sole_speech → full)
+  eval_stutter_mute_start: 40     # step at which stutter loses speech (full → sole_eye)
+  eval_stutter_mute_end: 100      # step at which stutter regains speech (sole_eye → full)
 
 analysis:
   enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis
