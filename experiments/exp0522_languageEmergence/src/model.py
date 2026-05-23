@@ -126,7 +126,7 @@ class ExternalClockMLP(nn.Module):
         self.error_dim = 1 if use_error_input else 0
         self.use_error_input = bool(use_error_input)
         self.language_dim = int(language_dim) if use_language else 0
-        self.use_language = bool(use_language)
+        self.use_language = bool(use_language) and self.language_dim > 0
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
 

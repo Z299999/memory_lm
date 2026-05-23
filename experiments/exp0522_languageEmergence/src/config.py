@@ -330,12 +330,13 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("train_phase_mode must be either 'reset' or 'continuous'.")
     if payload["eval_phase_mode"] not in {"reset", "continuous", "both"}:
         raise ValueError("eval_phase_mode must be 'reset', 'continuous', or 'both'.")
-    if payload["language_dim"] <= 0:
-        raise ValueError("language_dim must be positive.")
-    if payload["language_readout_coverage"] <= 0:
-        raise ValueError("language_readout_coverage must be positive.")
-    if payload["language_readout_coverage"] > payload["language_dim"]:
-        raise ValueError("language_readout_coverage must be <= language_dim.")
+    if payload["language_dim"] < 0:
+        raise ValueError("language_dim must be >= 0.")
+    if payload["language_dim"] > 0:
+        if payload["language_readout_coverage"] <= 0:
+            raise ValueError("language_readout_coverage must be positive.")
+        if payload["language_readout_coverage"] > payload["language_dim"]:
+            raise ValueError("language_readout_coverage must be <= language_dim.")
     if payload["cycle_steps"] <= 1:
         raise ValueError("cycle_steps must be greater than 1.")
     if payload["target_kind"] not in {"sine", "mixed_sin"}:
