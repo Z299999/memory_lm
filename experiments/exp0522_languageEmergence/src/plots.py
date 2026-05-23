@@ -180,6 +180,14 @@ def plot_training_timeline(
             linewidth=config.plot_series_linewidth,
             label=full_label,
         )
+        for update_step in panel.get("update_steps", []):
+            ax.axvline(
+                float(update_step),
+                color="#c7c7c7",
+                linestyle="--",
+                linewidth=0.9,
+                alpha=0.9,
+            )
         ax.set_title(
             f"t={int(panel['start_step'])}..{int(panel['end_step'])}",
             fontsize=max(config.plot_title_fontsize - 2, 10),

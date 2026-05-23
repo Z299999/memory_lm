@@ -14,7 +14,7 @@ import yaml
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
     "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers"),
-    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components"),
+    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "prediction_target"),
     "train": (
         "epochs",
         "lr",
@@ -141,6 +141,7 @@ class ExperimentConfig:
     cycle_steps: int = 32
     target_kind: str = "sine"
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5))
+    prediction_target: str = "y"
     eval_steps: int = 128
     long_steps: int = 512
     continuous_eval_steps: int = 512
@@ -201,6 +202,9 @@ class ExperimentConfig:
             "message_init": 0.0,
             "target_kind": self.target_kind,
             "target": _resolved_target_description(self),
+            "prediction_target": self.prediction_target,
+            "raw_prediction_space": self.prediction_target,
+            "reported_prediction_space": "y",
             "phase_init": 0.0,
             "omega": omega_from_cycle_steps(self.cycle_steps),
         }
@@ -215,10 +219,18 @@ def omega_from_cycle_steps(cycle_steps: int) -> float:
 
 def _resolved_target_description(config: ExperimentConfig) -> str:
     if config.target_kind == "sine":
-        return "sin(phi_t)"
-    terms = " + ".join(f"{amp}*sin({freq}*phi_t)" for freq, amp in config.mixed_sin_components)
-    scale = sum(abs(amp) for _, amp in config.mixed_sin_components)
-    return f"({terms}) / {scale}"
+        waveform = "sin(phi_t)"
+    else:
+        terms = " + ".join(f"{amp}*sin({freq}*phi_t)" for freq, amp in config.mixed_sin_components)
+        scale = sum(abs(amp) for _, amp in config.mixed_sin_components)
+        waveform = f"({terms}) / {scale}"
+    if config.prediction_target == "y":
+        return waveform
+    if config.prediction_target == "velocity":
+        return f"{waveform}_t - {waveform}_{{t-1}}"
+    if config.prediction_target == "acceleration":
+        return f"Δ²[{waveform}]"
+    raise ValueError(f"Unsupported prediction_target: {config.prediction_target!r}")
 
 
 def _flatten_user_config(raw: dict[str, object], defaults: ExperimentConfig) -> dict[str, object]:
@@ -328,6 +340,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["train_phase_mode"] = str(payload["train_phase_mode"])
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
+    payload["prediction_target"] = str(payload["prediction_target"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
     payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
     for key in ("plot_training_series",):
@@ -387,6 +400,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("cycle_steps must be greater than 1.")
     if payload["target_kind"] not in {"sine", "mixed_sin"}:
         raise ValueError("target_kind must be either 'sine' or 'mixed_sin'.")
+    if payload["prediction_target"] not in {"y", "velocity", "acceleration"}:
+        raise ValueError("prediction_target must be 'y', 'velocity', or 'acceleration'.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
         raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
     if any(epoch <= 0 for epoch in payload["checkpoint_epochs"]):

@@ -60,7 +60,8 @@ def _build_train_target(
     start_step: int,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
-) -> tuple[torch.Tensor, torch.Tensor]:
+    prediction_target: str,
+) -> dict[str, torch.Tensor]:
     try:
         from .task import build_rollout_targets
     except ImportError:
@@ -73,6 +74,7 @@ def _build_train_target(
         start_step=offset,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
+        prediction_target=prediction_target,
     )
 
 
@@ -163,7 +165,7 @@ def _train_single_model(
         lr=config.lr,
         weight_decay=config.weight_decay,
     )
-    target_cache: dict[tuple[int, int], torch.Tensor] = {}
+    target_cache: dict[tuple[int, int], dict[str, torch.Tensor]] = {}
     cache_steps = {
         config.fixed_train_steps,
         config.eval_steps,
@@ -173,7 +175,7 @@ def _train_single_model(
 
     if config.train_phase_mode == "reset":
         for steps in cache_steps:
-            _phase, target = _build_train_target(
+            bundle = _build_train_target(
                 num_steps=steps,
                 cycle_steps=config.cycle_steps,
                 device=device,
@@ -181,8 +183,9 @@ def _train_single_model(
                 start_step=0,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
+                prediction_target=config.prediction_target,
             )
-            target_cache[(int(steps), 0)] = target
+            target_cache[(int(steps), 0)] = bundle
 
     history: list[dict[str, float]] = []
     timeline_panels = (
@@ -197,9 +200,9 @@ def _train_single_model(
         effective_steps = int(config.fixed_train_steps)
         train_window_start = train_time_cursor if config.train_phase_mode == "continuous" else 0
         if config.train_phase_mode == "reset":
-            train_target = target_cache[(effective_steps, 0)]
+            train_bundle = target_cache[(effective_steps, 0)]
         else:
-            _phase, train_target = _build_train_target(
+            train_bundle = _build_train_target(
                 num_steps=effective_steps,
                 cycle_steps=config.cycle_steps,
                 device=device,
@@ -207,21 +210,28 @@ def _train_single_model(
                 start_step=train_window_start,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
+                prediction_target=config.prediction_target,
             )
+        train_target = train_bundle["train_target"]
+        train_target_y = train_bundle["target_y"]
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        prediction, messages, _hidden, final_message, final_error = model.rollout(
+        prediction, raw_prediction, messages, _hidden, final_message, final_error = model.rollout(
             num_steps=effective_steps,
             pulse_value=config.pulse_value,
             target_sequence=train_target,
+            y_target_sequence=train_target_y,
             initial_message=train_message_state,
             initial_error=train_error_state,
+            initial_reconstruction_y=train_bundle["init_y_prev"],
+            initial_reconstruction_v=train_bundle["init_v_prev"],
+            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
             return_hidden=False,
         )
-        train_loss = torch.mean((prediction - train_target) ** 2)
+        train_loss = torch.mean((raw_prediction - train_target) ** 2)
 
         use_aux = (
             config.sequence_mode == "continuous_window"
@@ -230,7 +240,7 @@ def _train_single_model(
         )
         aux_loss_val = 0.0
         if use_aux:
-            _, aux_target = _build_train_target(
+            aux_bundle = _build_train_target(
                 num_steps=1,
                 cycle_steps=config.cycle_steps,
                 device=device,
@@ -238,19 +248,24 @@ def _train_single_model(
                 start_step=train_window_start + effective_steps,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
+                prediction_target=config.prediction_target,
             )
-            aux_pred, _, _, _, _ = model.rollout(
+            _aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
                 num_steps=1,
                 pulse_value=config.pulse_value,
-                target_sequence=aux_target,
+                target_sequence=aux_bundle["train_target"],
+                y_target_sequence=aux_bundle["target_y"],
                 initial_message=final_message,
                 initial_error=final_error,
+                initial_reconstruction_y=aux_bundle["init_y_prev"],
+                initial_reconstruction_v=aux_bundle["init_v_prev"],
+                prediction_target=config.prediction_target,
                 detach_error_input=config.detach_error_input,
                 force_zero_error_input=config.force_zero_error_input,
                 disable_language=False,
                 return_hidden=False,
             )
-            aux_loss = torch.mean((aux_pred - aux_target) ** 2)
+            aux_loss = torch.mean((aux_raw_prediction - aux_bundle["train_target"]) ** 2)
             total_loss = train_loss + config.message_aux_loss_weight * aux_loss
             aux_loss_val = float(aux_loss.item())
         else:
@@ -266,7 +281,7 @@ def _train_single_model(
                 panels=timeline_panels,
                 train_window_start=int(train_window_start),
                 train_window_end=int(train_window_start + effective_steps - 1),
-                target=train_target,
+                target=train_target_y,
                 prediction=prediction,
             )
 
@@ -291,6 +306,7 @@ def _train_single_model(
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
@@ -299,7 +315,7 @@ def _train_single_model(
             "epoch": float(epoch),
             "train_steps": float(effective_steps),
             "train_loss": float(train_loss.item()),
-            "val_loss": float(val_result["mse"]),
+            "val_loss": float(val_result["raw_target_mse"]),
         }
         if use_aux:
             row["aux_loss"] = aux_loss_val

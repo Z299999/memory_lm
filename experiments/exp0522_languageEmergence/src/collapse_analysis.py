@@ -131,6 +131,7 @@ def _snapshot_payload(result: dict[str, Any]) -> dict[str, Any]:
         "phase": result["phase"].tolist(),
         "target": result["target"].tolist(),
         "prediction": result["prediction"].tolist(),
+        "raw_prediction": result.get("raw_prediction").tolist() if result.get("raw_prediction") is not None else None,
         "message_norm": result["message_norm"].tolist(),
         "messages": result["messages"].tolist(),
     }
@@ -253,6 +254,7 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input if resolved_model_name != "v0_open_loop" else False,
             disable_language=False,
@@ -291,6 +293,8 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
             "warmup_steps": config.fixed_train_steps,
             "checkpoint_epochs": list(config.checkpoint_epochs),
             "force_zero_error_input": config.force_zero_error_input,
+            "prediction_target": config.prediction_target,
+            "reported_prediction_space": "y",
         },
         "checkpoints": [
             {

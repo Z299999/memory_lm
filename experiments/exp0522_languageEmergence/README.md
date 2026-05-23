@@ -9,7 +9,13 @@ external state register for a feed-forward MLP.
 - The agent never observes phase, time, or target value.
 - The only ordinary input is a constant pulse `x_t = 1`.
 - The full model also receives its previous language signal `m_{t-1}`.
-- At every step the model predicts the current target waveform.
+- At every step the model emits one scalar, whose training target can be:
+  - the waveform value `y_t`
+  - the velocity `y_t - y_{t-1}`
+  - the acceleration `(y_t - y_{t-1}) - (y_{t-1} - y_{t-2})`
+
+No matter which training target is used, rollout/eval plots always display the
+reconstructed waveform `y`.
 
 Supported target kinds:
 
@@ -130,6 +136,25 @@ task:
   target_kind: sine
 ```
 
+To choose what the model is directly supervised to predict:
+
+```yaml
+task:
+  prediction_target: y
+```
+
+Supported values:
+
+- `y`
+  - direct waveform prediction
+- `velocity`
+  - predict `y_t - y_{t-1}` and reconstruct `y`
+- `acceleration`
+  - predict second difference and reconstruct `y`
+
+For `velocity` and `acceleration`, the rollout uses true initial anchors when
+reconstructing `y`, and the V1 error input still uses `y_true - y_hat`.
+
 ## Model Variants
 
 The MLP trunk activation is configurable from `model.activation`.
@@ -173,10 +198,6 @@ The experiment now supports two training-state modes:
 Example:
 
 ```yaml
-run:
-  train_baseline: false
-  eval_mute_deaf: false
-
 train:
   sequence_mode: continuous_window
   fixed_train_steps: 32
@@ -189,10 +210,6 @@ eval:
   eval_phase_mode: both
   continuous_eval_steps: 512
 ```
-
-`run.train_baseline` controls whether the no-language baseline is trained at all.
-`run.eval_mute_deaf` controls whether the trained full model is also evaluated
-with the language channel forcibly disabled.
 
 To run the zero-error ablation under the same `[1,e,m]` interface:
 
@@ -246,9 +263,6 @@ for example `runs/20260522/20260522_173059_exp0522_clock_v0/`, containing:
 - `metrics/`
   - `summary.json`
   - `history_full_language.json`
-  - `history_no_language.json` when `run.train_baseline: true`
-  - `eval_rollout.csv`
-  - `long_rollout.csv`
   - `reset_eval_rollout.csv`
   - `reset_long_rollout.csv`
   - `continuous_eval_rollout.csv` when continuous evaluation is enabled

@@ -173,17 +173,22 @@ class ExternalClockMLP(nn.Module):
         num_steps: int,
         pulse_value: float,
         target_sequence: torch.Tensor | None = None,
+        y_target_sequence: torch.Tensor | None = None,
         initial_message: torch.Tensor | None = None,
         initial_error: torch.Tensor | None = None,
+        initial_reconstruction_y: torch.Tensor | None = None,
+        initial_reconstruction_v: torch.Tensor | None = None,
+        prediction_target: str = "y",
         detach_error_input: bool = True,
         force_zero_error_input: bool = False,
         disable_language: bool = False,
         return_hidden: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         device = self.output_head.weight.device
         batch_size = 1
         hidden_snapshots: list[torch.Tensor] = []
         outputs: list[torch.Tensor] = []
+        raw_outputs: list[torch.Tensor] = []
         messages: list[torch.Tensor] = []
 
         if self.use_language:
@@ -199,12 +204,22 @@ class ExternalClockMLP(nn.Module):
         else:
             message_prev = torch.zeros(batch_size, 0, device=device)
         pulse = torch.full((batch_size, self.pulse_dim), float(pulse_value), device=device)
+        if target_sequence is not None and tuple(target_sequence.shape) != (num_steps, 1):
+            raise ValueError(
+                f"target_sequence must have shape {(num_steps, 1)}, got {tuple(target_sequence.shape)}."
+            )
+        if y_target_sequence is None:
+            y_target_sequence = target_sequence
+        if y_target_sequence is not None and tuple(y_target_sequence.shape) != (num_steps, 1):
+            raise ValueError(
+                f"y_target_sequence must have shape {(num_steps, 1)}, got {tuple(y_target_sequence.shape)}."
+            )
         if self.use_error_input:
-            if target_sequence is None:
-                raise ValueError("target_sequence is required when use_error_input=True.")
-            if tuple(target_sequence.shape) != (num_steps, 1):
+            if y_target_sequence is None:
+                raise ValueError("y_target_sequence is required when use_error_input=True.")
+            if tuple(y_target_sequence.shape) != (num_steps, 1):
                 raise ValueError(
-                    f"target_sequence must have shape {(num_steps, 1)}, got {tuple(target_sequence.shape)}."
+                    f"y_target_sequence must have shape {(num_steps, 1)}, got {tuple(y_target_sequence.shape)}."
                 )
             if initial_error is None:
                 error_prev = torch.zeros(batch_size, self.error_dim, device=device)
@@ -215,9 +230,43 @@ class ExternalClockMLP(nn.Module):
                         f"got {tuple(initial_error.shape)}."
                     )
                 error_prev = initial_error.to(device=device)
-            target_sequence = target_sequence.to(device=device)
+            y_target_sequence = y_target_sequence.to(device=device)
         else:
             error_prev = torch.zeros(batch_size, 0, device=device)
+
+        if prediction_target == "y":
+            reconstruction_y_prev = None
+            reconstruction_v_prev = None
+        elif prediction_target == "velocity":
+            if initial_reconstruction_y is None:
+                raise ValueError("initial_reconstruction_y is required for prediction_target='velocity'.")
+            if tuple(initial_reconstruction_y.shape) != (batch_size, 1):
+                raise ValueError(
+                    f"initial_reconstruction_y must have shape {(batch_size, 1)}, "
+                    f"got {tuple(initial_reconstruction_y.shape)}."
+                )
+            reconstruction_y_prev = initial_reconstruction_y.to(device=device)
+            reconstruction_v_prev = None
+        elif prediction_target == "acceleration":
+            if initial_reconstruction_y is None or initial_reconstruction_v is None:
+                raise ValueError(
+                    "initial_reconstruction_y and initial_reconstruction_v are required "
+                    "for prediction_target='acceleration'."
+                )
+            if tuple(initial_reconstruction_y.shape) != (batch_size, 1):
+                raise ValueError(
+                    f"initial_reconstruction_y must have shape {(batch_size, 1)}, "
+                    f"got {tuple(initial_reconstruction_y.shape)}."
+                )
+            if tuple(initial_reconstruction_v.shape) != (batch_size, 1):
+                raise ValueError(
+                    f"initial_reconstruction_v must have shape {(batch_size, 1)}, "
+                    f"got {tuple(initial_reconstruction_v.shape)}."
+                )
+            reconstruction_y_prev = initial_reconstruction_y.to(device=device)
+            reconstruction_v_prev = initial_reconstruction_v.to(device=device)
+        else:
+            raise ValueError(f"Unsupported prediction_target: {prediction_target!r}")
 
         for step_idx in range(num_steps):
             input_parts = [pulse]
@@ -228,7 +277,17 @@ class ExternalClockMLP(nn.Module):
                 input_parts.append(language_input)
             step_input = torch.cat(input_parts, dim=1)
             hidden, all_hiddens = self._step_hidden(step_input)
-            y_t = self.output_head(hidden)
+            raw_t = self.output_head(hidden)
+            if prediction_target == "y":
+                y_t = raw_t
+            elif prediction_target == "velocity":
+                y_t = reconstruction_y_prev + raw_t
+                reconstruction_y_prev = y_t
+            else:
+                reconstruction_v_t = reconstruction_v_prev + raw_t
+                y_t = reconstruction_y_prev + reconstruction_v_t
+                reconstruction_y_prev = y_t
+                reconstruction_v_prev = reconstruction_v_t
             if self.use_language and not disable_language:
                 readout_input = torch.cat(all_hiddens, dim=-1) if self.language_readout_all_layers else hidden
                 message_t = readout_input @ self.language_readout
@@ -238,6 +297,7 @@ class ExternalClockMLP(nn.Module):
                 message_t = torch.zeros(batch_size, 0, device=device)
 
             outputs.append(y_t)
+            raw_outputs.append(raw_t)
             messages.append(message_t)
             if return_hidden:
                 hidden_snapshots.append(hidden)
@@ -246,10 +306,17 @@ class ExternalClockMLP(nn.Module):
                 if force_zero_error_input:
                     error_prev = torch.zeros_like(error_prev)
                 else:
-                    error_t = target_sequence[step_idx : step_idx + 1] - y_t
+                    error_t = y_target_sequence[step_idx : step_idx + 1] - y_t
                     error_prev = error_t.detach() if detach_error_input else error_t
 
         hidden_tensor = torch.cat(hidden_snapshots, dim=0) if return_hidden else None
         final_message = message_prev
         final_error = error_prev
-        return torch.cat(outputs, dim=0), torch.cat(messages, dim=0), hidden_tensor, final_message, final_error
+        return (
+            torch.cat(outputs, dim=0),
+            torch.cat(raw_outputs, dim=0),
+            torch.cat(messages, dim=0),
+            hidden_tensor,
+            final_message,
+            final_error,
+        )

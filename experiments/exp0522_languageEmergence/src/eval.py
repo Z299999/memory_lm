@@ -51,6 +51,7 @@ def _evaluate_rollout(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
+    prediction_target: str,
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
@@ -61,33 +62,41 @@ def _evaluate_rollout(
     model.eval()
     device = next(model.parameters()).device
     with torch.no_grad():
-        phase, target = build_rollout_targets(
+        target_bundle = build_rollout_targets(
             num_steps,
             cycle_steps,
             device,
             start_step=start_step,
             target_kind=target_kind,
             mixed_sin_components=mixed_sin_components,
+            prediction_target=prediction_target,
         )
-        prediction, messages, hidden, final_message, final_error = model.rollout(
+        prediction, raw_prediction, messages, hidden, final_message, final_error = model.rollout(
             num_steps=num_steps,
             pulse_value=pulse_value,
-            target_sequence=target,
+            target_sequence=target_bundle["train_target"],
+            y_target_sequence=target_bundle["target_y"],
             initial_message=initial_message,
             initial_error=initial_error,
+            initial_reconstruction_y=target_bundle["init_y_prev"],
+            initial_reconstruction_v=target_bundle["init_v_prev"],
+            prediction_target=prediction_target,
             detach_error_input=detach_error_input,
             force_zero_error_input=force_zero_error_input,
             disable_language=disable_language,
             return_hidden=True,
         )
-        mse = torch.mean((prediction - target) ** 2).item()
+        mse = torch.mean((prediction - target_bundle["target_y"]) ** 2).item()
+        raw_target_mse = torch.mean((raw_prediction - target_bundle["train_target"]) ** 2).item()
         message_norm = torch.linalg.norm(messages, dim=1) if messages.numel() else torch.zeros(num_steps, device=device)
 
     return {
         "mse": float(mse),
-        "phase": phase.cpu(),
-        "target": target.squeeze(1).cpu(),
+        "raw_target_mse": float(raw_target_mse),
+        "phase": target_bundle["phase"].cpu(),
+        "target": target_bundle["target_y"].squeeze(1).cpu(),
         "prediction": prediction.squeeze(1).cpu(),
+        "raw_prediction": raw_prediction.squeeze(1).cpu(),
         "messages": messages.cpu(),
         "message_norm": message_norm.cpu(),
         "hidden": hidden.cpu() if hidden is not None else None,
@@ -108,6 +117,7 @@ def _evaluate_late_transition_rollout(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
+    prediction_target: str,
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
@@ -122,6 +132,7 @@ def _evaluate_late_transition_rollout(
         pulse_value=pulse_value,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
+        prediction_target=prediction_target,
         start_step=start_step,
         initial_message=initial_message,
         initial_error=initial_error,
@@ -139,6 +150,7 @@ def _evaluate_late_transition_rollout(
         pulse_value=pulse_value,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
+        prediction_target=prediction_target,
         start_step=start_step + effective_transition,
         initial_message=phase1["final_message"],
         initial_error=phase1["final_error"],
@@ -147,12 +159,15 @@ def _evaluate_late_transition_rollout(
         disable_language=post_disable_language,
     )
     prediction = torch.cat([phase1["prediction"], phase2["prediction"]])
+    raw_prediction = torch.cat([phase1["raw_prediction"], phase2["raw_prediction"]])
     target = torch.cat([phase1["target"], phase2["target"]])
     return {
         "mse": float(torch.mean((prediction - target) ** 2).item()),
+        "raw_target_mse": None,
         "phase": torch.cat([phase1["phase"], phase2["phase"]]),
         "target": target,
         "prediction": prediction,
+        "raw_prediction": raw_prediction,
         "messages": torch.cat([phase1["messages"], phase2["messages"]]),
         "message_norm": torch.cat([phase1["message_norm"], phase2["message_norm"]]),
         "hidden": None,
@@ -174,6 +189,7 @@ def _evaluate_temporary_loss_rollout(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
+    prediction_target: str,
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
@@ -188,6 +204,7 @@ def _evaluate_temporary_loss_rollout(
             pulse_value=pulse_value,
             target_kind=target_kind,
             mixed_sin_components=mixed_sin_components,
+            prediction_target=prediction_target,
             start_step=s,
             initial_message=msg,
             initial_error=err,
@@ -213,12 +230,15 @@ def _evaluate_temporary_loss_rollout(
         parts = [p1, p2, p3]
 
     prediction = torch.cat([p["prediction"] for p in parts])
+    raw_prediction = torch.cat([p["raw_prediction"] for p in parts])
     target = torch.cat([p["target"] for p in parts])
     return {
         "mse": float(torch.mean((prediction - target) ** 2).item()),
+        "raw_target_mse": None,
         "phase": torch.cat([p["phase"] for p in parts]),
         "target": target,
         "prediction": prediction,
+        "raw_prediction": raw_prediction,
         "messages": torch.cat([p["messages"] for p in parts]),
         "message_norm": torch.cat([p["message_norm"] for p in parts]),
         "hidden": None,
@@ -251,6 +271,7 @@ def _evaluate_continuous_stream(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
+    prediction_target: str,
     detach_error_input: bool = True,
     force_zero_error_input: bool = False,
     disable_language: bool = False,
@@ -260,20 +281,25 @@ def _evaluate_continuous_stream(
     initial_error = None
     if warmup_steps > 0:
         with torch.no_grad():
-            _warmup_phase, warmup_target = build_rollout_targets(
+            warmup_bundle = build_rollout_targets(
                 warmup_steps,
                 cycle_steps,
                 device,
                 start_step=0,
                 target_kind=target_kind,
                 mixed_sin_components=mixed_sin_components,
+                prediction_target=prediction_target,
             )
-            _prediction, _messages, _hidden, final_message, final_error = model.rollout(
+            _prediction, _raw_prediction, _messages, _hidden, final_message, final_error = model.rollout(
                 num_steps=warmup_steps,
                 pulse_value=pulse_value,
-                target_sequence=warmup_target,
+                target_sequence=warmup_bundle["train_target"],
+                y_target_sequence=warmup_bundle["target_y"],
                 initial_message=None,
                 initial_error=None,
+                initial_reconstruction_y=warmup_bundle["init_y_prev"],
+                initial_reconstruction_v=warmup_bundle["init_v_prev"],
+                prediction_target=prediction_target,
                 detach_error_input=detach_error_input,
                 force_zero_error_input=force_zero_error_input,
                 disable_language=disable_language,
@@ -291,6 +317,7 @@ def _evaluate_continuous_stream(
         pulse_value=pulse_value,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
+        prediction_target=prediction_target,
         start_step=warmup_steps,
         initial_message=initial_message,
         initial_error=initial_error,
@@ -368,6 +395,9 @@ def _build_summary(
             "cycle_steps": config.cycle_steps,
             "target_kind": config.target_kind,
             "mixed_sin_components": [list(c) for c in config.mixed_sin_components],
+            "prediction_target": config.prediction_target,
+            "raw_prediction_space": config.prediction_target,
+            "reported_prediction_space": "y",
             "eval_steps": config.eval_steps,
             "long_steps": config.long_steps,
             "continuous_eval_steps": config.continuous_eval_steps,
@@ -459,6 +489,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         pulse_value=config.pulse_value,
         target_kind=config.target_kind,
         mixed_sin_components=config.mixed_sin_components,
+        prediction_target=config.prediction_target,
         detach_error_input=config.detach_error_input,
     )
 
