@@ -156,12 +156,20 @@ def _build_train_target(
     )
 
 
+def _analysis_checkpoint_epochs(config: ExperimentConfig) -> tuple[int, ...]:
+    if not config.enable_continuous_collapse:
+        return ()
+    return tuple(sorted({epoch for epoch in config.checkpoint_epochs if 1 <= epoch < config.epochs}))
+
+
 def _train_single_model(
     *,
     model_name: str,
     model: ExternalClockMLP,
     config: ExperimentConfig,
     device: torch.device,
+    checkpoint_dir: Path | None = None,
+    checkpoint_epochs: tuple[int, ...] = (),
 ) -> dict[str, Any]:
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -291,6 +299,18 @@ def _train_single_model(
                 f"train={row['train_loss']:.6f} val={row['val_loss']:.6f}"
             )
 
+        if checkpoint_dir is not None and epoch in checkpoint_epochs:
+            _save_checkpoint(
+                model,
+                checkpoint_dir / f"{model_name}_epoch_{epoch:04d}.pt",
+                metadata={
+                    "config": config.to_resolved_dict(),
+                    "model_name": model_name,
+                    "epoch": int(epoch),
+                    "checkpoint_kind": "milestone",
+                },
+            )
+
     return {
         "model": model,
         "history": history,
@@ -400,6 +420,8 @@ def _build_summary(
             "eval_steps": config.eval_steps,
             "long_steps": config.long_steps,
             "continuous_eval_steps": config.continuous_eval_steps,
+            "enable_continuous_collapse": config.enable_continuous_collapse,
+            "checkpoint_epochs": list(config.checkpoint_epochs),
             "pulse_value": config.pulse_value,
             "train_phase_mode": config.train_phase_mode,
             "eval_phase_mode": config.eval_phase_mode,
@@ -468,11 +490,14 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         use_language=True,
         seed=config.seed,
     ).to(device)
+    full_checkpoint_epochs = _analysis_checkpoint_epochs(config)
     full_result = _train_single_model(
         model_name="full_language",
         model=full_model,
         config=config,
         device=device,
+        checkpoint_dir=ckpt_dir,
+        checkpoint_epochs=full_checkpoint_epochs,
     )
     baseline_result: dict[str, Any] | None = None
     if config.train_baseline:
@@ -680,16 +705,38 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         config=config,
     )
 
+    full_final_metadata = {
+        "config": config.to_resolved_dict(),
+        "model_name": "full_language",
+        "epoch": int(config.epochs),
+        "checkpoint_kind": "final",
+    }
+    _save_checkpoint(
+        full_result["model"],
+        ckpt_dir / "full_language_final.pt",
+        metadata=full_final_metadata,
+    )
     _save_checkpoint(
         full_result["model"],
         ckpt_dir / "full_language.pt",
-        metadata={"config": config.to_resolved_dict(), "model_name": "full_language"},
+        metadata=full_final_metadata,
     )
     if baseline_result is not None:
+        baseline_final_metadata = {
+            "config": config.to_resolved_dict(),
+            "model_name": "no_language",
+            "epoch": int(config.epochs),
+            "checkpoint_kind": "final",
+        }
+        _save_checkpoint(
+            baseline_result["model"],
+            ckpt_dir / "no_language_final.pt",
+            metadata=baseline_final_metadata,
+        )
         _save_checkpoint(
             baseline_result["model"],
             ckpt_dir / "no_language.pt",
-            metadata={"config": config.to_resolved_dict(), "model_name": "no_language"},
+            metadata=baseline_final_metadata,
         )
 
     summary = _build_summary(

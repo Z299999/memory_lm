@@ -41,6 +41,10 @@ eval:
   continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
   eval_phase_mode: both        # which evals to write: reset, continuous, or both
 
+analysis:
+  enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis
+  checkpoint_epochs: [1, 10, 50, 100, 500, 1000]  # milestone epochs saved under checkpoints/ before the final checkpoint
+
 plot:
   plot_dpi: 160                # dpi for saved plots
   plot_training_fig_width: 8.0 # width of training_curves.png

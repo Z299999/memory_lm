@@ -71,6 +71,13 @@ cd experiments/exp0522_languageEmergence
 python3 run.py --config config.yaml --epochs 50 --run-name smoke
 ```
 
+For offline continuous-collapse diagnosis on a completed run:
+
+```bash
+cd experiments/exp0522_languageEmergence
+python3 analyze_continuous_collapse.py --run-dir runs/20260522/20260522_215620_exp0522_clock_v0
+```
+
 ## Training Rollout Length
 
 Training always uses a fixed rollout length set by `train.fixed_train_steps`.
@@ -164,6 +171,39 @@ eval:
 `run.eval_mute_deaf` controls whether the trained full model is also evaluated
 with the language channel forcibly disabled.
 
+## Offline Collapse Analysis
+
+Continuous-mode collapse can be analyzed after training with a dedicated offline pass.
+
+Config:
+
+```yaml
+analysis:
+  enable_continuous_collapse: true
+  checkpoint_epochs: [1, 10, 50, 100, 500, 1000]
+```
+
+When enabled, the full model saves milestone checkpoints during training:
+
+- `checkpoints/full_language_epoch_0001.pt`
+- `checkpoints/full_language_epoch_0010.pt`
+- ...
+- `checkpoints/full_language_final.pt`
+
+The offline analyzer replays those checkpoints on one fixed `continuous_eval` stream and writes:
+
+- `analysis/continuous_collapse/metrics.json`
+- `analysis/continuous_collapse/collapse_metrics.png`
+- `analysis/continuous_collapse/checkpoint_rollouts.png`
+- `analysis/continuous_collapse/snapshots/*.json`
+
+The four core collapse metrics are:
+
+- `pred_std`
+- `corr_pred_target`
+- `message_temporal_variance`
+- `mean_step_message_delta`
+
 ## Outputs
 
 Each run writes a timestamped folder under a date subdirectory in `runs/`,
@@ -181,7 +221,10 @@ for example `runs/20260522/20260522_173059_exp0522_clock_v0/`, containing:
   - `reset_long_rollout.csv`
   - `continuous_eval_rollout.csv` when continuous evaluation is enabled
 - `checkpoints/`
+  - `full_language_epoch_0001.pt`, etc. when continuous-collapse checkpointing is enabled
+  - `full_language_final.pt`
 - `plots/`
+- `analysis/continuous_collapse/` after running the offline analyzer
 
 The plots include:
 
@@ -222,4 +265,5 @@ The config is grouped into six top-level sections:
 - `task`
 - `train`
 - `eval`
+- `analysis`
 - `plot`

@@ -31,6 +31,10 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "continuous_eval_steps",
         "eval_phase_mode",
     ),
+    "analysis": (
+        "enable_continuous_collapse",
+        "checkpoint_epochs",
+    ),
     "plot": (
         "plot_dpi",
         "plot_training_fig_width",
@@ -99,6 +103,8 @@ class ExperimentConfig:
     eval_steps: int = 128
     long_steps: int = 512
     continuous_eval_steps: int = 512
+    enable_continuous_collapse: bool = True
+    checkpoint_epochs: tuple[int, ...] = (1, 10, 50, 100, 500, 1000)
     pulse_value: float = 1.0
     train_phase_mode: str = "reset"
     eval_phase_mode: str = "both"
@@ -273,7 +279,17 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         if not isinstance(value, (list, tuple)):
             raise ValueError(f"{key} must be a yaml list.")
         payload[key] = tuple(str(item) for item in value)
-    for key in ("train_baseline", "eval_mute_deaf", "plot_show_message_traces", "plot_show_message_norm"):
+    checkpoint_epochs = payload["checkpoint_epochs"]
+    if not isinstance(checkpoint_epochs, (list, tuple)):
+        raise ValueError("checkpoint_epochs must be a yaml list.")
+    payload["checkpoint_epochs"] = tuple(int(item) for item in checkpoint_epochs)
+    for key in (
+        "train_baseline",
+        "eval_mute_deaf",
+        "enable_continuous_collapse",
+        "plot_show_message_traces",
+        "plot_show_message_norm",
+    ):
         value = payload[key]
         if not isinstance(value, bool):
             raise ValueError(f"{key} must be true or false.")
@@ -305,6 +321,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("target_kind must be either 'sine' or 'mixed_sin'.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
         raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
+    if any(epoch <= 0 for epoch in payload["checkpoint_epochs"]):
+        raise ValueError("checkpoint_epochs entries must all be positive.")
     raw_components = payload["mixed_sin_components"]
     if not isinstance(raw_components, (list, tuple)) or not raw_components:
         raise ValueError("mixed_sin_components must be a non-empty list of [freq, amplitude] pairs.")
