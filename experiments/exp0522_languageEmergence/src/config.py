@@ -24,7 +24,6 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "fixed_train_steps",
         "train_phase_mode",
         "message_aux_loss_weight",
-        "message_refresh",
     ),
     "eval": (
         "eval_steps",
@@ -90,7 +89,6 @@ class ExperimentConfig:
     sequence_mode: str = "reset"
     fixed_train_steps: int = 128
     message_aux_loss_weight: float = 0.0
-    message_refresh: bool = False
     trunk_dims: tuple[int, ...] = (32,)
     activation: str = "tanh"
     language_dim: int = 4
@@ -275,7 +273,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         if not isinstance(value, (list, tuple)):
             raise ValueError(f"{key} must be a yaml list.")
         payload[key] = tuple(str(item) for item in value)
-    for key in ("train_baseline", "eval_mute_deaf", "message_refresh", "plot_show_message_traces", "plot_show_message_norm"):
+    for key in ("train_baseline", "eval_mute_deaf", "plot_show_message_traces", "plot_show_message_norm"):
         value = payload[key]
         if not isinstance(value, bool):
             raise ValueError(f"{key} must be true or false.")

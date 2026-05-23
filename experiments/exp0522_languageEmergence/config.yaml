@@ -34,7 +34,6 @@ train:
   train_phase_mode: continuous      # reset or continuous phase progression during training
   # train_phase_mode: reset      # reset or continuous phase progression during training
   message_aux_loss_weight: 1.0  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
-  message_refresh: true         # after each optimizer step, re-run 1 no-grad forward step from m[-2] to freshen the carried message
 
 eval:
   eval_steps: 128              # in-distribution evaluation rollout length

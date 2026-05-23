@@ -253,19 +253,7 @@ def _train_single_model(
         optimizer.step()
 
         if config.sequence_mode == "continuous_window" and model.use_language:
-            if config.message_refresh and messages.shape[0] >= 2:
-                m_prev = messages[-2].unsqueeze(0).detach()
-                with torch.no_grad():
-                    _, _, _, refreshed = model.rollout(
-                        num_steps=1,
-                        pulse_value=config.pulse_value,
-                        initial_message=m_prev,
-                        disable_language=False,
-                        return_hidden=False,
-                    )
-                train_message_state = refreshed.detach()
-            else:
-                train_message_state = final_message.detach()
+            train_message_state = final_message.detach()
         elif config.sequence_mode == "continuous_window":
             train_message_state = None
         else:
@@ -402,7 +390,6 @@ def _build_summary(
             "sequence_mode": config.sequence_mode,
             "fixed_train_steps": config.fixed_train_steps,
             "message_aux_loss_weight": config.message_aux_loss_weight,
-            "message_refresh": config.message_refresh,
             "trunk_dims": list(config.trunk_dims),
             "activation": config.activation,
             "language_dim": config.language_dim,
