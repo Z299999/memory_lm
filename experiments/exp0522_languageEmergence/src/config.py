@@ -13,8 +13,24 @@ import yaml
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
     "model": ("trunk_dims", "language_dim", "language_readout_coverage"),
-    "task": ("cycle_steps", "train_steps", "eval_steps", "long_steps", "pulse_value"),
-    "train": ("epochs", "lr", "weight_decay", "grad_clip", "rollout_schedule", "fixed_train_steps"),
+    "task": ("cycle_steps", "pulse_value"),
+    "train": (
+        "epochs",
+        "lr",
+        "weight_decay",
+        "grad_clip",
+        "sequence_mode",
+        "rollout_schedule",
+        "fixed_train_steps",
+        "train_steps",
+        "train_phase_mode",
+    ),
+    "eval": (
+        "eval_steps",
+        "long_steps",
+        "continuous_eval_steps",
+        "eval_phase_mode",
+    ),
     "plot": (
         "plot_dpi",
         "plot_training_fig_width",
@@ -43,6 +59,18 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
+LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
+    "task": (
+        "train_steps",
+        "eval_steps",
+        "long_steps",
+        "continuous_eval_steps",
+        "train_phase_mode",
+        "eval_phase_mode",
+    ),
+}
+
+
 @dataclass
 class ExperimentConfig:
     """User-facing configuration for exp0522 runs."""
@@ -53,6 +81,7 @@ class ExperimentConfig:
     lr: float = 3e-3
     weight_decay: float = 0.0
     grad_clip: float = 1.0
+    sequence_mode: str = "reset"
     rollout_schedule: str = "curriculum"
     fixed_train_steps: int = 128
     trunk_dims: tuple[int, ...] = (32,)
@@ -62,7 +91,10 @@ class ExperimentConfig:
     train_steps: int = 128
     eval_steps: int = 128
     long_steps: int = 512
+    continuous_eval_steps: int = 512
     pulse_value: float = 1.0
+    train_phase_mode: str = "reset"
+    eval_phase_mode: str = "both"
     log_every: int = 25
     output_root: str = "runs"
     plot_dpi: int = 160
@@ -137,7 +169,8 @@ def _flatten_user_config(raw: dict[str, object], defaults: ExperimentConfig) -> 
             continue
         if not isinstance(section_payload, dict):
             raise ValueError(f"Config section {section_name!r} must be a mapping.")
-        unknown_section_keys = set(section_payload.keys()) - set(section_keys)
+        allowed_keys = set(section_keys) | set(LEGACY_SECTION_KEYS.get(section_name, ()))
+        unknown_section_keys = set(section_payload.keys()) - allowed_keys
         if unknown_section_keys:
             raise ValueError(
                 f"Unknown keys inside section {section_name!r}: {sorted(unknown_section_keys)}"
@@ -172,6 +205,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "train_steps",
         "eval_steps",
         "long_steps",
+        "continuous_eval_steps",
         "log_every",
         "fixed_train_steps",
         "plot_dpi",
@@ -201,7 +235,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_zero_linewidth",
     ):
         payload[key] = float(payload[key])
+    payload["sequence_mode"] = str(payload["sequence_mode"])
     payload["rollout_schedule"] = str(payload["rollout_schedule"])
+    payload["train_phase_mode"] = str(payload["train_phase_mode"])
+    payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     for key in (
         "plot_training_series",
         "plot_rollout_series",
@@ -219,10 +256,16 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
 
     if payload["epochs"] <= 0:
         raise ValueError("epochs must be positive.")
+    if payload["sequence_mode"] not in {"reset", "continuous_window"}:
+        raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
     if payload["rollout_schedule"] not in {"curriculum", "fixed"}:
         raise ValueError("rollout_schedule must be either 'curriculum' or 'fixed'.")
     if payload["fixed_train_steps"] <= 0:
         raise ValueError("fixed_train_steps must be positive.")
+    if payload["train_phase_mode"] not in {"reset", "continuous"}:
+        raise ValueError("train_phase_mode must be either 'reset' or 'continuous'.")
+    if payload["eval_phase_mode"] not in {"reset", "continuous", "both"}:
+        raise ValueError("eval_phase_mode must be 'reset', 'continuous', or 'both'.")
     if payload["language_dim"] <= 0:
         raise ValueError("language_dim must be positive.")
     if payload["language_readout_coverage"] <= 0:
@@ -231,14 +274,28 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("language_readout_coverage must be <= language_dim.")
     if payload["cycle_steps"] <= 1:
         raise ValueError("cycle_steps must be greater than 1.")
-    if payload["train_steps"] <= 0 or payload["eval_steps"] <= 0 or payload["long_steps"] <= 0:
-        raise ValueError("train_steps, eval_steps, and long_steps must be positive.")
+    if (
+        payload["train_steps"] <= 0
+        or payload["eval_steps"] <= 0
+        or payload["long_steps"] <= 0
+        or payload["continuous_eval_steps"] <= 0
+    ):
+        raise ValueError("train_steps, eval_steps, long_steps, and continuous_eval_steps must be positive.")
     if payload["fixed_train_steps"] > payload["long_steps"]:
         raise ValueError("fixed_train_steps must be <= long_steps.")
+    if payload["fixed_train_steps"] > payload["continuous_eval_steps"]:
+        raise ValueError("fixed_train_steps must be <= continuous_eval_steps.")
     if payload["eval_steps"] < payload["cycle_steps"]:
         raise ValueError("eval_steps must be at least one cycle long.")
     if payload["long_steps"] < payload["eval_steps"]:
         raise ValueError("long_steps must be greater than or equal to eval_steps.")
+    if payload["sequence_mode"] == "continuous_window":
+        if payload["rollout_schedule"] != "fixed":
+            raise ValueError("continuous_window mode only supports rollout_schedule='fixed'.")
+        if payload["train_phase_mode"] != "continuous":
+            raise ValueError("continuous_window mode requires train_phase_mode='continuous'.")
+    if payload["sequence_mode"] == "reset" and payload["train_phase_mode"] != "reset":
+        raise ValueError("reset mode requires train_phase_mode='reset'.")
     if payload["log_every"] <= 0:
         raise ValueError("log_every must be positive.")
     if payload["plot_dpi"] <= 0:
@@ -265,8 +322,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("plot_error_legend_ncols and plot_message_legend_ncols must be positive.")
     if payload["plot_short_steps"] > payload["eval_steps"]:
         raise ValueError("plot_short_steps must be <= eval_steps.")
-    if payload["plot_long_steps"] > payload["long_steps"]:
-        raise ValueError("plot_long_steps must be <= long_steps.")
+    if payload["plot_long_steps"] > max(payload["long_steps"], payload["continuous_eval_steps"]):
+        raise ValueError("plot_long_steps must be <= max(long_steps, continuous_eval_steps).")
     if payload["plot_error_steps"] > payload["eval_steps"]:
         raise ValueError("plot_error_steps must be <= eval_steps.")
     if payload["plot_message_steps"] > payload["eval_steps"]:

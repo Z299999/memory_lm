@@ -125,6 +125,9 @@ def plot_rollout_diagnostics(
     long_full: dict[str, Any],
     long_baseline: dict[str, Any],
     long_mute_deaf: dict[str, Any],
+    continuous_long_full: dict[str, Any] | None,
+    continuous_long_baseline: dict[str, Any] | None,
+    continuous_long_mute_deaf: dict[str, Any] | None,
     output_path: Path,
     config: ExperimentConfig,
 ) -> None:
@@ -134,10 +137,15 @@ def plot_rollout_diagnostics(
     long_full = _slice_rollout(long_full, config.plot_long_steps)
     long_baseline = _slice_rollout(long_baseline, config.plot_long_steps)
     long_mute_deaf = _slice_rollout(long_mute_deaf, config.plot_long_steps)
+    if continuous_long_full is not None:
+        continuous_long_full = _slice_rollout(continuous_long_full, config.plot_long_steps)
+        continuous_long_baseline = _slice_rollout(continuous_long_baseline, config.plot_long_steps)
+        continuous_long_mute_deaf = _slice_rollout(continuous_long_mute_deaf, config.plot_long_steps)
     error_full = _slice_rollout(short_full, config.plot_error_steps)
     error_baseline = _slice_rollout(short_baseline, config.plot_error_steps)
     error_mute_deaf = _slice_rollout(short_mute_deaf, config.plot_error_steps)
-    message_rollout = _slice_rollout(short_full, config.plot_message_steps)
+    message_source = continuous_long_full if continuous_long_full is not None else short_full
+    message_rollout = _slice_rollout(message_source, config.plot_message_steps)
 
     short_steps = np.arange(len(short_full["target"]))
     long_steps = np.arange(len(long_full["target"]))
@@ -154,6 +162,8 @@ def plot_rollout_diagnostics(
     long_mute_pred = long_mute_deaf["prediction"].numpy()
 
     panels = _build_rollout_panels(config)
+    if continuous_long_full is not None:
+        panels.insert(2, ("continuous_long", 1.35))
     fig, axes = plt.subplots(
         len(panels),
         1,
@@ -180,7 +190,7 @@ def plot_rollout_diagnostics(
             color=color,
             linewidth=_linewidth(config, width_kind),
         )
-    short_axis.set_title("Short rollout")
+    short_axis.set_title("Reset short eval" if continuous_long_full is not None else "Short rollout")
     short_axis.set_ylabel("value")
     short_axis.grid(True, alpha=config.plot_grid_alpha)
     _maybe_add_legend(short_axis, ncol=config.plot_prediction_legend_ncols)
@@ -201,10 +211,34 @@ def plot_rollout_diagnostics(
             color=color,
             linewidth=_linewidth(config, width_kind),
         )
-    long_axis.set_title("Long rollout")
+    long_axis.set_title("Reset long eval" if continuous_long_full is not None else "Long rollout")
     long_axis.set_ylabel("value")
     long_axis.grid(True, alpha=config.plot_grid_alpha)
     _maybe_add_legend(long_axis, ncol=config.plot_prediction_legend_ncols)
+
+    if "continuous_long" in axis_by_panel:
+        continuous_target = continuous_long_full["target"].numpy()
+        continuous_steps = np.arange(len(continuous_target))
+        continuous_predictions = {
+            "target": continuous_target,
+            "full": continuous_long_full["prediction"].numpy(),
+            "baseline": continuous_long_baseline["prediction"].numpy(),
+            "mute_deaf": continuous_long_mute_deaf["prediction"].numpy(),
+        }
+        continuous_axis = axis_by_panel["continuous_long"]
+        for series_name in config.plot_rollout_series:
+            label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
+            continuous_axis.plot(
+                continuous_steps,
+                continuous_predictions[series_name],
+                label=label,
+                color=color,
+                linewidth=_linewidth(config, width_kind),
+            )
+        continuous_axis.set_title("Continuous long eval")
+        continuous_axis.set_ylabel("value")
+        continuous_axis.grid(True, alpha=config.plot_grid_alpha)
+        _maybe_add_legend(continuous_axis, ncol=config.plot_prediction_legend_ncols)
 
     if "error" in axis_by_panel:
         error_target = error_full["target"].numpy()

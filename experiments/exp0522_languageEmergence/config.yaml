@@ -13,18 +13,24 @@ model:
 
 task:
   cycle_steps: 32              # number of steps in one full sine cycle
-  train_steps: 128             # rollout length used for final training stage
-  eval_steps: 128              # in-distribution evaluation rollout length
-  long_steps: 512              # long-horizon rollout length for stress test
   pulse_value: 1.0             # constant ordinary input x_t at every step
 
 train:
-  epochs: 700                  # total training epochs
+  epochs: 1000                  # total training epochs
   lr: 0.003                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
+  sequence_mode: continuous_window # reset or continuous_window message handling between training windows
   rollout_schedule: fixed # training rollout schedule: curriculum or fixed
   fixed_train_steps: 128       # rollout length used when rollout_schedule is fixed
+  train_steps: 128             # rollout length used for final training stage in curriculum mode
+  train_phase_mode: continuous # reset or continuous phase progression during training
+
+eval:
+  eval_steps: 128              # in-distribution evaluation rollout length
+  long_steps: 512              # long-horizon rollout length for stress test
+  continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
+  eval_phase_mode: both        # which evals to write: reset, continuous, or both
 
 plot:
   plot_dpi: 160                # dpi for saved plots

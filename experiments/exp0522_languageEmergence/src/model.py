@@ -132,9 +132,10 @@ class ExternalClockMLP(nn.Module):
         *,
         num_steps: int,
         pulse_value: float,
+        initial_message: torch.Tensor | None = None,
         disable_language: bool = False,
         return_hidden: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
         device = self.output_head.weight.device
         batch_size = 1
         hidden_snapshots: list[torch.Tensor] = []
@@ -142,7 +143,15 @@ class ExternalClockMLP(nn.Module):
         messages: list[torch.Tensor] = []
 
         if self.use_language:
-            message_prev = torch.zeros(batch_size, self.language_dim, device=device)
+            if initial_message is None:
+                message_prev = torch.zeros(batch_size, self.language_dim, device=device)
+            else:
+                if tuple(initial_message.shape) != (batch_size, self.language_dim):
+                    raise ValueError(
+                        f"initial_message must have shape {(batch_size, self.language_dim)}, "
+                        f"got {tuple(initial_message.shape)}."
+                    )
+                message_prev = initial_message.to(device=device)
         else:
             message_prev = torch.zeros(batch_size, 0, device=device)
         pulse = torch.full((batch_size, self.pulse_dim), float(pulse_value), device=device)
@@ -169,4 +178,5 @@ class ExternalClockMLP(nn.Module):
             message_prev = message_t
 
         hidden_tensor = torch.cat(hidden_snapshots, dim=0) if return_hidden else None
-        return torch.cat(outputs, dim=0), torch.cat(messages, dim=0), hidden_tensor
+        final_message = message_prev
+        return torch.cat(outputs, dim=0), torch.cat(messages, dim=0), hidden_tensor, final_message
