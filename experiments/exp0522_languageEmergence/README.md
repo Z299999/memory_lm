@@ -97,21 +97,29 @@ python3 analyze_continuous_collapse.py --run-dir runs/20260522/20260522_215620_e
 
 ## Training Rollout Length
 
-Training always uses a fixed rollout length set by `train.fixed_train_steps`.
+Training window length is configured with `train.train_window_schedule`.
 
-Example: always train on 32-step rollouts
-
-```yaml
-train:
-  fixed_train_steps: 32
-```
-
-Example: always train on full 128-step rollouts
+Examples:
 
 ```yaml
 train:
-  fixed_train_steps: 128
+  train_window_schedule: fixed(32)
 ```
+
+```yaml
+train:
+  train_window_schedule: random_uniform(12,20)
+```
+
+Supported schedule forms:
+
+- `fixed(L)`
+  - always train on length `L`
+- `random_uniform(a,b)`
+  - sample an integer length uniformly from the closed interval `[a,b]` each epoch
+
+This schedule works in both `reset` and `continuous_window` modes, though its
+main research use is for `continuous_window`.
 
 ## Task Variants
 
@@ -200,7 +208,7 @@ Example:
 ```yaml
 train:
   sequence_mode: continuous_window
-  fixed_train_steps: 32
+  train_window_schedule: fixed(32)
   train_phase_mode: continuous
   detach_error_input: true
   carry_error_between_windows: true

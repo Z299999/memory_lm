@@ -312,6 +312,8 @@ class ExternalClockMLP(nn.Module):
         hidden_tensor = torch.cat(hidden_snapshots, dim=0) if return_hidden else None
         final_message = message_prev
         final_error = error_prev
+        final_reconstruction_y = reconstruction_y_prev
+        final_reconstruction_v = reconstruction_v_prev
         return (
             torch.cat(outputs, dim=0),
             torch.cat(raw_outputs, dim=0),
@@ -319,4 +321,6 @@ class ExternalClockMLP(nn.Module):
             hidden_tensor,
             final_message,
             final_error,
+            final_reconstruction_y,
+            final_reconstruction_v,
         )

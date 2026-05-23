@@ -11,11 +11,11 @@ import numpy as np
 import torch
 
 try:
-    from .config import ExperimentConfig, config_from_user_dict
+    from .config import ExperimentConfig, config_from_user_dict, train_window_reference_steps
     from .eval import _evaluate_continuous_stream
     from .model import ExternalClockMLP
 except ImportError:  # pragma: no cover - script mode
-    from config import ExperimentConfig, config_from_user_dict
+    from config import ExperimentConfig, config_from_user_dict, train_window_reference_steps
     from eval import _evaluate_continuous_stream
     from model import ExternalClockMLP
 
@@ -241,6 +241,7 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
     snapshots_dir.mkdir(parents=True, exist_ok=True)
 
     analyzed_entries: list[dict[str, Any]] = []
+    warmup_steps = train_window_reference_steps(config.train_window_schedule)
     for record in checkpoint_entries:
         checkpoint_payload = torch.load(record["path"], map_location="cpu")
         model = _build_model(config, resolved_model_name)
@@ -249,7 +250,7 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
         rollout = _evaluate_continuous_stream(
             model,
             measured_steps=config.continuous_eval_steps,
-            warmup_steps=config.fixed_train_steps,
+            warmup_steps=warmup_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
@@ -290,7 +291,8 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
         "model_name": resolved_model_name,
         "analysis_config": {
             "continuous_eval_steps": config.continuous_eval_steps,
-            "warmup_steps": config.fixed_train_steps,
+            "warmup_steps": warmup_steps,
+            "train_window_schedule": config.train_window_schedule,
             "checkpoint_epochs": list(config.checkpoint_epochs),
             "force_zero_error_input": config.force_zero_error_input,
             "prediction_target": config.prediction_target,

@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 import json
 import math
 from pathlib import Path
+import re
 import shutil
 
 import yaml
@@ -21,7 +22,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "weight_decay",
         "grad_clip",
         "sequence_mode",
-        "fixed_train_steps",
+        "train_window_schedule",
         "train_phase_mode",
         "message_aux_loss_weight",
         "detach_error_input",
@@ -74,7 +75,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
 
 LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("train_baseline", "eval_mute_deaf"),
-    "train": ("rollout_schedule", "train_steps", "message_refresh"),
+    "train": ("rollout_schedule", "train_steps", "fixed_train_steps", "message_refresh"),
     "task": (
         "train_steps",
         "eval_steps",
@@ -115,6 +116,40 @@ def parse_condition(s: str) -> tuple[str, tuple[int, ...]]:
     return s.strip(), ()
 
 
+def parse_train_window_schedule(spec: str) -> tuple[str, int, int]:
+    raw = str(spec).strip()
+    fixed_match = re.fullmatch(r"fixed\((\d+)\)", raw)
+    if fixed_match:
+        value = int(fixed_match.group(1))
+        if value <= 0:
+            raise ValueError("train_window_schedule fixed(L) requires L > 0.")
+        return "fixed", value, value
+    uniform_match = re.fullmatch(r"random_uniform\((\d+),\s*(\d+)\)", raw)
+    if uniform_match:
+        lower = int(uniform_match.group(1))
+        upper = int(uniform_match.group(2))
+        if lower <= 0 or upper <= 0:
+            raise ValueError("train_window_schedule random_uniform(a,b) requires a,b > 0.")
+        if lower > upper:
+            raise ValueError("train_window_schedule random_uniform(a,b) requires a <= b.")
+        return "random_uniform", lower, upper
+    raise ValueError(
+        "train_window_schedule must be 'fixed(L)' or 'random_uniform(a,b)' with positive integers."
+    )
+
+
+def train_window_bounds(spec: str) -> tuple[int, int]:
+    _mode, lower, upper = parse_train_window_schedule(spec)
+    return lower, upper
+
+
+def train_window_reference_steps(spec: str) -> int:
+    mode, lower, upper = parse_train_window_schedule(spec)
+    if mode == "fixed":
+        return lower
+    return int(round((lower + upper) / 2.0))
+
+
 @dataclass
 class ExperimentConfig:
     """User-facing configuration for exp0522 runs."""
@@ -126,7 +161,7 @@ class ExperimentConfig:
     weight_decay: float = 0.0
     grad_clip: float = 1.0
     sequence_mode: str = "reset"
-    fixed_train_steps: int = 128
+    train_window_schedule: str = "fixed(128)"
     message_aux_loss_weight: float = 0.0
     detach_error_input: bool = True
     carry_error_between_windows: bool = True
@@ -205,6 +240,10 @@ class ExperimentConfig:
             "prediction_target": self.prediction_target,
             "raw_prediction_space": self.prediction_target,
             "reported_prediction_space": "y",
+            "train_window_schedule": self.train_window_schedule,
+            "resolved_train_window_min": train_window_bounds(self.train_window_schedule)[0],
+            "resolved_train_window_max": train_window_bounds(self.train_window_schedule)[1],
+            "resolved_train_window_reference_steps": train_window_reference_steps(self.train_window_schedule),
             "phase_init": 0.0,
             "omega": omega_from_cycle_steps(self.cycle_steps),
         }
@@ -255,14 +294,18 @@ def _flatten_user_config(raw: dict[str, object], defaults: ExperimentConfig) -> 
             raise ValueError(
                 f"Unknown keys inside section {section_name!r}: {sorted(unknown_section_keys)}"
             )
-        if section_name in {"train", "task"} and "train_steps" in section_payload and "fixed_train_steps" not in section_payload:
-            flat_payload["fixed_train_steps"] = section_payload["train_steps"]
+        if section_name in {"train", "task"} and "train_steps" in section_payload and "train_window_schedule" not in section_payload:
+            flat_payload["train_window_schedule"] = f"fixed({int(section_payload['train_steps'])})"
+        if section_name == "train" and "fixed_train_steps" in section_payload and "train_window_schedule" not in section_payload:
+            flat_payload["train_window_schedule"] = f"fixed({int(section_payload['fixed_train_steps'])})"
         flat_payload.update(section_payload)
 
     # Allow flat keys as backward-compatible overrides.
     for key in valid_keys:
         if key in raw:
             flat_payload[key] = raw[key]
+    if "fixed_train_steps" in raw and "train_window_schedule" not in flat_payload:
+        flat_payload["train_window_schedule"] = f"fixed({int(raw['fixed_train_steps'])})"
     return flat_payload
 
 
@@ -288,7 +331,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "long_steps",
         "continuous_eval_steps",
         "log_every",
-        "fixed_train_steps",
         "plot_dpi",
         "plot_short_steps",
         "plot_long_steps",
@@ -325,6 +367,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     # Drop legacy and removed keys
     payload.pop("rollout_schedule", None)
     payload.pop("train_steps", None)
+    payload.pop("fixed_train_steps", None)
     payload.pop("message_refresh", None)
     payload.pop("train_baseline", None)
     payload.pop("eval_mute_deaf", None)
@@ -341,6 +384,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
     payload["prediction_target"] = str(payload["prediction_target"])
+    payload["train_window_schedule"] = str(payload["train_window_schedule"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
     payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
     for key in ("plot_training_series",):
@@ -383,8 +427,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
     if payload["activation"] not in {"tanh", "relu", "leaky_relu"}:
         raise ValueError("activation must be 'tanh', 'relu', or 'leaky_relu'.")
-    if payload["fixed_train_steps"] <= 0:
-        raise ValueError("fixed_train_steps must be positive.")
+    _window_mode, window_min, window_max = parse_train_window_schedule(payload["train_window_schedule"])
     if payload["train_phase_mode"] not in {"reset", "continuous"}:
         raise ValueError("train_phase_mode must be either 'reset' or 'continuous'.")
     if payload["eval_phase_mode"] not in {"reset", "continuous", "both"}:
@@ -446,10 +489,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
             raise ValueError("mixed_sin_components: each amplitude must be finite.")
         parsed.append((freq, amp))
     payload["mixed_sin_components"] = tuple(parsed)
-    if payload["fixed_train_steps"] > payload["long_steps"]:
-        raise ValueError("fixed_train_steps must be <= long_steps.")
-    if payload["fixed_train_steps"] > payload["continuous_eval_steps"]:
-        raise ValueError("fixed_train_steps must be <= continuous_eval_steps.")
+    if window_max > payload["long_steps"]:
+        raise ValueError("train_window_schedule maximum length must be <= long_steps.")
+    if window_max > payload["continuous_eval_steps"]:
+        raise ValueError("train_window_schedule maximum length must be <= continuous_eval_steps.")
     if payload["eval_steps"] < payload["cycle_steps"]:
         raise ValueError("eval_steps must be at least one cycle long.")
     if payload["long_steps"] < payload["eval_steps"]:
@@ -462,7 +505,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if legacy_rollout_schedule is None and isinstance(raw.get("train"), dict):
         legacy_rollout_schedule = raw["train"].get("rollout_schedule")
     if legacy_rollout_schedule is not None and str(legacy_rollout_schedule) != "fixed":
-        raise ValueError("curriculum training has been removed; only fixed_train_steps is supported now.")
+        raise ValueError("curriculum training has been removed; use train_window_schedule instead.")
     if payload["log_every"] <= 0:
         raise ValueError("log_every must be positive.")
     if payload["plot_dpi"] <= 0:

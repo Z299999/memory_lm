@@ -13,12 +13,24 @@ import torch
 from torch import nn
 
 try:
-    from .config import ExperimentConfig, copy_config_to_run_dir, write_resolved_config
+    from .config import (
+        ExperimentConfig,
+        copy_config_to_run_dir,
+        parse_train_window_schedule,
+        train_window_reference_steps,
+        write_resolved_config,
+    )
     from .eval import _evaluate_rollout
     from .model import ExternalClockMLP
     from .plots import plot_training_curves, plot_training_timeline
 except ImportError:  # pragma: no cover - script mode
-    from config import ExperimentConfig, copy_config_to_run_dir, write_resolved_config
+    from config import (
+        ExperimentConfig,
+        copy_config_to_run_dir,
+        parse_train_window_schedule,
+        train_window_reference_steps,
+        write_resolved_config,
+    )
     from eval import _evaluate_rollout
     from model import ExternalClockMLP
     from plots import plot_training_curves, plot_training_timeline
@@ -84,8 +96,15 @@ def _analysis_checkpoint_epochs(config: ExperimentConfig) -> tuple[int, ...]:
     return tuple(sorted({epoch for epoch in config.checkpoint_epochs if 1 <= epoch < config.epochs}))
 
 
+def _sample_train_steps(config: ExperimentConfig) -> int:
+    mode, lower, upper = parse_train_window_schedule(config.train_window_schedule)
+    if mode == "fixed":
+        return lower
+    return random.randint(lower, upper)
+
+
 def _build_training_timeline_panels(config: ExperimentConfig) -> list[dict[str, Any]]:
-    total_steps = int(config.epochs) * int(config.fixed_train_steps)
+    total_steps = int(round(int(config.epochs) * float(train_window_reference_steps(config.train_window_schedule))))
     if total_steps <= 0:
         return []
     window_steps = min(int(config.plot_training_timeline_window_steps), total_steps)
@@ -166,14 +185,16 @@ def _train_single_model(
         weight_decay=config.weight_decay,
     )
     target_cache: dict[tuple[int, int], dict[str, torch.Tensor]] = {}
+    reference_train_steps = train_window_reference_steps(config.train_window_schedule)
     cache_steps = {
-        config.fixed_train_steps,
+        reference_train_steps,
         config.eval_steps,
         config.long_steps,
         config.continuous_eval_steps,
     }
 
-    if config.train_phase_mode == "reset":
+    schedule_mode, _, _ = parse_train_window_schedule(config.train_window_schedule)
+    if config.train_phase_mode == "reset" and schedule_mode == "fixed":
         for steps in cache_steps:
             bundle = _build_train_target(
                 num_steps=steps,
@@ -196,10 +217,12 @@ def _train_single_model(
     train_time_cursor = 0
     train_message_state: torch.Tensor | None = None
     train_error_state: torch.Tensor | None = None
+    train_reconstruction_y_state: torch.Tensor | None = None
+    train_reconstruction_v_state: torch.Tensor | None = None
     for epoch in range(1, config.epochs + 1):
-        effective_steps = int(config.fixed_train_steps)
+        effective_steps = _sample_train_steps(config)
         train_window_start = train_time_cursor if config.train_phase_mode == "continuous" else 0
-        if config.train_phase_mode == "reset":
+        if config.train_phase_mode == "reset" and schedule_mode == "fixed":
             train_bundle = target_cache[(effective_steps, 0)]
         else:
             train_bundle = _build_train_target(
@@ -216,15 +239,31 @@ def _train_single_model(
         train_target_y = train_bundle["target_y"]
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        prediction, raw_prediction, messages, _hidden, final_message, final_error = model.rollout(
+        initial_reconstruction_y = train_reconstruction_y_state
+        if initial_reconstruction_y is None:
+            initial_reconstruction_y = train_bundle["init_y_prev"]
+        initial_reconstruction_v = train_reconstruction_v_state
+        if config.prediction_target == "acceleration" and initial_reconstruction_v is None:
+            initial_reconstruction_v = train_bundle["init_v_prev"]
+
+        (
+            prediction,
+            raw_prediction,
+            messages,
+            _hidden,
+            final_message,
+            final_error,
+            final_reconstruction_y,
+            final_reconstruction_v,
+        ) = model.rollout(
             num_steps=effective_steps,
             pulse_value=config.pulse_value,
             target_sequence=train_target,
             y_target_sequence=train_target_y,
             initial_message=train_message_state,
             initial_error=train_error_state,
-            initial_reconstruction_y=train_bundle["init_y_prev"],
-            initial_reconstruction_v=train_bundle["init_v_prev"],
+            initial_reconstruction_y=initial_reconstruction_y,
+            initial_reconstruction_v=initial_reconstruction_v,
             prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input,
@@ -250,15 +289,22 @@ def _train_single_model(
                 mixed_sin_components=config.mixed_sin_components,
                 prediction_target=config.prediction_target,
             )
-            _aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
+            aux_initial_reconstruction_y = final_reconstruction_y
+            if aux_initial_reconstruction_y is None:
+                aux_initial_reconstruction_y = aux_bundle["init_y_prev"]
+            aux_initial_reconstruction_v = final_reconstruction_v
+            if config.prediction_target == "acceleration" and aux_initial_reconstruction_v is None:
+                aux_initial_reconstruction_v = aux_bundle["init_v_prev"]
+
+            _aux_prediction, aux_raw_prediction, _, _, _, _, _, _ = model.rollout(
                 num_steps=1,
                 pulse_value=config.pulse_value,
                 target_sequence=aux_bundle["train_target"],
                 y_target_sequence=aux_bundle["target_y"],
                 initial_message=final_message,
                 initial_error=final_error,
-                initial_reconstruction_y=aux_bundle["init_y_prev"],
-                initial_reconstruction_v=aux_bundle["init_v_prev"],
+                initial_reconstruction_y=aux_initial_reconstruction_y,
+                initial_reconstruction_v=aux_initial_reconstruction_v,
                 prediction_target=config.prediction_target,
                 detach_error_input=config.detach_error_input,
                 force_zero_error_input=config.force_zero_error_input,
@@ -295,6 +341,15 @@ def _train_single_model(
             train_error_state = final_error.detach()
         else:
             train_error_state = None
+        if config.sequence_mode == "continuous_window" and config.prediction_target in {"velocity", "acceleration"}:
+            train_reconstruction_y_state = final_reconstruction_y.detach()
+            if config.prediction_target == "acceleration":
+                train_reconstruction_v_state = final_reconstruction_v.detach()
+            else:
+                train_reconstruction_v_state = None
+        else:
+            train_reconstruction_y_state = None
+            train_reconstruction_v_state = None
 
         if config.train_phase_mode == "continuous":
             train_time_cursor += effective_steps
@@ -352,6 +407,8 @@ def _train_single_model(
         "final_train_state": {
             "final_message": train_message_state,
             "final_error": train_error_state,
+            "final_reconstruction_y": train_reconstruction_y_state,
+            "final_reconstruction_v": train_reconstruction_v_state,
             "final_step": int(train_time_cursor),
         },
     }
@@ -420,6 +477,8 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
             {
                 "final_message": fts["final_message"],
                 "final_error":   fts["final_error"],
+                "final_reconstruction_y": fts["final_reconstruction_y"],
+                "final_reconstruction_v": fts["final_reconstruction_v"],
                 "final_step":    fts["final_step"],
             },
             ckpt_dir / "final_train_state.pt",
