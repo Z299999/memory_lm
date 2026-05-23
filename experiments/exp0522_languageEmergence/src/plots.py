@@ -143,7 +143,7 @@ def plot_training_timeline(
     fig, axes = plt.subplots(
         nrows,
         ncols,
-        figsize=(config.plot_training_fig_width, max(3.4 * nrows, 6.8)),
+        figsize=(config.plot_training_timeline_fig_width, max(3.4 * nrows, 6.8)),
         squeeze=False,
     )
     flat_axes = list(axes.flat)
@@ -152,8 +152,6 @@ def plot_training_timeline(
         global_steps = np.asarray(panel["global_step"], dtype=float)
         target = np.asarray(panel["target"], dtype=float)
         prediction = np.asarray(panel["prediction"], dtype=float)
-        update_steps = [int(step) for step in panel.get("update_steps", [])]
-
         ax.plot(
             global_steps,
             target,
@@ -168,14 +166,6 @@ def plot_training_timeline(
             linewidth=config.plot_series_linewidth,
             label=full_label,
         )
-        for update_step in update_steps:
-            ax.axvline(
-                update_step,
-                color=config.plot_update_vline_color,
-                linestyle="--",
-                linewidth=config.plot_zero_linewidth,
-                alpha=config.plot_update_vline_alpha,
-            )
         ax.set_title(
             f"t={int(panel['start_step'])}..{int(panel['end_step'])}",
             fontsize=max(config.plot_title_fontsize - 2, 10),

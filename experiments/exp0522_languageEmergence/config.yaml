@@ -10,7 +10,7 @@ model:
     # - 32
     # - 32
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 7              # number of language input/output heads
+  language_dim: 5              # number of language input/output heads
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
 
@@ -80,5 +80,4 @@ plot:
   plot_training_timeline_num_panels: 12 # number of evenly sampled local windows shown in the training timeline figure
   plot_training_timeline_ncols: 3      # number of columns in the training timeline grid
   plot_training_timeline_window_steps: 200 # number of global time steps shown inside each training timeline panel
-  plot_update_vline_color: "#c0783c"  # color of the backprop update markers in the training timeline
-  plot_update_vline_alpha: 0.45       # opacity of the backprop update markers
+  plot_training_timeline_fig_width: 16.0   # width of training_timeline.png (independent of training_curves width)

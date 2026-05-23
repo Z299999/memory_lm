@@ -69,8 +69,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_training_timeline_num_panels",
         "plot_training_timeline_ncols",
         "plot_training_timeline_window_steps",
-        "plot_update_vline_color",
-        "plot_update_vline_alpha",
+        "plot_training_timeline_fig_width",
     ),
 }
 
@@ -158,8 +157,7 @@ class ExperimentConfig:
     plot_training_timeline_num_panels: int = 6
     plot_training_timeline_ncols: int = 2
     plot_training_timeline_window_steps: int = 200
-    plot_update_vline_color: str = "#c0783c"
-    plot_update_vline_alpha: float = 0.45
+    plot_training_timeline_fig_width: float = 14.0
 
     def to_user_dict(self) -> dict[str, object]:
         flat = asdict(self)
@@ -283,7 +281,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_series_linewidth",
         "plot_aux_linewidth",
         "plot_zero_linewidth",
-        "plot_update_vline_alpha",
+        "plot_training_timeline_fig_width",
     ):
         payload[key] = float(payload[key])
 
@@ -301,7 +299,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["target_kind"] = str(payload["target_kind"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
     payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
-    payload["plot_update_vline_color"] = str(payload["plot_update_vline_color"])
     for key in (
         "plot_training_series",
         "plot_rollout_series",
