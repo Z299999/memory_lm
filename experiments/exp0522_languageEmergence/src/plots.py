@@ -318,7 +318,7 @@ def plot_rollout_diagnostics(
                     label=f"m{idx}",
                 )
             _maybe_add_legend(message_axis, ncol=config.plot_message_legend_ncols)
-        message_axis.set_title("Language channel traces")
+        message_axis.set_title("Full model language channel traces")
         message_axis.set_ylabel("message")
         message_axis.grid(True, alpha=config.plot_grid_alpha)
 

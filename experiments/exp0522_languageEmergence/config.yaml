@@ -54,8 +54,8 @@ plot:
   plot_dpi: 200                # dpi for saved plots
   plot_training_fig_width: 12.0 # width of training_curves.png
   plot_training_fig_height: 7.0 # height of training_curves.png
-  plot_diag_fig_width: 12.0    # width of rollout_diagnostics.png
-  plot_diag_fig_height: 15.0   # height of rollout_diagnostics.png
+  plot_diag_fig_width: 16.0    # width of eval_rollout_diagnostics.png
+  plot_diag_fig_height: 15.0   # height of eval_rollout_diagnostics.png
   plot_short_steps: 128        # number of short-rollout steps shown in the diagnostics figure
   plot_long_steps: 512         # number of long-rollout steps shown in the diagnostics figure
   plot_error_steps: 128        # number of steps shown in the short-rollout error panel

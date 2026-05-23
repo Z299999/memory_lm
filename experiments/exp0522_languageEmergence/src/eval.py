@@ -374,7 +374,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         reset_evals=reset_evals,
         reset_long_evals=reset_long_evals,
         continuous_evals=continuous_evals,
-        output_path=plots_dir / "rollout_diagnostics.png",
+        output_path=plots_dir / "eval_rollout_diagnostics.png",
         config=config,
     )
 
