@@ -57,6 +57,35 @@ cd experiments/exp0522_languageEmergence
 python3 run.py --config config.yaml --epochs 50 --run-name smoke
 ```
 
+## Training Rollout Schedule
+
+Training always uses a rollout, but the rollout length can now be configured in
+two ways from `train:` in `config.yaml`:
+
+- `rollout_schedule: curriculum`
+  - uses the original short-to-long schedule
+  - gradually trains on `cycle_steps`, then about `2x`, `3x`, and finally `train_steps`
+
+- `rollout_schedule: fixed`
+  - uses one constant rollout length for every epoch
+  - the length is set by `fixed_train_steps`
+
+Example: always train on 32-step rollouts
+
+```yaml
+train:
+  rollout_schedule: fixed
+  fixed_train_steps: 32
+```
+
+Example: always train on full 128-step rollouts
+
+```yaml
+train:
+  rollout_schedule: fixed
+  fixed_train_steps: 128
+```
+
 ## Outputs
 
 Each run writes a timestamped folder under `runs/` containing:
@@ -89,6 +118,19 @@ Most plotting behavior is configurable from `config.yaml`, including:
 - how many steps are shown in the error panel
 - how many steps are shown in the message panels
 - line widths, grid alpha, and legend column counts
+- which training curves are shown
+- which rollout curves are shown
+- whether the message-trace and message-norm panels are shown
+
+For example, if you mostly want the cleanest rollout view, you can set:
+
+```yaml
+plot:
+  plot_rollout_series: [target, full]
+  plot_error_series: [full]
+  plot_show_message_traces: false
+  plot_show_message_norm: false
+```
 
 The config is grouped into five top-level sections:
 

@@ -82,7 +82,11 @@ def _evaluate_rollout(
 
 
 def _scheduled_train_steps(epoch: int, config: ExperimentConfig) -> int:
-    """Use a short-to-long rollout curriculum to stabilize oscillator learning."""
+    """Return the rollout length used for the current training epoch."""
+    if config.rollout_schedule == "fixed":
+        return int(config.fixed_train_steps)
+
+    # Default: short-to-long curriculum to stabilize oscillator learning.
     if config.train_steps <= config.cycle_steps:
         return config.train_steps
 
@@ -111,12 +115,24 @@ def _train_single_model(
         weight_decay=config.weight_decay,
     )
     target_cache: dict[int, torch.Tensor] = {}
-    for steps in {
-        config.cycle_steps,
-        min(config.train_steps, 2 * config.cycle_steps),
-        min(config.train_steps, 3 * config.cycle_steps),
-        config.train_steps,
-    }:
+    cache_steps = {
+        _scheduled_train_steps(1, config),
+        config.eval_steps,
+        config.long_steps,
+    }
+    if config.rollout_schedule == "curriculum":
+        cache_steps.update(
+            {
+                config.cycle_steps,
+                min(config.train_steps, 2 * config.cycle_steps),
+                min(config.train_steps, 3 * config.cycle_steps),
+                config.train_steps,
+            }
+        )
+    else:
+        cache_steps.add(config.fixed_train_steps)
+
+    for steps in cache_steps:
         _phase, target = build_rollout_targets(steps, config.cycle_steps, device)
         target_cache[int(steps)] = target
 
@@ -232,6 +248,8 @@ def _build_summary(
         "config": {
             "run_name": config.run_name,
             "epochs": config.epochs,
+            "rollout_schedule": config.rollout_schedule,
+            "fixed_train_steps": config.fixed_train_steps,
             "trunk_dims": list(config.trunk_dims),
             "language_dim": config.language_dim,
             "language_readout_coverage": config.language_readout_coverage,

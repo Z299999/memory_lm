@@ -14,7 +14,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
     "model": ("trunk_dims", "language_dim", "language_readout_coverage"),
     "task": ("cycle_steps", "train_steps", "eval_steps", "long_steps", "pulse_value"),
-    "train": ("epochs", "lr", "weight_decay", "grad_clip"),
+    "train": ("epochs", "lr", "weight_decay", "grad_clip", "rollout_schedule", "fixed_train_steps"),
     "plot": (
         "plot_dpi",
         "plot_training_fig_width",
@@ -34,6 +34,11 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_prediction_legend_ncols",
         "plot_error_legend_ncols",
         "plot_message_legend_ncols",
+        "plot_training_series",
+        "plot_rollout_series",
+        "plot_error_series",
+        "plot_show_message_traces",
+        "plot_show_message_norm",
     ),
 }
 
@@ -48,6 +53,8 @@ class ExperimentConfig:
     lr: float = 3e-3
     weight_decay: float = 0.0
     grad_clip: float = 1.0
+    rollout_schedule: str = "curriculum"
+    fixed_train_steps: int = 128
     trunk_dims: tuple[int, ...] = (32,)
     language_dim: int = 4
     language_readout_coverage: int = 1
@@ -76,6 +83,16 @@ class ExperimentConfig:
     plot_prediction_legend_ncols: int = 4
     plot_error_legend_ncols: int = 3
     plot_message_legend_ncols: int = 2
+    plot_training_series: tuple[str, ...] = (
+        "full_train",
+        "full_val",
+        "baseline_train",
+        "baseline_val",
+    )
+    plot_rollout_series: tuple[str, ...] = ("target", "full", "baseline", "mute_deaf")
+    plot_error_series: tuple[str, ...] = ("full", "baseline", "mute_deaf")
+    plot_show_message_traces: bool = True
+    plot_show_message_norm: bool = True
 
     def to_user_dict(self) -> dict[str, object]:
         flat = asdict(self)
@@ -156,6 +173,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "eval_steps",
         "long_steps",
         "log_every",
+        "fixed_train_steps",
         "plot_dpi",
         "plot_short_steps",
         "plot_long_steps",
@@ -183,9 +201,28 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_zero_linewidth",
     ):
         payload[key] = float(payload[key])
+    payload["rollout_schedule"] = str(payload["rollout_schedule"])
+    for key in (
+        "plot_training_series",
+        "plot_rollout_series",
+        "plot_error_series",
+    ):
+        value = payload[key]
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(f"{key} must be a yaml list.")
+        payload[key] = tuple(str(item) for item in value)
+    for key in ("plot_show_message_traces", "plot_show_message_norm"):
+        value = payload[key]
+        if not isinstance(value, bool):
+            raise ValueError(f"{key} must be true or false.")
+        payload[key] = bool(value)
 
     if payload["epochs"] <= 0:
         raise ValueError("epochs must be positive.")
+    if payload["rollout_schedule"] not in {"curriculum", "fixed"}:
+        raise ValueError("rollout_schedule must be either 'curriculum' or 'fixed'.")
+    if payload["fixed_train_steps"] <= 0:
+        raise ValueError("fixed_train_steps must be positive.")
     if payload["language_dim"] <= 0:
         raise ValueError("language_dim must be positive.")
     if payload["language_readout_coverage"] <= 0:
@@ -196,6 +233,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("cycle_steps must be greater than 1.")
     if payload["train_steps"] <= 0 or payload["eval_steps"] <= 0 or payload["long_steps"] <= 0:
         raise ValueError("train_steps, eval_steps, and long_steps must be positive.")
+    if payload["fixed_train_steps"] > payload["long_steps"]:
+        raise ValueError("fixed_train_steps must be <= long_steps.")
     if payload["eval_steps"] < payload["cycle_steps"]:
         raise ValueError("eval_steps must be at least one cycle long.")
     if payload["long_steps"] < payload["eval_steps"]:
@@ -232,6 +271,26 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("plot_error_steps must be <= eval_steps.")
     if payload["plot_message_steps"] > payload["eval_steps"]:
         raise ValueError("plot_message_steps must be <= eval_steps.")
+    allowed_training_series = {
+        "full_train",
+        "full_val",
+        "baseline_train",
+        "baseline_val",
+    }
+    allowed_rollout_series = {"target", "full", "baseline", "mute_deaf"}
+    allowed_error_series = {"full", "baseline", "mute_deaf"}
+    for key, allowed in (
+        ("plot_training_series", allowed_training_series),
+        ("plot_rollout_series", allowed_rollout_series),
+        ("plot_error_series", allowed_error_series),
+    ):
+        invalid = [item for item in payload[key] if item not in allowed]
+        if invalid:
+            raise ValueError(f"{key} contains unknown entries: {invalid}")
+    if len(payload["plot_training_series"]) == 0:
+        raise ValueError("plot_training_series must contain at least one curve.")
+    if len(payload["plot_rollout_series"]) == 0:
+        raise ValueError("plot_rollout_series must contain at least one curve.")
 
     return ExperimentConfig(**payload)
 

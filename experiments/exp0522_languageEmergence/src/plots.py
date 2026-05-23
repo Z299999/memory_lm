@@ -27,6 +27,27 @@ except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig
 
 
+_TRAINING_SERIES_SPECS = {
+    "full_train": ("full train", "train_loss", "full", "main"),
+    "full_val": ("full val", "val_loss", "full", "aux"),
+    "baseline_train": ("baseline train", "train_loss", "baseline", "main"),
+    "baseline_val": ("baseline val", "val_loss", "baseline", "aux"),
+}
+
+_ROLLOUT_SERIES_SPECS = {
+    "target": ("target", "target", "black", "target"),
+    "full": ("full", "prediction", None, "main"),
+    "baseline": ("baseline", "prediction", None, "aux"),
+    "mute_deaf": ("mute_deaf", "prediction", None, "aux"),
+}
+
+_ERROR_SERIES_SPECS = {
+    "full": ("full error", "prediction", "main"),
+    "baseline": ("baseline error", "prediction", "aux"),
+    "mute_deaf": ("mute_deaf error", "prediction", "aux"),
+}
+
+
 def _slice_rollout(rollout: dict[str, Any], num_steps: int) -> dict[str, Any]:
     sliced = dict(rollout)
     for key in ("phase", "target", "prediction", "messages", "message_norm"):
@@ -34,6 +55,31 @@ def _slice_rollout(rollout: dict[str, Any], num_steps: int) -> dict[str, Any]:
         if value is not None:
             sliced[key] = value[:num_steps]
     return sliced
+
+
+def _linewidth(config: ExperimentConfig, width_kind: str) -> float:
+    if width_kind == "target":
+        return config.plot_target_linewidth
+    if width_kind == "main":
+        return config.plot_series_linewidth
+    return config.plot_aux_linewidth
+
+
+def _build_rollout_panels(config: ExperimentConfig) -> list[tuple[str, float]]:
+    panels: list[tuple[str, float]] = [("short", 1.35), ("long", 1.35)]
+    if config.plot_error_series:
+        panels.append(("error", 1.0))
+    if config.plot_show_message_traces:
+        panels.append(("messages", 1.0))
+    if config.plot_show_message_norm:
+        panels.append(("message_norm", 0.85))
+    return panels
+
+
+def _maybe_add_legend(ax: plt.Axes, *, ncol: int) -> None:
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        ax.legend(loc="upper right", ncol=ncol)
 
 
 def plot_training_curves(
@@ -47,36 +93,25 @@ def plot_training_curves(
         figsize=(config.plot_training_fig_width, config.plot_training_fig_height),
     )
     epochs = [row["epoch"] for row in full_history]
-    ax.plot(
-        epochs,
-        [row["train_loss"] for row in full_history],
-        label="full train",
-        linewidth=config.plot_series_linewidth,
-    )
-    ax.plot(
-        epochs,
-        [row["val_loss"] for row in full_history],
-        label="full val",
-        linewidth=config.plot_aux_linewidth,
-    )
-    ax.plot(
-        epochs,
-        [row["train_loss"] for row in baseline_history],
-        label="baseline train",
-        linewidth=config.plot_series_linewidth,
-    )
-    ax.plot(
-        epochs,
-        [row["val_loss"] for row in baseline_history],
-        label="baseline val",
-        linewidth=config.plot_aux_linewidth,
-    )
+    histories = {
+        "full": full_history,
+        "baseline": baseline_history,
+    }
+    for series_name in config.plot_training_series:
+        label, metric_key, history_key, width_kind = _TRAINING_SERIES_SPECS[series_name]
+        history = histories[history_key]
+        ax.plot(
+            epochs,
+            [row[metric_key] for row in history],
+            label=label,
+            linewidth=_linewidth(config, width_kind),
+        )
     ax.set_yscale("log")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("MSE")
     ax.set_title("exp0522 training curves")
     ax.grid(True, alpha=config.plot_grid_alpha)
-    ax.legend()
+    _maybe_add_legend(ax, ncol=min(len(config.plot_training_series), 4))
     fig.tight_layout()
     fig.savefig(output_path, dpi=config.plot_dpi)
     plt.close(fig)
@@ -118,92 +153,110 @@ def plot_rollout_diagnostics(
     long_baseline_pred = long_baseline["prediction"].numpy()
     long_mute_pred = long_mute_deaf["prediction"].numpy()
 
+    panels = _build_rollout_panels(config)
     fig, axes = plt.subplots(
-        5,
+        len(panels),
         1,
         figsize=(config.plot_diag_fig_width, config.plot_diag_fig_height),
-        gridspec_kw={"height_ratios": [1.35, 1.35, 1.0, 1.0, 0.85]},
+        gridspec_kw={"height_ratios": [height for _, height in panels]},
     )
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
+    axis_by_panel = {panel_name: ax for ax, (panel_name, _) in zip(axes, panels)}
 
-    axes[0].plot(
-        short_steps,
-        short_target,
-        label="target",
-        linewidth=config.plot_target_linewidth,
-        color="black",
-    )
-    axes[0].plot(short_steps, short_full_pred, label="full", linewidth=config.plot_series_linewidth)
-    axes[0].plot(short_steps, short_baseline_pred, label="baseline", linewidth=config.plot_aux_linewidth)
-    axes[0].plot(short_steps, short_mute_pred, label="mute_deaf", linewidth=config.plot_aux_linewidth)
-    axes[0].set_title("Short rollout")
-    axes[0].set_ylabel("value")
-    axes[0].grid(True, alpha=config.plot_grid_alpha)
-    axes[0].legend(loc="upper right", ncol=config.plot_prediction_legend_ncols)
+    rollout_predictions = {
+        "target": short_target,
+        "full": short_full_pred,
+        "baseline": short_baseline_pred,
+        "mute_deaf": short_mute_pred,
+    }
+    short_axis = axis_by_panel["short"]
+    for series_name in config.plot_rollout_series:
+        label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
+        short_axis.plot(
+            short_steps,
+            rollout_predictions[series_name],
+            label=label,
+            color=color,
+            linewidth=_linewidth(config, width_kind),
+        )
+    short_axis.set_title("Short rollout")
+    short_axis.set_ylabel("value")
+    short_axis.grid(True, alpha=config.plot_grid_alpha)
+    _maybe_add_legend(short_axis, ncol=config.plot_prediction_legend_ncols)
 
-    axes[1].plot(
-        long_steps,
-        long_target,
-        label="target",
-        linewidth=config.plot_target_linewidth,
-        color="black",
-    )
-    axes[1].plot(long_steps, long_full_pred, label="full", linewidth=config.plot_series_linewidth)
-    axes[1].plot(long_steps, long_baseline_pred, label="baseline", linewidth=config.plot_aux_linewidth)
-    axes[1].plot(long_steps, long_mute_pred, label="mute_deaf", linewidth=config.plot_aux_linewidth)
-    axes[1].set_title("Long rollout")
-    axes[1].set_ylabel("value")
-    axes[1].grid(True, alpha=config.plot_grid_alpha)
-    axes[1].legend(loc="upper right", ncol=config.plot_prediction_legend_ncols)
+    long_predictions = {
+        "target": long_target,
+        "full": long_full_pred,
+        "baseline": long_baseline_pred,
+        "mute_deaf": long_mute_pred,
+    }
+    long_axis = axis_by_panel["long"]
+    for series_name in config.plot_rollout_series:
+        label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
+        long_axis.plot(
+            long_steps,
+            long_predictions[series_name],
+            label=label,
+            color=color,
+            linewidth=_linewidth(config, width_kind),
+        )
+    long_axis.set_title("Long rollout")
+    long_axis.set_ylabel("value")
+    long_axis.grid(True, alpha=config.plot_grid_alpha)
+    _maybe_add_legend(long_axis, ncol=config.plot_prediction_legend_ncols)
 
-    error_target = error_full["target"].numpy()
-    axes[2].plot(
-        error_steps,
-        error_full["prediction"].numpy() - error_target,
-        label="full error",
-        linewidth=config.plot_series_linewidth,
-    )
-    axes[2].plot(
-        error_steps,
-        error_baseline["prediction"].numpy() - error_target,
-        label="baseline error",
-        linewidth=config.plot_aux_linewidth,
-    )
-    axes[2].plot(
-        error_steps,
-        error_mute_deaf["prediction"].numpy() - error_target,
-        label="mute_deaf error",
-        linewidth=config.plot_aux_linewidth,
-    )
-    axes[2].axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
-    axes[2].set_title("Short rollout error")
-    axes[2].set_ylabel("pred - target")
-    axes[2].grid(True, alpha=config.plot_grid_alpha)
-    axes[2].legend(loc="upper right", ncol=config.plot_error_legend_ncols)
-
-    messages = message_rollout["messages"].numpy()
-    if messages.shape[1] > 0:
-        for idx in range(messages.shape[1]):
-            axes[3].plot(
-                message_steps,
-                messages[:, idx],
-                linewidth=config.plot_aux_linewidth,
-                label=f"m{idx}",
+    if "error" in axis_by_panel:
+        error_target = error_full["target"].numpy()
+        error_rollouts = {
+            "full": error_full,
+            "baseline": error_baseline,
+            "mute_deaf": error_mute_deaf,
+        }
+        error_axis = axis_by_panel["error"]
+        for series_name in config.plot_error_series:
+            label, prediction_key, width_kind = _ERROR_SERIES_SPECS[series_name]
+            error_axis.plot(
+                error_steps,
+                error_rollouts[series_name][prediction_key].numpy() - error_target,
+                label=label,
+                linewidth=_linewidth(config, width_kind),
             )
-        axes[3].legend(loc="upper right", ncol=config.plot_message_legend_ncols)
-    axes[3].set_title("Language channel traces")
-    axes[3].set_ylabel("message")
-    axes[3].grid(True, alpha=config.plot_grid_alpha)
+        error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
+        error_axis.set_title("Short rollout error")
+        error_axis.set_ylabel("pred - target")
+        error_axis.grid(True, alpha=config.plot_grid_alpha)
+        _maybe_add_legend(error_axis, ncol=config.plot_error_legend_ncols)
 
-    axes[4].plot(
-        message_steps,
-        message_rollout["message_norm"].numpy(),
-        color="black",
-        linewidth=config.plot_series_linewidth,
-    )
-    axes[4].set_title("Message norm")
-    axes[4].set_xlabel("step")
-    axes[4].set_ylabel("||m_t||")
-    axes[4].grid(True, alpha=config.plot_grid_alpha)
+    if "messages" in axis_by_panel:
+        messages = message_rollout["messages"].numpy()
+        message_axis = axis_by_panel["messages"]
+        if messages.shape[1] > 0:
+            for idx in range(messages.shape[1]):
+                message_axis.plot(
+                    message_steps,
+                    messages[:, idx],
+                    linewidth=config.plot_aux_linewidth,
+                    label=f"m{idx}",
+                )
+            _maybe_add_legend(message_axis, ncol=config.plot_message_legend_ncols)
+        message_axis.set_title("Language channel traces")
+        message_axis.set_ylabel("message")
+        message_axis.grid(True, alpha=config.plot_grid_alpha)
+
+    if "message_norm" in axis_by_panel:
+        norm_axis = axis_by_panel["message_norm"]
+        norm_axis.plot(
+            message_steps,
+            message_rollout["message_norm"].numpy(),
+            color="black",
+            linewidth=config.plot_series_linewidth,
+        )
+        norm_axis.set_title("Message norm")
+        norm_axis.set_ylabel("||m_t||")
+        norm_axis.grid(True, alpha=config.plot_grid_alpha)
+
+    axes[-1].set_xlabel("step")
 
     fig.suptitle("exp0522 rollout diagnostics", fontsize=config.plot_title_fontsize)
     fig.tight_layout()
