@@ -242,7 +242,7 @@ def plot_rollout_diagnostics(
                 continue
             step = config.eval_late_blind_step if condition == "late_blind" else config.eval_late_mute_step
             if step < num_steps:
-                vlines.append((step, f"↓{condition}", color))
+                vlines.append((step - 1, f"↓{condition}", color))
         return vlines
 
     def _plot_rollout_panel(ax: plt.Axes, evals: dict[str, dict] | None, num_steps: int, title: str) -> None:
