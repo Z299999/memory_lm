@@ -22,9 +22,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:
-    from .config import ExperimentConfig
+    from .config import ExperimentConfig, parse_condition
 except ImportError:  # pragma: no cover - script mode
-    from config import ExperimentConfig
+    from config import ExperimentConfig, parse_condition
 
 
 _TRAINING_SERIES_SPECS = {
@@ -61,7 +61,8 @@ def _linestyle(config: ExperimentConfig, width_kind: str) -> str:
 
 
 def _condition_width_kind(condition_name: str) -> str:
-    return "main" if condition_name == "full" else "aux"
+    base, _ = parse_condition(condition_name)
+    return "main" if base == "full" else "aux"
 
 
 _CONDITION_COLORS: dict[str, str] = {
@@ -74,12 +75,6 @@ _CONDITION_COLORS: dict[str, str] = {
     "blink":       "#ff7f0e",  # vivid orange
     "stutter":     "#e377c2",  # pink
 }
-
-_LATE_TRANSITION_VLINE_COLORS: dict[str, str] = {
-    "late_blind": _CONDITION_COLORS["late_blind"],
-    "late_mute":  _CONDITION_COLORS["late_mute"],
-}
-
 
 def _build_rollout_panels(config: ExperimentConfig, *, has_continuous: bool) -> list[tuple[str, float]]:
     panels: list[tuple[str, float]] = [("short", 1.35), ("long", 1.35)]
@@ -248,25 +243,21 @@ def plot_rollout_diagnostics(
 
     def _build_transition_vlines(series: tuple[str, ...], num_steps: int) -> list[tuple[int, str, str]]:
         vlines = []
-        for condition, color in _LATE_TRANSITION_VLINE_COLORS.items():
-            if condition not in series:
+        for condition_str in series:
+            base, params = parse_condition(condition_str)
+            color = _CONDITION_COLORS.get(base)
+            if color is None:
                 continue
-            step = config.eval_late_blind_step if condition == "late_blind" else config.eval_late_mute_step
-            if step < num_steps:
-                vlines.append((step - 1, f"↓{condition}", color))
-        for cond, start_attr, end_attr in (
-            ("blink",   "eval_blink_blind_start",   "eval_blink_blind_end"),
-            ("stutter", "eval_stutter_mute_start",  "eval_stutter_mute_end"),
-        ):
-            if cond not in series:
-                continue
-            color = _CONDITION_COLORS[cond]
-            s = getattr(config, start_attr)
-            e = getattr(config, end_attr)
-            if s < num_steps:
-                vlines.append((s - 1, f"↓{cond}", color))
-            if e < num_steps:
-                vlines.append((e - 1, f"↑{cond}", color))
+            if base in ("late_blind", "late_mute") and len(params) == 1:
+                step = params[0]
+                if step < num_steps:
+                    vlines.append((step - 1, f"↓{base}", color))
+            elif base in ("blink", "stutter") and len(params) == 2:
+                s, e = params[0], params[1]
+                if s < num_steps:
+                    vlines.append((s - 1, f"↓{base}", color))
+                if e < num_steps:
+                    vlines.append((e - 1, f"↑{base}", color))
         return vlines
 
     def _plot_rollout_panel(ax: plt.Axes, evals: dict[str, dict] | None, num_steps: int, title: str) -> None:
@@ -288,14 +279,15 @@ def plot_rollout_diagnostics(
             rollout = _slice_rollout(evals.get(condition), num_steps)
             if rollout is None:
                 continue
+            base, _ = parse_condition(condition)
             width_kind = _condition_width_kind(condition)
             ax.plot(
                 steps,
                 rollout["prediction"].numpy(),
                 label=condition,
                 linewidth=_linewidth(config, width_kind),
-                color=_CONDITION_COLORS.get(condition),
-                zorder=3 if condition == "full" else 2,
+                color=_CONDITION_COLORS.get(base),
+                zorder=3 if base == "full" else 2,
             )
         for vline_step, vline_label, vline_color in _build_transition_vlines(config.eval_conditions, num_steps):
             ax.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
@@ -335,14 +327,15 @@ def plot_rollout_diagnostics(
                     rollout = _slice_rollout(ref_evals.get(condition), config.plot_error_steps)
                     if rollout is None:
                         continue
+                    base, _ = parse_condition(condition)
                     width_kind = _condition_width_kind(condition)
                     error_axis.plot(
                         error_steps,
                         rollout["prediction"].numpy() - error_target,
                         label=f"{condition} error",
                         linewidth=_linewidth(config, width_kind),
-                        color=_CONDITION_COLORS.get(condition),
-                        zorder=3 if condition == "full" else 2,
+                        color=_CONDITION_COLORS.get(base),
+                        zorder=3 if base == "full" else 2,
                     )
         error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
         for vline_step, vline_label, vline_color in _build_transition_vlines(config.eval_conditions, config.plot_error_steps):

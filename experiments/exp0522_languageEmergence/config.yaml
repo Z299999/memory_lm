@@ -19,6 +19,7 @@ task:
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
+    - [0.7, 0.5]
     - [1, 1.0]
     - [2, 0.5]
     - [3, 0.25]
@@ -42,18 +43,13 @@ train:
   force_zero_error_input: false # if true, keep the [1,e,m] interface but force e=0 at every step as a zero-error ablation
 
 eval:
-  eval_steps: 128              # in-distribution evaluation rollout length
-  long_steps: 512              # long-horizon rollout length for stress test
+  eval_steps: 200              # in-distribution evaluation rollout length
+  long_steps: 500              # long-horizon rollout length for stress test
   continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
   eval_phase_mode: both        # which evals to write: reset, continuous, or both
-  eval_conditions: [full, late_mute, blink, stutter]
-  # ablation conditions: full | sole_eye | sole_speech | neither | late_blind | late_mute | blink | stutter
-  eval_late_blind_step: 40        # step at which late_blind switches from full to sole_speech
-  eval_late_mute_step: 200        # step at which late_mute switches from full to sole_eye
-  eval_blink_blind_start: 40      # step at which blink goes blind (full → sole_speech)
-  eval_blink_blind_end: 100       # step at which blink regains sight (sole_speech → full)
-  eval_stutter_mute_start: 40     # step at which stutter loses speech (full → sole_eye)
-  eval_stutter_mute_end: 100      # step at which stutter regains speech (sole_eye → full)
+  # ablation conditions: full | sole_eye | sole_speech | neither
+  #                      late_blind(N) | late_mute(N) | blink(start,end) | stutter(start,end)
+  eval_conditions: [full, "blink(40,100)", "stutter(120,220)"]
 
 analysis:
   enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis

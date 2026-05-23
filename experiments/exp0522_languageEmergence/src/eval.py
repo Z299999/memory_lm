@@ -10,12 +10,12 @@ import warnings
 import torch
 
 try:
-    from .config import ExperimentConfig
+    from .config import ExperimentConfig, parse_condition
     from .model import ExternalClockMLP
     from .plots import plot_rollout_diagnostics
     from .task import build_rollout_targets
 except ImportError:  # pragma: no cover - script mode
-    from config import ExperimentConfig
+    from config import ExperimentConfig, parse_condition
     from model import ExternalClockMLP
     from plots import plot_rollout_diagnostics
     from task import build_rollout_targets
@@ -438,8 +438,9 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     for condition in config.eval_conditions:
-        if condition in _CONDITIONS_NEEDING_ERROR and not config.use_error_input:
-            equivalent = "full" if condition == "sole_speech" else "sole_eye"
+        base, _ = parse_condition(condition)
+        if base in _CONDITIONS_NEEDING_ERROR and not config.use_error_input:
+            equivalent = "full" if base == "sole_speech" else "sole_eye"
             warnings.warn(
                 f"eval_condition '{condition}' sets force_zero_error_input=True but "
                 f"model.use_error_input=False — this condition is equivalent to '{equivalent}'.",
@@ -463,22 +464,16 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     reset_long_evals: dict[str, dict] | None = None
     continuous_evals: dict[str, dict] | None = None
 
-    def _late_transition_step(condition: str) -> int:
-        if condition == "late_blind":
-            return config.eval_late_blind_step
-        return config.eval_late_mute_step
-
     def _run_condition(condition: str, num_steps: int, start_step: int = 0,
                        initial_message=None, initial_error=None) -> dict[str, Any]:
-        if condition in _TEMPORARY_LOSS_FLAGS:
-            p2_fze, p2_dl = _TEMPORARY_LOSS_FLAGS[condition]
-            loss_start = config.eval_blink_blind_start if condition == "blink" else config.eval_stutter_mute_start
-            loss_end   = config.eval_blink_blind_end   if condition == "blink" else config.eval_stutter_mute_end
+        base, params = parse_condition(condition)
+        if base in _TEMPORARY_LOSS_FLAGS:
+            p2_fze, p2_dl = _TEMPORARY_LOSS_FLAGS[base]
             return _evaluate_temporary_loss_rollout(
                 model,
                 num_steps=num_steps,
-                loss_start=loss_start,
-                loss_end=loss_end,
+                loss_start=params[0],
+                loss_end=params[1],
                 phase2_force_zero_error=p2_fze,
                 phase2_disable_language=p2_dl,
                 start_step=start_step,
@@ -486,12 +481,12 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                 initial_error=initial_error,
                 **common_kwargs,
             )
-        if condition in _LATE_TRANSITION_FLAGS:
-            post_fze, post_dl = _LATE_TRANSITION_FLAGS[condition]
+        if base in _LATE_TRANSITION_FLAGS:
+            post_fze, post_dl = _LATE_TRANSITION_FLAGS[base]
             return _evaluate_late_transition_rollout(
                 model,
                 num_steps=num_steps,
-                transition_step=_late_transition_step(condition),
+                transition_step=params[0],
                 post_force_zero_error=post_fze,
                 post_disable_language=post_dl,
                 start_step=start_step,
@@ -499,7 +494,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                 initial_error=initial_error,
                 **common_kwargs,
             )
-        fze, dl = _condition_flags(condition)
+        fze, dl = _condition_flags(base)
         return _evaluate_rollout(
             model,
             num_steps=num_steps,
@@ -527,7 +522,8 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
             ) if continuous_warmup_steps > 0 else None
             init_msg = warmup_result["final_message"] if warmup_result and model.use_language else None
             init_err = warmup_result["final_error"] if warmup_result and model.use_error_input else None
-            if condition in _LATE_TRANSITION_FLAGS or condition in _TEMPORARY_LOSS_FLAGS:
+            _base, _ = parse_condition(condition)
+            if _base in _LATE_TRANSITION_FLAGS or _base in _TEMPORARY_LOSS_FLAGS:
                 continuous_evals[condition] = _run_condition(
                     condition, config.continuous_eval_steps,
                     start_step=continuous_warmup_steps,
@@ -535,7 +531,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                     initial_error=init_err,
                 )
             else:
-                fze, dl = _condition_flags(condition)
+                fze, dl = _condition_flags(_base)
                 continuous_evals[condition] = _evaluate_continuous_stream(
                     model,
                     measured_steps=config.continuous_eval_steps,

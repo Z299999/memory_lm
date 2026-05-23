@@ -34,12 +34,6 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "continuous_eval_steps",
         "eval_phase_mode",
         "eval_conditions",
-        "eval_late_blind_step",
-        "eval_late_mute_step",
-        "eval_blink_blind_start",
-        "eval_blink_blind_end",
-        "eval_stutter_mute_start",
-        "eval_stutter_mute_end",
     ),
     "analysis": (
         "enable_continuous_collapse",
@@ -89,9 +83,36 @@ LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "train_phase_mode",
         "eval_phase_mode",
     ),
+    "eval": (
+        "eval_late_blind_step",
+        "eval_late_mute_step",
+        "eval_blink_blind_start",
+        "eval_blink_blind_end",
+        "eval_stutter_mute_start",
+        "eval_stutter_mute_end",
+    ),
 }
 
 _VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither", "late_blind", "late_mute", "blink", "stutter"})
+
+# Expected number of integer params per condition base name.
+_CONDITION_PARAM_COUNTS: dict[str, int] = {
+    "full": 0, "sole_eye": 0, "sole_speech": 0, "neither": 0,
+    "late_blind": 1, "late_mute": 1,
+    "blink": 2, "stutter": 2,
+}
+
+
+def parse_condition(s: str) -> tuple[str, tuple[int, ...]]:
+    """Parse 'blink(40,100)' → ('blink', (40, 100)); 'full' → ('full', ())."""
+    import re
+    m = re.match(r"^(\w+)\(([^)]*)\)$", s.strip())
+    if m:
+        base = m.group(1)
+        raw = m.group(2).strip()
+        params = tuple(int(x.strip()) for x in raw.split(",") if x.strip()) if raw else ()
+        return base, params
+    return s.strip(), ()
 
 
 @dataclass
@@ -122,12 +143,6 @@ class ExperimentConfig:
     long_steps: int = 512
     continuous_eval_steps: int = 512
     eval_conditions: tuple[str, ...] = ("full", "sole_eye")
-    eval_late_blind_step: int = 60
-    eval_late_mute_step: int = 60
-    eval_blink_blind_start: int = 40
-    eval_blink_blind_end: int = 80
-    eval_stutter_mute_start: int = 40
-    eval_stutter_mute_end: int = 80
     enable_continuous_collapse: bool = True
     checkpoint_epochs: tuple[int, ...] = (1, 10, 50, 100, 500, 1000)
     pulse_value: float = 1.0
@@ -272,12 +287,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_training_timeline_num_panels",
         "plot_training_timeline_ncols",
         "plot_training_timeline_window_steps",
-        "eval_late_blind_step",
-        "eval_late_mute_step",
-        "eval_blink_blind_start",
-        "eval_blink_blind_end",
-        "eval_stutter_mute_start",
-        "eval_stutter_mute_end",
     ):
         payload[key] = int(payload[key])
     for key in (
@@ -305,6 +314,12 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload.pop("message_refresh", None)
     payload.pop("train_baseline", None)
     payload.pop("eval_mute_deaf", None)
+    payload.pop("eval_late_blind_step", None)
+    payload.pop("eval_late_mute_step", None)
+    payload.pop("eval_blink_blind_start", None)
+    payload.pop("eval_blink_blind_end", None)
+    payload.pop("eval_stutter_mute_start", None)
+    payload.pop("eval_stutter_mute_end", None)
 
     payload["sequence_mode"] = str(payload["sequence_mode"])
     payload["activation"] = str(payload["activation"])
@@ -373,23 +388,30 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if any(epoch <= 0 for epoch in payload["checkpoint_epochs"]):
         raise ValueError("checkpoint_epochs entries must all be positive.")
 
-    invalid_conds = [c for c in payload["eval_conditions"] if c not in _VALID_EVAL_CONDITIONS]
-    if invalid_conds:
-        raise ValueError(f"eval_conditions contains unknown values: {invalid_conds}. Valid: {sorted(_VALID_EVAL_CONDITIONS)}")
-    if "full" not in payload["eval_conditions"]:
+    _base_names_seen: set[str] = set()
+    for _cond_str in payload["eval_conditions"]:
+        _base, _params = parse_condition(_cond_str)
+        if _base not in _VALID_EVAL_CONDITIONS:
+            raise ValueError(
+                f"eval_conditions contains unknown base '{_base}' in '{_cond_str}'. "
+                f"Valid bases: {sorted(_VALID_EVAL_CONDITIONS)}"
+            )
+        _expected = _CONDITION_PARAM_COUNTS[_base]
+        if len(_params) != _expected:
+            raise ValueError(
+                f"eval_conditions: '{_cond_str}' expects {_expected} param(s) for '{_base}', "
+                f"got {len(_params)}."
+            )
+        if _base in ("late_blind", "late_mute") and _params[0] <= 0:
+            raise ValueError(f"eval_conditions: transition step in '{_cond_str}' must be positive.")
+        if _base in ("blink", "stutter"):
+            if _params[0] < 0:
+                raise ValueError(f"eval_conditions: loss_start in '{_cond_str}' must be >= 0.")
+            if _params[1] <= _params[0]:
+                raise ValueError(f"eval_conditions: loss_end must be > loss_start in '{_cond_str}'.")
+        _base_names_seen.add(_base)
+    if "full" not in _base_names_seen:
         raise ValueError("eval_conditions must contain 'full'.")
-    if payload["eval_late_blind_step"] <= 0:
-        raise ValueError("eval_late_blind_step must be positive.")
-    if payload["eval_late_mute_step"] <= 0:
-        raise ValueError("eval_late_mute_step must be positive.")
-    if payload["eval_blink_blind_start"] < 0:
-        raise ValueError("eval_blink_blind_start must be >= 0.")
-    if payload["eval_blink_blind_end"] <= payload["eval_blink_blind_start"]:
-        raise ValueError("eval_blink_blind_end must be > eval_blink_blind_start.")
-    if payload["eval_stutter_mute_start"] < 0:
-        raise ValueError("eval_stutter_mute_start must be >= 0.")
-    if payload["eval_stutter_mute_end"] <= payload["eval_stutter_mute_start"]:
-        raise ValueError("eval_stutter_mute_end must be > eval_stutter_mute_start.")
 
     raw_components = payload["mixed_sin_components"]
     if not isinstance(raw_components, (list, tuple)) or not raw_components:
