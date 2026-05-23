@@ -460,6 +460,20 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         detach_error_input=config.detach_error_input,
     )
 
+    # Load final training state for seamless continuous eval (continuous_window runs only).
+    train_state_path = run_dir / "checkpoints" / "final_train_state.pt"
+    if train_state_path.exists():
+        _ts = torch.load(train_state_path, map_location=device, weights_only=False)
+        continuous_init_msg   = _ts["final_message"] if model.use_language else None
+        continuous_init_err   = _ts["final_error"]   if model.use_error_input else None
+        continuous_start_step = int(_ts["final_step"])
+        has_train_state = True
+    else:
+        has_train_state = False
+        continuous_init_msg   = None
+        continuous_init_err   = None
+        continuous_start_step = 0
+
     reset_evals: dict[str, dict] | None = None
     reset_long_evals: dict[str, dict] | None = None
     continuous_evals: dict[str, dict] | None = None
@@ -513,17 +527,25 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     if continuous_eval_enabled:
         continuous_evals = {}
         for condition in config.eval_conditions:
-            warmup_result = _evaluate_rollout(
-                model,
-                num_steps=continuous_warmup_steps,
-                force_zero_error_input=False,
-                disable_language=False,
-                **common_kwargs,
-            ) if continuous_warmup_steps > 0 else None
-            init_msg = warmup_result["final_message"] if warmup_result and model.use_language else None
-            init_err = warmup_result["final_error"] if warmup_result and model.use_error_input else None
             _base, _ = parse_condition(condition)
-            if _base in _LATE_TRANSITION_FLAGS or _base in _TEMPORARY_LOSS_FLAGS:
+            if has_train_state:
+                # Seamlessly continue from where training ended.
+                continuous_evals[condition] = _run_condition(
+                    condition, config.continuous_eval_steps,
+                    start_step=continuous_start_step,
+                    initial_message=continuous_init_msg,
+                    initial_error=continuous_init_err,
+                )
+            elif _base in _LATE_TRANSITION_FLAGS or _base in _TEMPORARY_LOSS_FLAGS:
+                warmup_result = _evaluate_rollout(
+                    model,
+                    num_steps=continuous_warmup_steps,
+                    force_zero_error_input=False,
+                    disable_language=False,
+                    **common_kwargs,
+                ) if continuous_warmup_steps > 0 else None
+                init_msg = warmup_result["final_message"] if warmup_result and model.use_language else None
+                init_err = warmup_result["final_error"] if warmup_result and model.use_error_input else None
                 continuous_evals[condition] = _run_condition(
                     condition, config.continuous_eval_steps,
                     start_step=continuous_warmup_steps,

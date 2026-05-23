@@ -333,6 +333,11 @@ def _train_single_model(
         "training_timeline": {
             "panels": timeline_panels,
         } if timeline_panels else None,
+        "final_train_state": {
+            "final_message": train_message_state,
+            "final_error": train_error_state,
+            "final_step": int(train_time_cursor),
+        },
     }
 
 
@@ -390,6 +395,17 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
     }
     _save_checkpoint(full_result["model"], ckpt_dir / "full_language_final.pt", metadata=final_metadata)
     _save_checkpoint(full_result["model"], ckpt_dir / "full_language.pt", metadata=final_metadata)
+
+    if config.sequence_mode == "continuous_window":
+        fts = full_result["final_train_state"]
+        torch.save(
+            {
+                "final_message": fts["final_message"],
+                "final_error":   fts["final_error"],
+                "final_step":    fts["final_step"],
+            },
+            ckpt_dir / "final_train_state.pt",
+        )
 
     plot_training_curves(
         full_history=full_result["history"],
