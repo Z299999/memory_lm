@@ -70,7 +70,7 @@ _CONDITION_COLORS: dict[str, str] = {
     "sole_speech": "#2ca02c",  # matplotlib C2 green
     "neither":     "#d62728",  # matplotlib C3 red
     "late_blind":  "#c05030",  # muted red-orange
-    "late_mute":   "#9467bd",  # purple
+    "late_mute":   "#bcbd22",  # olive yellow
     "blink":       "#17becf",  # teal
 }
 
