@@ -279,8 +279,8 @@ def _save_rollout_csv(
     *,
     output_path: Path,
     normal_eval: dict[str, Any],
-    baseline_eval: dict[str, Any],
-    mute_deaf_eval: dict[str, Any],
+    baseline_eval: dict[str, Any] | None,
+    mute_deaf_eval: dict[str, Any] | None,
     language_dim: int,
 ) -> None:
     header = [
@@ -289,10 +289,12 @@ def _save_rollout_csv(
         "phase",
         "target",
         "full_prediction",
-        "baseline_prediction",
-        "mute_deaf_prediction",
         "message_norm",
     ]
+    if baseline_eval is not None:
+        header.append("baseline_prediction")
+    if mute_deaf_eval is not None:
+        header.append("mute_deaf_prediction")
     header.extend([f"message_{idx}" for idx in range(language_dim)])
 
     rows = [header]
@@ -304,10 +306,12 @@ def _save_rollout_csv(
             float(normal_eval["phase"][step].item()),
             float(normal_eval["target"][step].item()),
             float(normal_eval["prediction"][step].item()),
-            float(baseline_eval["prediction"][step].item()),
-            float(mute_deaf_eval["prediction"][step].item()),
             float(normal_eval["message_norm"][step].item()),
         ]
+        if baseline_eval is not None:
+            row.append(float(baseline_eval["prediction"][step].item()))
+        if mute_deaf_eval is not None:
+            row.append(float(mute_deaf_eval["prediction"][step].item()))
         if language_dim > 0:
             row.extend(
                 float(normal_eval["messages"][step, idx].item())
@@ -321,7 +325,7 @@ def _build_summary(
     *,
     config: ExperimentConfig,
     full_history: list[dict[str, float]],
-    baseline_history: list[dict[str, float]],
+    baseline_history: list[dict[str, float]] | None,
     full_reset_eval: dict[str, Any] | None,
     full_reset_long: dict[str, Any] | None,
     full_continuous_eval: dict[str, Any] | None,
@@ -348,10 +352,13 @@ def _build_summary(
     return {
         "config": {
             "run_name": config.run_name,
+            "train_baseline": config.train_baseline,
+            "eval_mute_deaf": config.eval_mute_deaf,
             "epochs": config.epochs,
             "sequence_mode": config.sequence_mode,
             "fixed_train_steps": config.fixed_train_steps,
             "trunk_dims": list(config.trunk_dims),
+            "activation": config.activation,
             "language_dim": config.language_dim,
             "language_readout_coverage": config.language_readout_coverage,
             "cycle_steps": config.cycle_steps,
@@ -375,7 +382,7 @@ def _build_summary(
             "mute_deaf_reset_long_mse": _mse(full_mute_reset_long),
             "mute_deaf_continuous_eval_mse": _mse(full_mute_continuous_eval),
         },
-        "no_language_baseline": {
+        "no_language_baseline": None if baseline_history is None else {
             "final_train_mse": float(baseline_history[-1]["train_loss"]),
             "final_val_mse": float(baseline_history[-1]["val_loss"]),
             "reset_eval_mse": _mse(baseline_reset_eval),
@@ -422,31 +429,34 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
 
     full_model = ExternalClockMLP(
         trunk_dims=config.trunk_dims,
+        activation=config.activation,
         language_dim=config.language_dim,
         language_readout_coverage=config.language_readout_coverage,
         use_language=True,
         seed=config.seed,
     ).to(device)
-    baseline_model = ExternalClockMLP(
-        trunk_dims=config.trunk_dims,
-        language_dim=config.language_dim,
-        language_readout_coverage=config.language_readout_coverage,
-        use_language=False,
-        seed=config.seed,
-    ).to(device)
-
     full_result = _train_single_model(
         model_name="full_language",
         model=full_model,
         config=config,
         device=device,
     )
-    baseline_result = _train_single_model(
-        model_name="no_language",
-        model=baseline_model,
-        config=config,
-        device=device,
-    )
+    baseline_result: dict[str, Any] | None = None
+    if config.train_baseline:
+        baseline_model = ExternalClockMLP(
+            trunk_dims=config.trunk_dims,
+            activation=config.activation,
+            language_dim=config.language_dim,
+            language_readout_coverage=config.language_readout_coverage,
+            use_language=False,
+            seed=config.seed,
+        ).to(device)
+        baseline_result = _train_single_model(
+            model_name="no_language",
+            model=baseline_model,
+            config=config,
+            device=device,
+        )
 
     reset_eval_enabled = config.eval_phase_mode in {"reset", "both"}
     continuous_eval_enabled = config.eval_phase_mode in {"continuous", "both"}
@@ -488,7 +498,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=True,
         )
-        if reset_eval_enabled
+        if reset_eval_enabled and config.eval_mute_deaf
         else None
     )
     full_mute_reset_long = (
@@ -501,7 +511,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=True,
         )
-        if reset_eval_enabled
+        if reset_eval_enabled and config.eval_mute_deaf
         else None
     )
     baseline_reset_eval = (
@@ -514,7 +524,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
-        if reset_eval_enabled
+        if reset_eval_enabled and baseline_result is not None
         else None
     )
     baseline_reset_long = (
@@ -527,7 +537,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
-        if reset_eval_enabled
+        if reset_eval_enabled and baseline_result is not None
         else None
     )
 
@@ -556,7 +566,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=True,
         )
-        if continuous_eval_enabled
+        if continuous_eval_enabled and config.eval_mute_deaf
         else None
     )
     baseline_continuous_eval = (
@@ -570,14 +580,15 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
-        if continuous_eval_enabled
+        if continuous_eval_enabled and baseline_result is not None
         else None
     )
 
     _write_json(metrics_dir / "history_full_language.json", _to_serializable_history(full_result["history"]))
-    _write_json(metrics_dir / "history_no_language.json", _to_serializable_history(baseline_result["history"]))
+    if baseline_result is not None:
+        _write_json(metrics_dir / "history_no_language.json", _to_serializable_history(baseline_result["history"]))
 
-    if full_reset_eval is not None and baseline_reset_eval is not None and full_mute_reset_eval is not None:
+    if full_reset_eval is not None and (baseline_reset_eval is not None or full_mute_reset_eval is not None):
         _save_rollout_csv(
             output_path=metrics_dir / "reset_eval_rollout.csv",
             normal_eval=full_reset_eval,
@@ -592,7 +603,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             mute_deaf_eval=full_mute_reset_eval,
             language_dim=config.language_dim,
         )
-    if full_reset_long is not None and baseline_reset_long is not None and full_mute_reset_long is not None:
+    if full_reset_long is not None and (baseline_reset_long is not None or full_mute_reset_long is not None):
         _save_rollout_csv(
             output_path=metrics_dir / "reset_long_rollout.csv",
             normal_eval=full_reset_long,
@@ -607,11 +618,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             mute_deaf_eval=full_mute_reset_long,
             language_dim=config.language_dim,
         )
-    if (
-        full_continuous_eval is not None
-        and baseline_continuous_eval is not None
-        and full_mute_continuous_eval is not None
-    ):
+    if full_continuous_eval is not None and (baseline_continuous_eval is not None or full_mute_continuous_eval is not None):
         _save_rollout_csv(
             output_path=metrics_dir / "continuous_eval_rollout.csv",
             normal_eval=full_continuous_eval,
@@ -622,7 +629,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
 
     plot_training_curves(
         full_history=full_result["history"],
-        baseline_history=baseline_result["history"],
+        baseline_history=None if baseline_result is None else baseline_result["history"],
         output_path=plots_dir / "training_curves.png",
         config=config,
     )
@@ -645,16 +652,17 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         ckpt_dir / "full_language.pt",
         metadata={"config": config.to_resolved_dict(), "model_name": "full_language"},
     )
-    _save_checkpoint(
-        baseline_result["model"],
-        ckpt_dir / "no_language.pt",
-        metadata={"config": config.to_resolved_dict(), "model_name": "no_language"},
-    )
+    if baseline_result is not None:
+        _save_checkpoint(
+            baseline_result["model"],
+            ckpt_dir / "no_language.pt",
+            metadata={"config": config.to_resolved_dict(), "model_name": "no_language"},
+        )
 
     summary = _build_summary(
         config=config,
         full_history=full_result["history"],
-        baseline_history=baseline_result["history"],
+        baseline_history=None if baseline_result is None else baseline_result["history"],
         full_reset_eval=full_reset_eval,
         full_reset_long=full_reset_long,
         full_continuous_eval=full_continuous_eval,

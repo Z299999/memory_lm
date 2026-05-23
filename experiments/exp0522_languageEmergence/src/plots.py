@@ -48,7 +48,9 @@ _ERROR_SERIES_SPECS = {
 }
 
 
-def _slice_rollout(rollout: dict[str, Any], num_steps: int) -> dict[str, Any]:
+def _slice_rollout(rollout: dict[str, Any] | None, num_steps: int) -> dict[str, Any] | None:
+    if rollout is None:
+        return None
     sliced = dict(rollout)
     for key in ("phase", "target", "prediction", "messages", "message_norm"):
         value = rollout.get(key)
@@ -91,7 +93,7 @@ def _maybe_add_legend(ax: plt.Axes, *, ncol: int) -> None:
 def plot_training_curves(
     *,
     full_history: list[dict[str, float]],
-    baseline_history: list[dict[str, float]],
+    baseline_history: list[dict[str, float]] | None,
     output_path: Path,
     config: ExperimentConfig,
 ) -> None:
@@ -106,6 +108,8 @@ def plot_training_curves(
     for series_name in config.plot_training_series:
         label, metric_key, history_key, width_kind = _TRAINING_SERIES_SPECS[series_name]
         history = histories[history_key]
+        if history is None:
+            continue
         ax.plot(
             epochs,
             [row[metric_key] for row in history],
@@ -126,11 +130,11 @@ def plot_training_curves(
 def plot_rollout_diagnostics(
     *,
     short_full: dict[str, Any],
-    short_baseline: dict[str, Any],
-    short_mute_deaf: dict[str, Any],
+    short_baseline: dict[str, Any] | None,
+    short_mute_deaf: dict[str, Any] | None,
     long_full: dict[str, Any],
-    long_baseline: dict[str, Any],
-    long_mute_deaf: dict[str, Any],
+    long_baseline: dict[str, Any] | None,
+    long_mute_deaf: dict[str, Any] | None,
     continuous_long_full: dict[str, Any] | None,
     continuous_long_baseline: dict[str, Any] | None,
     continuous_long_mute_deaf: dict[str, Any] | None,
@@ -161,11 +165,11 @@ def plot_rollout_diagnostics(
     short_target = short_full["target"].numpy()
     long_target = long_full["target"].numpy()
     short_full_pred = short_full["prediction"].numpy()
-    short_baseline_pred = short_baseline["prediction"].numpy()
-    short_mute_pred = short_mute_deaf["prediction"].numpy()
+    short_baseline_pred = short_baseline["prediction"].numpy() if short_baseline is not None else None
+    short_mute_pred = short_mute_deaf["prediction"].numpy() if short_mute_deaf is not None else None
     long_full_pred = long_full["prediction"].numpy()
-    long_baseline_pred = long_baseline["prediction"].numpy()
-    long_mute_pred = long_mute_deaf["prediction"].numpy()
+    long_baseline_pred = long_baseline["prediction"].numpy() if long_baseline is not None else None
+    long_mute_pred = long_mute_deaf["prediction"].numpy() if long_mute_deaf is not None else None
 
     panels = _build_rollout_panels(config)
     if continuous_long_full is not None:
@@ -188,6 +192,8 @@ def plot_rollout_diagnostics(
     }
     short_axis = axis_by_panel["short"]
     for series_name in config.plot_rollout_series:
+        if rollout_predictions[series_name] is None:
+            continue
         label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
         short_axis.plot(
             short_steps,
@@ -210,6 +216,8 @@ def plot_rollout_diagnostics(
     }
     long_axis = axis_by_panel["long"]
     for series_name in config.plot_rollout_series:
+        if long_predictions[series_name] is None:
+            continue
         label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
         long_axis.plot(
             long_steps,
@@ -230,11 +238,13 @@ def plot_rollout_diagnostics(
         continuous_predictions = {
             "target": continuous_target,
             "full": continuous_long_full["prediction"].numpy(),
-            "baseline": continuous_long_baseline["prediction"].numpy(),
-            "mute_deaf": continuous_long_mute_deaf["prediction"].numpy(),
+            "baseline": None if continuous_long_baseline is None else continuous_long_baseline["prediction"].numpy(),
+            "mute_deaf": None if continuous_long_mute_deaf is None else continuous_long_mute_deaf["prediction"].numpy(),
         }
         continuous_axis = axis_by_panel["continuous_long"]
         for series_name in config.plot_rollout_series:
+            if continuous_predictions[series_name] is None:
+                continue
             label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
             continuous_axis.plot(
                 continuous_steps,
@@ -258,6 +268,8 @@ def plot_rollout_diagnostics(
         }
         error_axis = axis_by_panel["error"]
         for series_name in config.plot_error_series:
+            if error_rollouts[series_name] is None:
+                continue
             label, prediction_key, width_kind = _ERROR_SERIES_SPECS[series_name]
             error_axis.plot(
                 error_steps,

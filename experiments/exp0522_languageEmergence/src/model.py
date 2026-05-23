@@ -13,6 +13,28 @@ def _init_linear_tanh(linear: nn.Linear) -> None:
     nn.init.zeros_(linear.bias)
 
 
+def _init_linear_relu(linear: nn.Linear) -> None:
+    nn.init.kaiming_uniform_(linear.weight, a=0.0, nonlinearity="relu")
+    nn.init.zeros_(linear.bias)
+
+
+def _activation_fn(name: str) -> callable:
+    if name == "tanh":
+        return torch.tanh
+    if name == "relu":
+        return torch.relu
+    raise ValueError(f"Unsupported activation: {name!r}")
+
+
+def _init_linear(linear: nn.Linear, activation: str) -> None:
+    if activation == "tanh":
+        _init_linear_tanh(linear)
+    elif activation == "relu":
+        _init_linear_relu(linear)
+    else:
+        raise ValueError(f"Unsupported activation: {activation!r}")
+
+
 def build_fixed_sparse_signed_readout(
     hidden_dim: int,
     language_dim: int,
@@ -87,6 +109,7 @@ class ExternalClockMLP(nn.Module):
         self,
         *,
         trunk_dims: tuple[int, ...],
+        activation: str = "tanh",
         language_dim: int,
         language_readout_coverage: int = 1,
         pulse_dim: int = 1,
@@ -94,6 +117,8 @@ class ExternalClockMLP(nn.Module):
         seed: int = 42,
     ) -> None:
         super().__init__()
+        self.activation_name = str(activation)
+        self.activation = _activation_fn(self.activation_name)
         self.pulse_dim = int(pulse_dim)
         self.language_dim = int(language_dim) if use_language else 0
         self.use_language = bool(use_language)
@@ -105,10 +130,10 @@ class ExternalClockMLP(nn.Module):
             for idx in range(len(dims) - 1)
         )
         for layer in self.trunk:
-            _init_linear_tanh(layer)
+            _init_linear(layer, self.activation_name)
 
         self.output_head = nn.Linear(trunk_dims[-1], 1, bias=True)
-        _init_linear_tanh(self.output_head)
+        _init_linear(self.output_head, self.activation_name)
 
         if self.use_language:
             readout = build_fixed_sparse_signed_readout(
@@ -124,7 +149,7 @@ class ExternalClockMLP(nn.Module):
     def _step_hidden(self, step_input: torch.Tensor) -> torch.Tensor:
         hidden = step_input
         for layer in self.trunk:
-            hidden = torch.tanh(layer(hidden))
+            hidden = self.activation(layer(hidden))
         return hidden
 
     def rollout(

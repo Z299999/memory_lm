@@ -12,8 +12,8 @@ import yaml
 
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
-    "run": ("run_name", "seed", "log_every", "output_root"),
-    "model": ("trunk_dims", "language_dim", "language_readout_coverage"),
+    "run": ("run_name", "seed", "log_every", "output_root", "train_baseline", "eval_mute_deaf"),
+    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_second_harmonic_amplitude"),
     "train": (
         "epochs",
@@ -79,6 +79,8 @@ class ExperimentConfig:
 
     run_name: str = "exp0522_clock_v0"
     seed: int = 42
+    train_baseline: bool = True
+    eval_mute_deaf: bool = True
     epochs: int = 400
     lr: float = 3e-3
     weight_decay: float = 0.0
@@ -86,6 +88,7 @@ class ExperimentConfig:
     sequence_mode: str = "reset"
     fixed_train_steps: int = 128
     trunk_dims: tuple[int, ...] = (32,)
+    activation: str = "tanh"
     language_dim: int = 4
     language_readout_coverage: int = 1
     cycle_steps: int = 32
@@ -255,6 +258,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload.pop("rollout_schedule", None)
     payload.pop("train_steps", None)
     payload["sequence_mode"] = str(payload["sequence_mode"])
+    payload["activation"] = str(payload["activation"])
     payload["train_phase_mode"] = str(payload["train_phase_mode"])
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
@@ -269,7 +273,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         if not isinstance(value, (list, tuple)):
             raise ValueError(f"{key} must be a yaml list.")
         payload[key] = tuple(str(item) for item in value)
-    for key in ("plot_show_message_traces", "plot_show_message_norm"):
+    for key in ("train_baseline", "eval_mute_deaf", "plot_show_message_traces", "plot_show_message_norm"):
         value = payload[key]
         if not isinstance(value, bool):
             raise ValueError(f"{key} must be true or false.")
@@ -279,6 +283,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("epochs must be positive.")
     if payload["sequence_mode"] not in {"reset", "continuous_window"}:
         raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
+    if payload["activation"] not in {"tanh", "relu"}:
+        raise ValueError("activation must be either 'tanh' or 'relu'.")
     if payload["fixed_train_steps"] <= 0:
         raise ValueError("fixed_train_steps must be positive.")
     if payload["train_phase_mode"] not in {"reset", "continuous"}:

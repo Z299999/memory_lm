@@ -1,29 +1,34 @@
 run:
   run_name: exp0522_clock_v0   # run folder suffix
   seed: 42                     # random seed for model init and fixed language readout
-  log_every: 25                # print training status every N epochs
+  log_every: 100                # print training status every N epochs
   output_root: runs            # where timestamped run folders are created
+  train_baseline: false        # whether to train the no-language baseline model for this run
+  eval_mute_deaf: true         # whether to run full-model mute-deaf evaluation
 
 model:
   trunk_dims:
     - 32                       # hidden width of the MLP trunk
     # - 32
+  activation: tanh            # hidden activation: tanh or relu
   language_dim: 10              # number of language input/output heads
   language_readout_coverage: 1  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
 
 task:
-  cycle_steps: 64               # number of steps in one full target cycle
+  cycle_steps: 32               # number of steps in one full target cycle
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
   mixed_sin_second_harmonic_amplitude: 0.5  # amplitude of the 2x harmonic before static normalization
 
 train:
-  epochs: 3000                  # total training epochs
+  epochs: 10000                  # total training epochs
   lr: 0.003                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
+  # sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
   sequence_mode: reset         # reset or continuous_window message handling between training windows
-  fixed_train_steps: 64        # rollout length used for every training episode/window
+  fixed_train_steps: 40        # rollout length used for every training episode/window
+  # train_phase_mode: continuous      # reset or continuous phase progression during training
   train_phase_mode: reset      # reset or continuous phase progression during training
 
 eval:
@@ -53,8 +58,11 @@ plot:
   plot_prediction_legend_ncols: 4 # legend columns for rollout panels
   plot_error_legend_ncols: 3   # legend columns for the error panel
   plot_message_legend_ncols: 2 # legend columns for message traces
-  plot_training_series: [full_train, full_val, baseline_train, baseline_val] # which curves appear in training_curves.png
-  plot_rollout_series: [target, full, baseline, mute_deaf] # which curves appear in short and long rollout panels
-  plot_error_series: [full, baseline, mute_deaf] # which model errors appear in the short-rollout error panel
+  plot_training_series: [full_train, full_val] # which curves appear in training_curves.png
+  plot_rollout_series: [target, full] # which curves appear in short and long rollout panels
+  plot_error_series: [full] # which model errors appear in the short-rollout error panel
+  # plot_training_series: [full_train, full_val, baseline_train, baseline_val] # which curves appear in training_curves.png
+  # plot_rollout_series: [target, full, baseline, mute_deaf] # which curves appear in short and long rollout panels
+  # plot_error_series: [full, baseline, mute_deaf] # which model errors appear in the short-rollout error panel
   plot_show_message_traces: true # whether to show the per-channel message traces panel
   plot_show_message_norm: true  # whether to show the message-norm panel

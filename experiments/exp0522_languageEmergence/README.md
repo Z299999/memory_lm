@@ -106,6 +106,21 @@ task:
   target_kind: sine
 ```
 
+## Model Variants
+
+The MLP trunk activation is configurable from `model.activation`.
+
+```yaml
+model:
+  trunk_dims: [32]
+  activation: tanh
+```
+
+Supported values:
+
+- `tanh` (default)
+- `relu`
+
 ## Sequence Modes
 
 The experiment now supports two training-state modes:
@@ -124,6 +139,10 @@ The experiment now supports two training-state modes:
 Example:
 
 ```yaml
+run:
+  train_baseline: false
+  eval_mute_deaf: true
+
 train:
   sequence_mode: continuous_window
   fixed_train_steps: 32
@@ -133,6 +152,10 @@ eval:
   eval_phase_mode: both
   continuous_eval_steps: 512
 ```
+
+`run.train_baseline` controls whether the no-language baseline is trained at all.
+`run.eval_mute_deaf` controls whether the trained full model is also evaluated
+with the language channel forcibly disabled.
 
 ## Outputs
 
