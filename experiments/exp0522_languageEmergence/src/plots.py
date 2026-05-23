@@ -76,8 +76,10 @@ _CONDITION_COLORS: dict[str, str] = {
     "stutter":     "#e377c2",  # pink
 }
 
-def _build_rollout_panels(config: ExperimentConfig, *, has_continuous: bool) -> list[tuple[str, float]]:
-    panels: list[tuple[str, float]] = [("short", 1.35), ("long", 1.35)]
+def _build_rollout_panels(config: ExperimentConfig, *, has_reset: bool, has_continuous: bool) -> list[tuple[str, float]]:
+    panels: list[tuple[str, float]] = []
+    if has_reset:
+        panels.extend([("short", 1.35), ("long", 1.35)])
     if has_continuous:
         panels.append(("continuous_long", 1.35))
     if config.eval_conditions:
@@ -230,7 +232,7 @@ def plot_rollout_diagnostics(
     error_steps = np.arange(len(error_rollout["target"]))
     message_steps = np.arange(len(message_source["target"]))
 
-    panels = _build_rollout_panels(config, has_continuous=has_continuous)
+    panels = _build_rollout_panels(config, has_reset=has_reset, has_continuous=has_continuous)
     fig, axes = plt.subplots(
         len(panels),
         1,
@@ -296,18 +298,20 @@ def plot_rollout_diagnostics(
         ax.grid(True, alpha=config.plot_grid_alpha)
         _maybe_add_legend(ax, ncol=config.plot_prediction_legend_ncols)
 
-    _plot_rollout_panel(
-        axis_by_panel["short"],
-        reset_evals,
-        config.plot_short_steps,
-        "Reset short eval" if has_continuous else "Short rollout",
-    )
-    _plot_rollout_panel(
-        axis_by_panel["long"],
-        reset_long_evals,
-        config.plot_long_steps,
-        "Reset long eval" if has_continuous else "Long rollout",
-    )
+    if "short" in axis_by_panel:
+        _plot_rollout_panel(
+            axis_by_panel["short"],
+            reset_evals,
+            config.plot_short_steps,
+            "Reset short eval" if has_continuous else "Short rollout",
+        )
+    if "long" in axis_by_panel:
+        _plot_rollout_panel(
+            axis_by_panel["long"],
+            reset_long_evals,
+            config.plot_long_steps,
+            "Reset long eval" if has_continuous else "Long rollout",
+        )
     if "continuous_long" in axis_by_panel:
         _plot_rollout_panel(
             axis_by_panel["continuous_long"],

@@ -11,7 +11,7 @@ model:
     # - 32
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
   language_dim: 7              # number of language input/output heads
-  language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  language_readout_coverage: 5  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims (no-op for single-layer trunk)
 
@@ -22,7 +22,7 @@ task:
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
     # - [0.01, 1]
     # - [0.05, 3]
-    # - [0.7, 2]
+    - [0.7, 2]
     - [1, 1.0]
     - [2, 0.5]
     - [3, 0.25]
@@ -31,8 +31,8 @@ task:
     
 
 train:
-  epochs: 10000                  # total training epochs
-  lr: 0.003                    # Adam learning rate
+  epochs: 3000                  # total training epochs
+  lr: 0.0005                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
@@ -49,7 +49,7 @@ eval:
   eval_steps: 200              # in-distribution evaluation rollout length
   long_steps: 500              # long-horizon rollout length for stress test
   continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
-  eval_phase_mode: both        # which evals to write: reset, continuous, or both
+  eval_phase_mode: continuous  # which evals to run and plot: reset | continuous | both
   # ablation conditions: full | sole_eye | sole_speech | neither
   #                      late_blind(N) | late_mute(N) | blink(start,end) | stutter(start,end)
   eval_conditions: [full, "blink(40,100)", "stutter(120,220)"]
