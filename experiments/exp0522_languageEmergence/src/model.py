@@ -119,6 +119,7 @@ class ExternalClockMLP(nn.Module):
         use_language: bool = True,
         use_residual: bool = True,
         language_readout_all_layers: bool = False,
+        message_carry_mode: str = "identity",
         seed: int = 42,
     ) -> None:
         super().__init__()
@@ -131,6 +132,7 @@ class ExternalClockMLP(nn.Module):
         self.use_language = bool(use_language) and self.language_dim > 0
         self.use_residual = bool(use_residual)
         self.language_readout_all_layers = bool(language_readout_all_layers)
+        self.message_carry_mode = str(message_carry_mode)
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
 
@@ -143,6 +145,11 @@ class ExternalClockMLP(nn.Module):
 
         self.output_head = nn.Linear(trunk_dims[-1], 1, bias=True)
         _init_linear(self.output_head, self.activation_name)
+
+        if self.use_language and self.message_carry_mode == "learnable_diagonal":
+            self.message_carry_d = nn.Parameter(torch.zeros(self.language_dim))
+        else:
+            self.message_carry_d = None
 
         readout_input_dim = sum(trunk_dims) if self.language_readout_all_layers else trunk_dims[-1]
         if self.use_language:
@@ -176,9 +183,6 @@ class ExternalClockMLP(nn.Module):
         y_target_sequence: torch.Tensor | None = None,
         initial_message: torch.Tensor | None = None,
         initial_error: torch.Tensor | None = None,
-        initial_reconstruction_y: torch.Tensor | None = None,
-        initial_reconstruction_v: torch.Tensor | None = None,
-        prediction_target: str = "y",
         detach_error_input: bool = True,
         force_zero_error_input: bool = False,
         disable_language: bool = False,
@@ -234,60 +238,22 @@ class ExternalClockMLP(nn.Module):
         else:
             error_prev = torch.zeros(batch_size, 0, device=device)
 
-        if prediction_target == "y":
-            reconstruction_y_prev = None
-            reconstruction_v_prev = None
-        elif prediction_target == "velocity":
-            if initial_reconstruction_y is None:
-                raise ValueError("initial_reconstruction_y is required for prediction_target='velocity'.")
-            if tuple(initial_reconstruction_y.shape) != (batch_size, 1):
-                raise ValueError(
-                    f"initial_reconstruction_y must have shape {(batch_size, 1)}, "
-                    f"got {tuple(initial_reconstruction_y.shape)}."
-                )
-            reconstruction_y_prev = initial_reconstruction_y.to(device=device)
-            reconstruction_v_prev = None
-        elif prediction_target == "acceleration":
-            if initial_reconstruction_y is None or initial_reconstruction_v is None:
-                raise ValueError(
-                    "initial_reconstruction_y and initial_reconstruction_v are required "
-                    "for prediction_target='acceleration'."
-                )
-            if tuple(initial_reconstruction_y.shape) != (batch_size, 1):
-                raise ValueError(
-                    f"initial_reconstruction_y must have shape {(batch_size, 1)}, "
-                    f"got {tuple(initial_reconstruction_y.shape)}."
-                )
-            if tuple(initial_reconstruction_v.shape) != (batch_size, 1):
-                raise ValueError(
-                    f"initial_reconstruction_v must have shape {(batch_size, 1)}, "
-                    f"got {tuple(initial_reconstruction_v.shape)}."
-                )
-            reconstruction_y_prev = initial_reconstruction_y.to(device=device)
-            reconstruction_v_prev = initial_reconstruction_v.to(device=device)
-        else:
-            raise ValueError(f"Unsupported prediction_target: {prediction_target!r}")
-
         for step_idx in range(num_steps):
             input_parts = [pulse]
             if self.use_error_input:
                 input_parts.append(error_prev)
             if self.use_language:
-                language_input = torch.zeros_like(message_prev) if disable_language else message_prev
+                if disable_language:
+                    language_input = torch.zeros_like(message_prev)
+                elif self.message_carry_mode == "learnable_diagonal":
+                    language_input = (1.0 + self.message_carry_d) * message_prev
+                else:
+                    language_input = message_prev
                 input_parts.append(language_input)
             step_input = torch.cat(input_parts, dim=1)
             hidden, all_hiddens = self._step_hidden(step_input)
             raw_t = self.output_head(hidden)
-            if prediction_target == "y":
-                y_t = raw_t
-            elif prediction_target == "velocity":
-                y_t = reconstruction_y_prev + raw_t
-                reconstruction_y_prev = y_t
-            else:
-                reconstruction_v_t = reconstruction_v_prev + raw_t
-                y_t = reconstruction_y_prev + reconstruction_v_t
-                reconstruction_y_prev = y_t
-                reconstruction_v_prev = reconstruction_v_t
+            y_t = raw_t
             if self.use_language and not disable_language:
                 readout_input = torch.cat(all_hiddens, dim=-1) if self.language_readout_all_layers else hidden
                 message_t = readout_input @ self.language_readout
@@ -312,8 +278,6 @@ class ExternalClockMLP(nn.Module):
         hidden_tensor = torch.cat(hidden_snapshots, dim=0) if return_hidden else None
         final_message = message_prev
         final_error = error_prev
-        final_reconstruction_y = reconstruction_y_prev
-        final_reconstruction_v = reconstruction_v_prev
         return (
             torch.cat(outputs, dim=0),
             torch.cat(raw_outputs, dim=0),
@@ -321,6 +285,4 @@ class ExternalClockMLP(nn.Module):
             hidden_tensor,
             final_message,
             final_error,
-            final_reconstruction_y,
-            final_reconstruction_v,
         )

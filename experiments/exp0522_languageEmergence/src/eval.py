@@ -51,12 +51,9 @@ def _evaluate_rollout(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
-    prediction_target: str,
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
-    initial_reconstruction_y: torch.Tensor | None = None,
-    initial_reconstruction_v: torch.Tensor | None = None,
     detach_error_input: bool = True,
     force_zero_error_input: bool = False,
     disable_language: bool = False,
@@ -71,34 +68,14 @@ def _evaluate_rollout(
             start_step=start_step,
             target_kind=target_kind,
             mixed_sin_components=mixed_sin_components,
-            prediction_target=prediction_target,
         )
-        reconstruction_y_init = initial_reconstruction_y
-        if reconstruction_y_init is None:
-            reconstruction_y_init = target_bundle["init_y_prev"]
-        reconstruction_v_init = initial_reconstruction_v
-        if prediction_target == "acceleration" and reconstruction_v_init is None:
-            reconstruction_v_init = target_bundle["init_v_prev"]
-
-        (
-            prediction,
-            raw_prediction,
-            messages,
-            hidden,
-            final_message,
-            final_error,
-            final_reconstruction_y,
-            final_reconstruction_v,
-        ) = model.rollout(
+        prediction, raw_prediction, messages, hidden, final_message, final_error = model.rollout(
             num_steps=num_steps,
             pulse_value=pulse_value,
             target_sequence=target_bundle["train_target"],
             y_target_sequence=target_bundle["target_y"],
             initial_message=initial_message,
             initial_error=initial_error,
-            initial_reconstruction_y=reconstruction_y_init,
-            initial_reconstruction_v=reconstruction_v_init,
-            prediction_target=prediction_target,
             detach_error_input=detach_error_input,
             force_zero_error_input=force_zero_error_input,
             disable_language=disable_language,
@@ -120,8 +97,6 @@ def _evaluate_rollout(
         "hidden": hidden.cpu() if hidden is not None else None,
         "final_message": final_message.cpu(),
         "final_error": final_error.cpu(),
-        "final_reconstruction_y": final_reconstruction_y.cpu() if final_reconstruction_y is not None else None,
-        "final_reconstruction_v": final_reconstruction_v.cpu() if final_reconstruction_v is not None else None,
         "start_step": int(start_step),
     }
 
@@ -137,12 +112,9 @@ def _evaluate_late_transition_rollout(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
-    prediction_target: str,
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
-    initial_reconstruction_y: torch.Tensor | None = None,
-    initial_reconstruction_v: torch.Tensor | None = None,
     detach_error_input: bool = True,
 ) -> dict[str, Any]:
     """Run full model for transition_step steps, then switch to given post-transition flags."""
@@ -154,12 +126,9 @@ def _evaluate_late_transition_rollout(
         pulse_value=pulse_value,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
-        prediction_target=prediction_target,
         start_step=start_step,
         initial_message=initial_message,
         initial_error=initial_error,
-        initial_reconstruction_y=initial_reconstruction_y,
-        initial_reconstruction_v=initial_reconstruction_v,
         detach_error_input=detach_error_input,
         force_zero_error_input=False,
         disable_language=False,
@@ -174,12 +143,9 @@ def _evaluate_late_transition_rollout(
         pulse_value=pulse_value,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
-        prediction_target=prediction_target,
         start_step=start_step + effective_transition,
         initial_message=phase1["final_message"],
         initial_error=phase1["final_error"],
-        initial_reconstruction_y=phase1["final_reconstruction_y"],
-        initial_reconstruction_v=phase1["final_reconstruction_v"],
         detach_error_input=detach_error_input,
         force_zero_error_input=post_force_zero_error,
         disable_language=post_disable_language,
@@ -199,8 +165,6 @@ def _evaluate_late_transition_rollout(
         "hidden": None,
         "final_message": phase2["final_message"],
         "final_error": phase2["final_error"],
-        "final_reconstruction_y": phase2["final_reconstruction_y"],
-        "final_reconstruction_v": phase2["final_reconstruction_v"],
         "start_step": int(start_step),
     }
 
@@ -217,16 +181,13 @@ def _evaluate_temporary_loss_rollout(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
-    prediction_target: str,
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
-    initial_reconstruction_y: torch.Tensor | None = None,
-    initial_reconstruction_v: torch.Tensor | None = None,
     detach_error_input: bool = True,
 ) -> dict[str, Any]:
     """Full model → temporarily lose a channel [loss_start, loss_end) → full again."""
-    def _rollout(n: int, s: int, msg, err, rec_y, rec_v, fze: bool, dl: bool) -> dict[str, Any]:
+    def _rollout(n: int, s: int, msg, err, fze: bool, dl: bool) -> dict[str, Any]:
         return _evaluate_rollout(
             model,
             num_steps=n,
@@ -234,28 +195,16 @@ def _evaluate_temporary_loss_rollout(
             pulse_value=pulse_value,
             target_kind=target_kind,
             mixed_sin_components=mixed_sin_components,
-            prediction_target=prediction_target,
             start_step=s,
             initial_message=msg,
             initial_error=err,
-            initial_reconstruction_y=rec_y,
-            initial_reconstruction_v=rec_v,
             detach_error_input=detach_error_input,
             force_zero_error_input=fze,
             disable_language=dl,
         )
 
     p1_steps = min(loss_start, num_steps)
-    p1 = _rollout(
-        p1_steps,
-        start_step,
-        initial_message,
-        initial_error,
-        initial_reconstruction_y,
-        initial_reconstruction_v,
-        False,
-        False,
-    )
+    p1 = _rollout(p1_steps, start_step, initial_message, initial_error, False, False)
     if p1_steps >= num_steps:
         return p1
 
@@ -265,8 +214,6 @@ def _evaluate_temporary_loss_rollout(
         start_step + p1_steps,
         p1["final_message"],
         p1["final_error"],
-        p1["final_reconstruction_y"],
-        p1["final_reconstruction_v"],
         phase2_force_zero_error,
         phase2_disable_language,
     )
@@ -279,8 +226,6 @@ def _evaluate_temporary_loss_rollout(
             start_step + p1_steps + p2_steps,
             p2["final_message"],
             p2["final_error"],
-            p2["final_reconstruction_y"],
-            p2["final_reconstruction_v"],
             False,
             False,
         )
@@ -301,8 +246,6 @@ def _evaluate_temporary_loss_rollout(
         "hidden": None,
         "final_message": parts[-1]["final_message"],
         "final_error": parts[-1]["final_error"],
-        "final_reconstruction_y": parts[-1]["final_reconstruction_y"],
-        "final_reconstruction_v": parts[-1]["final_reconstruction_v"],
         "start_step": int(start_step),
     }
 
@@ -330,7 +273,6 @@ def _evaluate_continuous_stream(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
-    prediction_target: str,
     detach_error_input: bool = True,
     force_zero_error_input: bool = False,
     disable_language: bool = False,
@@ -338,8 +280,6 @@ def _evaluate_continuous_stream(
     device = next(model.parameters()).device
     initial_message = None
     initial_error = None
-    initial_reconstruction_y = None
-    initial_reconstruction_v = None
     if warmup_steps > 0:
         with torch.no_grad():
             warmup_bundle = build_rollout_targets(
@@ -349,27 +289,14 @@ def _evaluate_continuous_stream(
                 start_step=0,
                 target_kind=target_kind,
                 mixed_sin_components=mixed_sin_components,
-                prediction_target=prediction_target,
             )
-            (
-                _prediction,
-                _raw_prediction,
-                _messages,
-                _hidden,
-                final_message,
-                final_error,
-                final_reconstruction_y,
-                final_reconstruction_v,
-            ) = model.rollout(
+            _prediction, _raw_prediction, _messages, _hidden, final_message, final_error = model.rollout(
                 num_steps=warmup_steps,
                 pulse_value=pulse_value,
                 target_sequence=warmup_bundle["train_target"],
                 y_target_sequence=warmup_bundle["target_y"],
                 initial_message=None,
                 initial_error=None,
-                initial_reconstruction_y=warmup_bundle["init_y_prev"],
-                initial_reconstruction_v=warmup_bundle["init_v_prev"],
-                prediction_target=prediction_target,
                 detach_error_input=detach_error_input,
                 force_zero_error_input=force_zero_error_input,
                 disable_language=disable_language,
@@ -379,10 +306,6 @@ def _evaluate_continuous_stream(
                 initial_message = final_message.detach()
             if model.use_error_input:
                 initial_error = final_error.detach()
-            if prediction_target in {"velocity", "acceleration"}:
-                initial_reconstruction_y = final_reconstruction_y.detach()
-                if prediction_target == "acceleration":
-                    initial_reconstruction_v = final_reconstruction_v.detach()
 
     return _evaluate_rollout(
         model,
@@ -391,12 +314,9 @@ def _evaluate_continuous_stream(
         pulse_value=pulse_value,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
-        prediction_target=prediction_target,
         start_step=warmup_steps,
         initial_message=initial_message,
         initial_error=initial_error,
-        initial_reconstruction_y=initial_reconstruction_y,
-        initial_reconstruction_v=initial_reconstruction_v,
         detach_error_input=detach_error_input,
         force_zero_error_input=force_zero_error_input,
         disable_language=disable_language,
@@ -476,9 +396,6 @@ def _build_summary(
             "cycle_steps": config.cycle_steps,
             "target_kind": config.target_kind,
             "mixed_sin_components": [list(c) for c in config.mixed_sin_components],
-            "prediction_target": config.prediction_target,
-            "raw_prediction_space": config.prediction_target,
-            "reported_prediction_space": "y",
             "eval_steps": config.eval_steps,
             "long_steps": config.long_steps,
             "continuous_eval_steps": config.continuous_eval_steps,
@@ -541,6 +458,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         use_language=True,
         use_residual=config.use_residual,
         language_readout_all_layers=config.language_readout_all_layers,
+        message_carry_mode=config.message_carry_mode,
         seed=config.seed,
     ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -570,7 +488,6 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         pulse_value=config.pulse_value,
         target_kind=config.target_kind,
         mixed_sin_components=config.mixed_sin_components,
-        prediction_target=config.prediction_target,
         detach_error_input=config.detach_error_input,
     )
 
@@ -580,16 +497,12 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         _ts = torch.load(train_state_path, map_location=device, weights_only=False)
         continuous_init_msg   = _ts["final_message"] if model.use_language else None
         continuous_init_err   = _ts["final_error"]   if model.use_error_input else None
-        continuous_init_reconstruction_y = _ts.get("final_reconstruction_y")
-        continuous_init_reconstruction_v = _ts.get("final_reconstruction_v")
         continuous_start_step = int(_ts["final_step"])
         has_train_state = True
     else:
         has_train_state = False
         continuous_init_msg   = None
         continuous_init_err   = None
-        continuous_init_reconstruction_y = None
-        continuous_init_reconstruction_v = None
         continuous_start_step = 0
 
     reset_evals: dict[str, dict] | None = None
@@ -602,8 +515,6 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         start_step: int = 0,
         initial_message=None,
         initial_error=None,
-        initial_reconstruction_y=None,
-        initial_reconstruction_v=None,
     ) -> dict[str, Any]:
         base, params = parse_condition(condition)
         if base in _TEMPORARY_LOSS_FLAGS:
@@ -618,8 +529,6 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                     start_step=start_step,
                     initial_message=initial_message,
                     initial_error=initial_error,
-                    initial_reconstruction_y=initial_reconstruction_y,
-                    initial_reconstruction_v=initial_reconstruction_v,
                     **common_kwargs,
                 )
         if base in _LATE_TRANSITION_FLAGS:
@@ -633,8 +542,6 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                     start_step=start_step,
                     initial_message=initial_message,
                     initial_error=initial_error,
-                    initial_reconstruction_y=initial_reconstruction_y,
-                    initial_reconstruction_v=initial_reconstruction_v,
                     **common_kwargs,
                 )
         fze, dl = _condition_flags(base)
@@ -646,8 +553,6 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                 start_step=start_step,
                 initial_message=initial_message,
                 initial_error=initial_error,
-                initial_reconstruction_y=initial_reconstruction_y,
-                initial_reconstruction_v=initial_reconstruction_v,
                 **common_kwargs,
             )
 
@@ -666,8 +571,6 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                     start_step=continuous_start_step,
                     initial_message=continuous_init_msg,
                     initial_error=continuous_init_err,
-                    initial_reconstruction_y=continuous_init_reconstruction_y,
-                    initial_reconstruction_v=continuous_init_reconstruction_v,
                 )
             elif _base in _LATE_TRANSITION_FLAGS or _base in _TEMPORARY_LOSS_FLAGS:
                 warmup_result = _evaluate_rollout(
@@ -679,15 +582,11 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                 ) if continuous_warmup_steps > 0 else None
                 init_msg = warmup_result["final_message"] if warmup_result and model.use_language else None
                 init_err = warmup_result["final_error"] if warmup_result and model.use_error_input else None
-                init_rec_y = warmup_result["final_reconstruction_y"] if warmup_result else None
-                init_rec_v = warmup_result["final_reconstruction_v"] if warmup_result else None
                 continuous_evals[condition] = _run_condition(
                     condition, config.continuous_eval_steps,
                     start_step=continuous_warmup_steps,
                     initial_message=init_msg,
                     initial_error=init_err,
-                    initial_reconstruction_y=init_rec_y,
-                    initial_reconstruction_v=init_rec_v,
                 )
             else:
                 fze, dl = _condition_flags(_base)

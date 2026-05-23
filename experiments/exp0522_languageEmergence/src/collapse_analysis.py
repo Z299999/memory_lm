@@ -41,6 +41,7 @@ def _build_model(config: ExperimentConfig, model_name: str) -> ExternalClockMLP:
         use_language=True,
         use_residual=config.use_residual,
         language_readout_all_layers=config.language_readout_all_layers,
+        message_carry_mode=config.message_carry_mode,
         seed=config.seed,
     )
 
@@ -255,7 +256,6 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
-            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input if resolved_model_name != "v0_open_loop" else False,
             disable_language=False,
@@ -295,8 +295,6 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
             "train_window_schedule": config.train_window_schedule,
             "checkpoint_epochs": list(config.checkpoint_epochs),
             "force_zero_error_input": config.force_zero_error_input,
-            "prediction_target": config.prediction_target,
-            "reported_prediction_space": "y",
         },
         "checkpoints": [
             {

@@ -72,7 +72,6 @@ def _build_train_target(
     start_step: int,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
-    prediction_target: str,
 ) -> dict[str, torch.Tensor]:
     try:
         from .task import build_rollout_targets
@@ -86,7 +85,6 @@ def _build_train_target(
         start_step=offset,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
-        prediction_target=prediction_target,
     )
 
 
@@ -204,7 +202,6 @@ def _train_single_model(
                 start_step=0,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
-                prediction_target=config.prediction_target,
             )
             target_cache[(int(steps), 0)] = bundle
 
@@ -217,8 +214,6 @@ def _train_single_model(
     train_time_cursor = 0
     train_message_state: torch.Tensor | None = None
     train_error_state: torch.Tensor | None = None
-    train_reconstruction_y_state: torch.Tensor | None = None
-    train_reconstruction_v_state: torch.Tensor | None = None
     for epoch in range(1, config.epochs + 1):
         effective_steps = _sample_train_steps(config)
         train_window_start = train_time_cursor if config.train_phase_mode == "continuous" else 0
@@ -233,38 +228,18 @@ def _train_single_model(
                 start_step=train_window_start,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
-                prediction_target=config.prediction_target,
             )
         train_target = train_bundle["train_target"]
         train_target_y = train_bundle["target_y"]
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        initial_reconstruction_y = train_reconstruction_y_state
-        if initial_reconstruction_y is None:
-            initial_reconstruction_y = train_bundle["init_y_prev"]
-        initial_reconstruction_v = train_reconstruction_v_state
-        if config.prediction_target == "acceleration" and initial_reconstruction_v is None:
-            initial_reconstruction_v = train_bundle["init_v_prev"]
-
-        (
-            prediction,
-            raw_prediction,
-            messages,
-            _hidden,
-            final_message,
-            final_error,
-            final_reconstruction_y,
-            final_reconstruction_v,
-        ) = model.rollout(
+        prediction, raw_prediction, messages, _hidden, final_message, final_error = model.rollout(
             num_steps=effective_steps,
             pulse_value=config.pulse_value,
             target_sequence=train_target,
             y_target_sequence=train_target_y,
             initial_message=train_message_state,
             initial_error=train_error_state,
-            initial_reconstruction_y=initial_reconstruction_y,
-            initial_reconstruction_v=initial_reconstruction_v,
-            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
@@ -287,25 +262,14 @@ def _train_single_model(
                 start_step=train_window_start + effective_steps,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
-                prediction_target=config.prediction_target,
             )
-            aux_initial_reconstruction_y = final_reconstruction_y
-            if aux_initial_reconstruction_y is None:
-                aux_initial_reconstruction_y = aux_bundle["init_y_prev"]
-            aux_initial_reconstruction_v = final_reconstruction_v
-            if config.prediction_target == "acceleration" and aux_initial_reconstruction_v is None:
-                aux_initial_reconstruction_v = aux_bundle["init_v_prev"]
-
-            _aux_prediction, aux_raw_prediction, _, _, _, _, _, _ = model.rollout(
+            _aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
                 num_steps=1,
                 pulse_value=config.pulse_value,
                 target_sequence=aux_bundle["train_target"],
                 y_target_sequence=aux_bundle["target_y"],
                 initial_message=final_message,
                 initial_error=final_error,
-                initial_reconstruction_y=aux_initial_reconstruction_y,
-                initial_reconstruction_v=aux_initial_reconstruction_v,
-                prediction_target=config.prediction_target,
                 detach_error_input=config.detach_error_input,
                 force_zero_error_input=config.force_zero_error_input,
                 disable_language=False,
@@ -341,16 +305,6 @@ def _train_single_model(
             train_error_state = final_error.detach()
         else:
             train_error_state = None
-        if config.sequence_mode == "continuous_window" and config.prediction_target in {"velocity", "acceleration"}:
-            train_reconstruction_y_state = final_reconstruction_y.detach()
-            if config.prediction_target == "acceleration":
-                train_reconstruction_v_state = final_reconstruction_v.detach()
-            else:
-                train_reconstruction_v_state = None
-        else:
-            train_reconstruction_y_state = None
-            train_reconstruction_v_state = None
-
         if config.train_phase_mode == "continuous":
             train_time_cursor += effective_steps
 
@@ -361,7 +315,6 @@ def _train_single_model(
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
-            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
@@ -407,8 +360,6 @@ def _train_single_model(
         "final_train_state": {
             "final_message": train_message_state,
             "final_error": train_error_state,
-            "final_reconstruction_y": train_reconstruction_y_state,
-            "final_reconstruction_v": train_reconstruction_v_state,
             "final_step": int(train_time_cursor),
         },
     }
@@ -442,6 +393,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
         use_language=True,
         use_residual=config.use_residual,
         language_readout_all_layers=config.language_readout_all_layers,
+        message_carry_mode=config.message_carry_mode,
         seed=config.seed,
     ).to(device)
 
@@ -477,8 +429,6 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
             {
                 "final_message": fts["final_message"],
                 "final_error":   fts["final_error"],
-                "final_reconstruction_y": fts["final_reconstruction_y"],
-                "final_reconstruction_v": fts["final_reconstruction_v"],
                 "final_step":    fts["final_step"],
             },
             ckpt_dir / "final_train_state.pt",
