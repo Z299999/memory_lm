@@ -429,6 +429,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         use_error_input=config.use_error_input,
         use_language=True,
         use_residual=config.use_residual,
+        language_readout_all_layers=config.language_readout_all_layers,
         seed=config.seed,
     ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])

@@ -118,6 +118,7 @@ class ExternalClockMLP(nn.Module):
         use_error_input: bool = False,
         use_language: bool = True,
         use_residual: bool = True,
+        language_readout_all_layers: bool = False,
         seed: int = 42,
     ) -> None:
         super().__init__()
@@ -129,6 +130,7 @@ class ExternalClockMLP(nn.Module):
         self.language_dim = int(language_dim) if use_language else 0
         self.use_language = bool(use_language) and self.language_dim > 0
         self.use_residual = bool(use_residual)
+        self.language_readout_all_layers = bool(language_readout_all_layers)
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
 
@@ -142,25 +144,28 @@ class ExternalClockMLP(nn.Module):
         self.output_head = nn.Linear(trunk_dims[-1], 1, bias=True)
         _init_linear(self.output_head, self.activation_name)
 
+        readout_input_dim = sum(trunk_dims) if self.language_readout_all_layers else trunk_dims[-1]
         if self.use_language:
             readout = build_fixed_sparse_signed_readout(
-                hidden_dim=trunk_dims[-1],
+                hidden_dim=readout_input_dim,
                 language_dim=self.language_dim,
                 coverage=language_readout_coverage,
                 seed=seed,
             )
         else:
-            readout = torch.zeros(trunk_dims[-1], 0)
+            readout = torch.zeros(readout_input_dim, 0)
         self.register_buffer("language_readout", readout)
 
-    def _step_hidden(self, step_input: torch.Tensor) -> torch.Tensor:
+    def _step_hidden(self, step_input: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
         hidden = step_input
+        all_hiddens: list[torch.Tensor] = []
         for layer in self.trunk:
             new_hidden = self.activation(layer(hidden))
             if self.use_residual and hidden.shape[-1] == new_hidden.shape[-1]:
                 new_hidden = new_hidden + hidden
             hidden = new_hidden
-        return hidden
+            all_hiddens.append(hidden)
+        return hidden, all_hiddens
 
     def rollout(
         self,
@@ -222,10 +227,11 @@ class ExternalClockMLP(nn.Module):
                 language_input = torch.zeros_like(message_prev) if disable_language else message_prev
                 input_parts.append(language_input)
             step_input = torch.cat(input_parts, dim=1)
-            hidden = self._step_hidden(step_input)
+            hidden, all_hiddens = self._step_hidden(step_input)
             y_t = self.output_head(hidden)
             if self.use_language and not disable_language:
-                message_t = hidden @ self.language_readout
+                readout_input = torch.cat(all_hiddens, dim=-1) if self.language_readout_all_layers else hidden
+                message_t = readout_input @ self.language_readout
             elif self.use_language:
                 message_t = torch.zeros_like(message_prev)
             else:

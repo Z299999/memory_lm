@@ -13,7 +13,7 @@ import yaml
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
-    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual"),
+    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components"),
     "train": (
         "epochs",
@@ -137,6 +137,7 @@ class ExperimentConfig:
     language_readout_coverage: int = 1
     use_error_input: bool = False
     use_residual: bool = True
+    language_readout_all_layers: bool = False
     cycle_steps: int = 32
     target_kind: str = "sine"
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5))
@@ -347,6 +348,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     for key in (
         "use_error_input",
         "use_residual",
+        "language_readout_all_layers",
         "enable_continuous_collapse",
         "detach_error_input",
         "carry_error_between_windows",
