@@ -67,7 +67,10 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_show_message_norm",
         "plot_show_training_timeline",
         "plot_training_timeline_num_panels",
+        "plot_training_timeline_ncols",
         "plot_training_timeline_window_steps",
+        "plot_update_vline_color",
+        "plot_update_vline_alpha",
     ),
 }
 
@@ -153,7 +156,10 @@ class ExperimentConfig:
     plot_show_message_norm: bool = True
     plot_show_training_timeline: bool = True
     plot_training_timeline_num_panels: int = 6
+    plot_training_timeline_ncols: int = 2
     plot_training_timeline_window_steps: int = 200
+    plot_update_vline_color: str = "#c0783c"
+    plot_update_vline_alpha: float = 0.45
 
     def to_user_dict(self) -> dict[str, object]:
         flat = asdict(self)
@@ -258,6 +264,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_error_legend_ncols",
         "plot_message_legend_ncols",
         "plot_training_timeline_num_panels",
+        "plot_training_timeline_ncols",
         "plot_training_timeline_window_steps",
     ):
         payload[key] = int(payload[key])
@@ -276,6 +283,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_series_linewidth",
         "plot_aux_linewidth",
         "plot_zero_linewidth",
+        "plot_update_vline_alpha",
     ):
         payload[key] = float(payload[key])
 
@@ -293,6 +301,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["target_kind"] = str(payload["target_kind"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
     payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
+    payload["plot_update_vline_color"] = str(payload["plot_update_vline_color"])
     for key in (
         "plot_training_series",
         "plot_rollout_series",
@@ -432,6 +441,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("plot_message_steps must be <= eval_steps.")
     if payload["plot_training_timeline_num_panels"] <= 0:
         raise ValueError("plot_training_timeline_num_panels must be positive.")
+    if payload["plot_training_timeline_ncols"] <= 0:
+        raise ValueError("plot_training_timeline_ncols must be positive.")
     if payload["plot_training_timeline_window_steps"] <= 0:
         raise ValueError("plot_training_timeline_window_steps must be positive.")
     allowed_training_series = {

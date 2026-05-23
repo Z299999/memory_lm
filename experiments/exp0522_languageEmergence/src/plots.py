@@ -138,7 +138,7 @@ def plot_training_timeline(
         return
 
     n_panels = len(panels)
-    ncols = 2
+    ncols = max(1, int(config.plot_training_timeline_ncols))
     nrows = int(np.ceil(n_panels / ncols))
     fig, axes = plt.subplots(
         nrows,
@@ -171,10 +171,10 @@ def plot_training_timeline(
         for update_step in update_steps:
             ax.axvline(
                 update_step,
-                color="#bdbdbd",
-                linestyle=":",
+                color=config.plot_update_vline_color,
+                linestyle="--",
                 linewidth=config.plot_zero_linewidth,
-                alpha=0.9,
+                alpha=config.plot_update_vline_alpha,
             )
         ax.set_title(
             f"t={int(panel['start_step'])}..{int(panel['end_step'])}",
