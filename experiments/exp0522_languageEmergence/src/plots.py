@@ -64,9 +64,18 @@ def _condition_width_kind(condition_name: str) -> str:
     return "main" if condition_name == "full" else "aux"
 
 
+_CONDITION_COLORS: dict[str, str] = {
+    "full":        "#1f77b4",  # matplotlib C0 blue
+    "sole_eye":    "#ff7f0e",  # matplotlib C1 orange
+    "sole_speech": "#2ca02c",  # matplotlib C2 green
+    "neither":     "#d62728",  # matplotlib C3 red
+    "late_blind":  "#c05030",  # muted red-orange
+    "late_mute":   "#3060a0",  # muted blue
+}
+
 _LATE_TRANSITION_VLINE_COLORS: dict[str, str] = {
-    "late_blind": "#c05030",
-    "late_mute":  "#3060a0",
+    "late_blind": _CONDITION_COLORS["late_blind"],
+    "late_mute":  _CONDITION_COLORS["late_mute"],
 }
 
 
@@ -272,6 +281,8 @@ def plot_rollout_diagnostics(
                     rollout["prediction"].numpy(),
                     label=series_name,
                     linewidth=_linewidth(config, width_kind),
+                    color=_CONDITION_COLORS.get(series_name),
+                    zorder=3 if series_name == "full" else 2,
                 )
         for vline_step, vline_label, vline_color in _build_transition_vlines(config.plot_rollout_series, num_steps):
             ax.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
@@ -317,6 +328,8 @@ def plot_rollout_diagnostics(
                         rollout["prediction"].numpy() - error_target,
                         label=f"{series_name} error",
                         linewidth=_linewidth(config, width_kind),
+                        color=_CONDITION_COLORS.get(series_name),
+                        zorder=3 if series_name == "full" else 2,
                     )
         error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
         for vline_step, vline_label, vline_color in _build_transition_vlines(config.plot_error_series, config.plot_error_steps):
