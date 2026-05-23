@@ -15,15 +15,14 @@ def build_target_from_phase(
     phase: torch.Tensor,
     *,
     target_kind: str = "sine",
-    mixed_sin_second_harmonic_amplitude: float = 0.5,
+    mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5)),
 ) -> torch.Tensor:
     """Build one rollout target tensor from phase values."""
     if target_kind == "sine":
         target = torch.sin(phase)
     elif target_kind == "mixed_sin":
-        second_amplitude = float(mixed_sin_second_harmonic_amplitude)
-        raw = torch.sin(phase) + second_amplitude * torch.sin(2.0 * phase)
-        scale = 1.0 + abs(second_amplitude)
+        raw = sum(amp * torch.sin(freq * phase) for freq, amp in mixed_sin_components)
+        scale = sum(abs(amp) for _, amp in mixed_sin_components)
         target = raw / scale
     else:
         raise ValueError(f"Unsupported target_kind: {target_kind!r}")
@@ -37,7 +36,7 @@ def build_rollout_targets(
     *,
     start_step: int = 0,
     target_kind: str = "sine",
-    mixed_sin_second_harmonic_amplitude: float = 0.5,
+    mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5)),
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return phase and target tensors for one rollout."""
     omega = omega_from_cycle_steps(cycle_steps)
@@ -46,6 +45,6 @@ def build_rollout_targets(
     target = build_target_from_phase(
         phase,
         target_kind=target_kind,
-        mixed_sin_second_harmonic_amplitude=mixed_sin_second_harmonic_amplitude,
+        mixed_sin_components=mixed_sin_components,
     )
     return phase, target

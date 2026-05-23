@@ -91,15 +91,21 @@ train:
 
 ## Task Variants
 
-The default config now uses a reset-first mixed-sine target:
+The `mixed_sin` target sums an arbitrary list of `[freq_multiplier, amplitude]` components,
+normalized by the sum of absolute amplitudes:
 
 ```yaml
 task:
   target_kind: mixed_sin
-  mixed_sin_second_harmonic_amplitude: 0.5
+  mixed_sin_components:
+    - [1, 1.0]   # sin(phi_t)
+    - [3, 0.5]   # sin(3*phi_t)  — coprime with the fundamental
 ```
 
-To switch back to the original single-sine target:
+Any number of components are supported. Frequency multipliers must be positive; amplitudes can
+be any finite value. The default `[[1, 1.0], [2, 0.5]]` reproduces the original 1+2x waveform.
+
+To use the original single-sine target:
 
 ```yaml
 task:

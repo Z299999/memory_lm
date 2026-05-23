@@ -58,7 +58,7 @@ def _evaluate_rollout(
     cycle_steps: int,
     pulse_value: float,
     target_kind: str,
-    mixed_sin_second_harmonic_amplitude: float,
+    mixed_sin_components: tuple[tuple[float, float], ...],
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     disable_language: bool = False,
@@ -72,7 +72,7 @@ def _evaluate_rollout(
             device,
             start_step=start_step,
             target_kind=target_kind,
-            mixed_sin_second_harmonic_amplitude=mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=mixed_sin_components,
         )
         prediction, messages, hidden, final_message = model.rollout(
             num_steps=num_steps,
@@ -105,7 +105,7 @@ def _evaluate_continuous_stream(
     cycle_steps: int,
     pulse_value: float,
     target_kind: str,
-    mixed_sin_second_harmonic_amplitude: float,
+    mixed_sin_components: tuple[tuple[float, float], ...],
     disable_language: bool = False,
 ) -> dict[str, Any]:
     device = next(model.parameters()).device
@@ -128,7 +128,7 @@ def _evaluate_continuous_stream(
         cycle_steps=cycle_steps,
         pulse_value=pulse_value,
         target_kind=target_kind,
-        mixed_sin_second_harmonic_amplitude=mixed_sin_second_harmonic_amplitude,
+        mixed_sin_components=mixed_sin_components,
         start_step=warmup_steps,
         initial_message=initial_message,
         disable_language=disable_language,
@@ -143,7 +143,7 @@ def _build_train_target(
     train_phase_mode: str,
     start_step: int,
     target_kind: str,
-    mixed_sin_second_harmonic_amplitude: float,
+    mixed_sin_components: tuple[tuple[float, float], ...],
 ) -> tuple[torch.Tensor, torch.Tensor]:
     offset = start_step if train_phase_mode == "continuous" else 0
     return build_rollout_targets(
@@ -152,7 +152,7 @@ def _build_train_target(
         device,
         start_step=offset,
         target_kind=target_kind,
-        mixed_sin_second_harmonic_amplitude=mixed_sin_second_harmonic_amplitude,
+        mixed_sin_components=mixed_sin_components,
     )
 
 
@@ -185,7 +185,7 @@ def _train_single_model(
                 train_phase_mode="reset",
                 start_step=0,
                 target_kind=config.target_kind,
-                mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+                mixed_sin_components=config.mixed_sin_components,
             )
             target_cache[(int(steps), 0)] = target
 
@@ -205,7 +205,7 @@ def _train_single_model(
                 train_phase_mode=config.train_phase_mode,
                 start_step=train_window_start,
                 target_kind=config.target_kind,
-                mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+                mixed_sin_components=config.mixed_sin_components,
             )
         model.train()
         optimizer.zero_grad(set_to_none=True)
@@ -238,7 +238,7 @@ def _train_single_model(
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=False,
         )
         row = {
@@ -363,7 +363,7 @@ def _build_summary(
             "language_readout_coverage": config.language_readout_coverage,
             "cycle_steps": config.cycle_steps,
             "target_kind": config.target_kind,
-            "mixed_sin_second_harmonic_amplitude": config.mixed_sin_second_harmonic_amplitude,
+            "mixed_sin_components": [list(c) for c in config.mixed_sin_components],
             "eval_steps": config.eval_steps,
             "long_steps": config.long_steps,
             "continuous_eval_steps": config.continuous_eval_steps,
@@ -469,7 +469,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=False,
         )
         if reset_eval_enabled
@@ -482,7 +482,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=False,
         )
         if reset_eval_enabled
@@ -495,7 +495,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=True,
         )
         if reset_eval_enabled and config.eval_mute_deaf
@@ -508,7 +508,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=True,
         )
         if reset_eval_enabled and config.eval_mute_deaf
@@ -521,7 +521,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=False,
         )
         if reset_eval_enabled and baseline_result is not None
@@ -534,7 +534,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=False,
         )
         if reset_eval_enabled and baseline_result is not None
@@ -549,7 +549,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=False,
         )
         if continuous_eval_enabled
@@ -563,7 +563,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=True,
         )
         if continuous_eval_enabled and config.eval_mute_deaf
@@ -577,7 +577,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
-            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
+            mixed_sin_components=config.mixed_sin_components,
             disable_language=False,
         )
         if continuous_eval_enabled and baseline_result is not None

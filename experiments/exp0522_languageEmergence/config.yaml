@@ -10,18 +10,21 @@ model:
   trunk_dims:
     - 32                       # hidden width of the MLP trunk
     # - 32
-  activation: tanh            # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 10              # number of language input/output heads
-  language_readout_coverage: 5  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+    # - 32
+  activation: leaky_relu            # hidden activation: tanh, relu, or leaky_relu
+  language_dim: 6              # number of language input/output heads
+  language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
 
 task:
   cycle_steps: 32               # number of steps in one full target cycle
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
-  mixed_sin_second_harmonic_amplitude: 0.5  # amplitude of the 2x harmonic before static normalization
+  mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
+    - [1, 1.0]                  # fundamental: sin(phi_t)
+    - [3, 0.5]                  # 3rd harmonic (coprime with 1): sin(3*phi_t)
 
 train:
-  epochs: 3000                  # total training epochs
+  epochs: 5000                  # total training epochs
   lr: 0.003                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold

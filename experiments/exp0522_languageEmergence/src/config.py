@@ -14,7 +14,7 @@ import yaml
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root", "train_baseline", "eval_mute_deaf"),
     "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage"),
-    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_second_harmonic_amplitude"),
+    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components"),
     "train": (
         "epochs",
         "lr",
@@ -93,7 +93,7 @@ class ExperimentConfig:
     language_readout_coverage: int = 1
     cycle_steps: int = 32
     target_kind: str = "sine"
-    mixed_sin_second_harmonic_amplitude: float = 0.5
+    mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5))
     eval_steps: int = 128
     long_steps: int = 512
     continuous_eval_steps: int = 512
@@ -165,11 +165,9 @@ def omega_from_cycle_steps(cycle_steps: int) -> float:
 def _resolved_target_description(config: ExperimentConfig) -> str:
     if config.target_kind == "sine":
         return "sin(phi_t)"
-    second_amplitude = config.mixed_sin_second_harmonic_amplitude
-    return (
-        f"(sin(phi_t) + {second_amplitude} * sin(2 * phi_t)) / "
-        f"(1 + abs({second_amplitude}))"
-    )
+    terms = " + ".join(f"{amp}*sin({freq}*phi_t)" for freq, amp in config.mixed_sin_components)
+    scale = sum(abs(amp) for _, amp in config.mixed_sin_components)
+    return f"({terms}) / {scale}"
 
 
 def _flatten_user_config(raw: dict[str, object], defaults: ExperimentConfig) -> dict[str, object]:
@@ -243,7 +241,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "weight_decay",
         "grad_clip",
         "pulse_value",
-        "mixed_sin_second_harmonic_amplitude",
         "plot_training_fig_width",
         "plot_training_fig_height",
         "plot_diag_fig_width",
@@ -303,8 +300,20 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("target_kind must be either 'sine' or 'mixed_sin'.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
         raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
-    if not math.isfinite(payload["mixed_sin_second_harmonic_amplitude"]):
-        raise ValueError("mixed_sin_second_harmonic_amplitude must be finite.")
+    raw_components = payload["mixed_sin_components"]
+    if not isinstance(raw_components, (list, tuple)) or not raw_components:
+        raise ValueError("mixed_sin_components must be a non-empty list of [freq, amplitude] pairs.")
+    parsed = []
+    for item in raw_components:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            raise ValueError("Each mixed_sin_components entry must be a [freq, amplitude] pair.")
+        freq, amp = float(item[0]), float(item[1])
+        if freq <= 0:
+            raise ValueError("mixed_sin_components: each frequency must be positive.")
+        if not math.isfinite(amp):
+            raise ValueError("mixed_sin_components: each amplitude must be finite.")
+        parsed.append((freq, amp))
+    payload["mixed_sin_components"] = tuple(parsed)
     if payload["fixed_train_steps"] > payload["long_steps"]:
         raise ValueError("fixed_train_steps must be <= long_steps.")
     if payload["fixed_train_steps"] > payload["continuous_eval_steps"]:
