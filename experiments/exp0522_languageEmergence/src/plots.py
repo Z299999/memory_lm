@@ -81,7 +81,7 @@ def _build_rollout_panels(config: ExperimentConfig, *, has_reset: bool, has_cont
     if has_reset:
         panels.extend([("short", 1.35), ("long", 1.35)])
     if has_continuous:
-        panels.append(("continuous_long", 1.35))
+        panels.extend([("continuous_short", 1.35), ("continuous_long", 1.35)])
     if config.eval_conditions:
         panels.append(("error", 1.0))
     if config.plot_show_message_traces:
@@ -311,6 +311,13 @@ def plot_rollout_diagnostics(
             reset_long_evals,
             config.plot_long_steps,
             "Reset long eval" if has_continuous else "Long rollout",
+        )
+    if "continuous_short" in axis_by_panel:
+        _plot_rollout_panel(
+            axis_by_panel["continuous_short"],
+            continuous_evals,
+            config.plot_short_steps,
+            "Continuous short eval",
         )
     if "continuous_long" in axis_by_panel:
         _plot_rollout_panel(
