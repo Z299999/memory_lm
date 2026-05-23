@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
         "--model-name",
         type=str,
         default=None,
-        help="Optional checkpoint prefix to analyze, e.g. v1_error_corrected or v0_open_loop.",
+        help="Optional checkpoint prefix to analyze, e.g. full_language (legacy names like v0_open_loop still work).",
     )
     return parser.parse_args()
 

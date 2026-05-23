@@ -12,7 +12,7 @@ import yaml
 
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
-    "run": ("run_name", "seed", "log_every", "output_root", "train_baseline", "eval_mute_deaf", "train_v0_comparator"),
+    "run": ("run_name", "seed", "log_every", "output_root", "train_baseline", "eval_mute_deaf"),
     "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components"),
     "train": (
@@ -26,6 +26,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "message_aux_loss_weight",
         "detach_error_input",
         "carry_error_between_windows",
+        "force_zero_error_input",
     ),
     "eval": (
         "eval_steps",
@@ -88,7 +89,6 @@ class ExperimentConfig:
     seed: int = 42
     train_baseline: bool = True
     eval_mute_deaf: bool = True
-    train_v0_comparator: bool = False
     epochs: int = 400
     lr: float = 3e-3
     weight_decay: float = 0.0
@@ -98,6 +98,7 @@ class ExperimentConfig:
     message_aux_loss_weight: float = 0.0
     detach_error_input: bool = True
     carry_error_between_windows: bool = True
+    force_zero_error_input: bool = False
     trunk_dims: tuple[int, ...] = (32,)
     activation: str = "tanh"
     language_dim: int = 4
@@ -293,11 +294,11 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     for key in (
         "train_baseline",
         "eval_mute_deaf",
-        "train_v0_comparator",
         "use_error_input",
         "enable_continuous_collapse",
         "detach_error_input",
         "carry_error_between_windows",
+        "force_zero_error_input",
         "plot_show_message_traces",
         "plot_show_message_norm",
     ):
@@ -360,12 +361,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("continuous_window mode requires train_phase_mode='continuous'.")
     if payload["sequence_mode"] == "reset" and payload["train_phase_mode"] != "reset":
         raise ValueError("reset mode requires train_phase_mode='reset'.")
-    if payload["train_v0_comparator"] and not payload["use_error_input"]:
-        raise ValueError("train_v0_comparator=true requires model.use_error_input=true for the V1 primary model.")
-    if payload["train_v0_comparator"] and payload["train_baseline"]:
-        raise ValueError("train_v0_comparator=true requires run.train_baseline=false in V1 mode.")
-    if payload["train_v0_comparator"] and payload["eval_mute_deaf"]:
-        raise ValueError("train_v0_comparator=true requires run.eval_mute_deaf=false in V1 mode.")
+    if payload["force_zero_error_input"] and not payload["use_error_input"]:
+        raise ValueError("force_zero_error_input=true requires model.use_error_input=true.")
     legacy_rollout_schedule = raw.get("rollout_schedule")
     if legacy_rollout_schedule is None and isinstance(raw.get("train"), dict):
         legacy_rollout_schedule = raw["train"].get("rollout_schedule")

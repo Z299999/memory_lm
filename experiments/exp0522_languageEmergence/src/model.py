@@ -166,6 +166,7 @@ class ExternalClockMLP(nn.Module):
         initial_message: torch.Tensor | None = None,
         initial_error: torch.Tensor | None = None,
         detach_error_input: bool = True,
+        force_zero_error_input: bool = False,
         disable_language: bool = False,
         return_hidden: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
@@ -231,8 +232,11 @@ class ExternalClockMLP(nn.Module):
                 hidden_snapshots.append(hidden)
             message_prev = message_t
             if self.use_error_input:
-                error_t = target_sequence[step_idx : step_idx + 1] - y_t
-                error_prev = error_t.detach() if detach_error_input else error_t
+                if force_zero_error_input:
+                    error_prev = torch.zeros_like(error_prev)
+                else:
+                    error_t = target_sequence[step_idx : step_idx + 1] - y_t
+                    error_prev = error_t.detach() if detach_error_input else error_t
 
         hidden_tensor = torch.cat(hidden_snapshots, dim=0) if return_hidden else None
         final_message = message_prev

@@ -252,6 +252,7 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
             detach_error_input=config.detach_error_input,
+            force_zero_error_input=config.force_zero_error_input if resolved_model_name != "v0_open_loop" else False,
             disable_language=False,
         )
         metrics = _rollout_metrics(rollout)
@@ -287,6 +288,7 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
             "continuous_eval_steps": config.continuous_eval_steps,
             "warmup_steps": config.fixed_train_steps,
             "checkpoint_epochs": list(config.checkpoint_epochs),
+            "force_zero_error_input": config.force_zero_error_input,
         },
         "checkpoints": [
             {

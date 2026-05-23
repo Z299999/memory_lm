@@ -58,21 +58,15 @@ So the two main comparisons mean different things:
 - `full` vs `mute-deaf`
   - tests whether the trained model is causally using that channel at inference time
 
-For `V1`, the main comparison is different:
+For `V1`, the main comparison is now done inside one unified interface:
 
-- `v1_error_corrected`
+- corrected
   - closed-loop self-talk with `[1, e_{t-1}, m_{t-1}]`
-- `v0_open_loop`
-  - comparator model with `[1, m_{t-1}]`
+- zero-error ablation
+  - keeps the same `[1, e, m]` architecture
+  - but forces `e=0` at every step
 
-This keeps the target, optimizer, rollout length, and continuous-window protocol identical while only changing whether error feedback is available.
-
-By default, the repo now runs the corrected `V1` model alone. Re-enable the historical `V0` comparison only when you explicitly want an ablation:
-
-```yaml
-run:
-  train_v0_comparator: true
-```
+This keeps the target, optimizer, rollout length, and continuous-window protocol identical while only changing whether the correction signal is live.
 
 ## Quick Start
 
@@ -159,7 +153,7 @@ model:
   use_error_input: true
 ```
 
-When enabled, the primary model input becomes `[1, e_{t-1}, m_{t-1}]`. The V0 comparator still uses `[1, m_{t-1}]`.
+When enabled, the primary model input becomes `[1, e_{t-1}, m_{t-1}]`.
 
 ## Sequence Modes
 
@@ -180,7 +174,6 @@ Example:
 
 ```yaml
 run:
-  train_v0_comparator: true
   train_baseline: false
   eval_mute_deaf: false
 
@@ -190,6 +183,7 @@ train:
   train_phase_mode: continuous
   detach_error_input: true
   carry_error_between_windows: true
+  force_zero_error_input: false
 
 eval:
   eval_phase_mode: both
@@ -199,7 +193,13 @@ eval:
 `run.train_baseline` controls whether the no-language baseline is trained at all.
 `run.eval_mute_deaf` controls whether the trained full model is also evaluated
 with the language channel forcibly disabled.
-`run.train_v0_comparator` switches the experiment into the V1 one-run-two-model layout. Leave it `false` for the default corrected-only workflow.
+
+To run the zero-error ablation under the same `[1,e,m]` interface:
+
+```yaml
+train:
+  force_zero_error_input: true
+```
 
 ## Offline Collapse Analysis
 
@@ -220,11 +220,6 @@ When enabled, the primary analyzed model saves milestone checkpoints during trai
 - ...
 - `checkpoints/full_language_final.pt`
 
-In V1 mode the corresponding files are:
-
-- `checkpoints/v1_error_corrected_epoch_0001.pt`
-- `checkpoints/v1_error_corrected_final.pt`
-
 The offline analyzer replays those checkpoints on one fixed `continuous_eval` stream and writes:
 
 - `analysis/continuous_collapse/metrics.json`
@@ -232,13 +227,7 @@ The offline analyzer replays those checkpoints on one fixed `continuous_eval` st
 - `analysis/continuous_collapse/checkpoint_rollouts.png`
 - `analysis/continuous_collapse/snapshots/*.json`
 
-To analyze a non-default checkpoint family explicitly, pass `--model-name`, for example:
-
-```bash
-python3 analyze_continuous_collapse.py \
-  --run-dir runs/20260522/20260522_232044_smoke_v1_error_input \
-  --model-name v0_open_loop
-```
+Legacy `v0_open_loop` and `v1_error_corrected` checkpoint families are still analyzable via `--model-name`, but the default workflow now only writes the unified primary family.
 
 The four core collapse metrics are:
 
@@ -256,19 +245,17 @@ for example `runs/20260522/20260522_173059_exp0522_clock_v0/`, containing:
 - `resolved_config.json`
 - `metrics/`
   - `summary.json`
-  - `history_full_language.json` or `history_v1_error_corrected.json`
-  - `history_no_language.json` or `history_v0_open_loop.json`
+  - `history_full_language.json`
+  - `history_no_language.json` when `run.train_baseline: true`
   - `eval_rollout.csv`
   - `long_rollout.csv`
   - `reset_eval_rollout.csv`
   - `reset_long_rollout.csv`
   - `continuous_eval_rollout.csv` when continuous evaluation is enabled
 - `checkpoints/`
-  - `full_language_epoch_0001.pt`, etc. for V0-style runs when continuous-collapse checkpointing is enabled
+  - `full_language_epoch_0001.pt`, etc. when continuous-collapse checkpointing is enabled
   - `full_language_final.pt`
-  - `v1_error_corrected_epoch_0001.pt`, etc. for V1 comparator runs
-  - `v1_error_corrected_final.pt`
-  - `v0_open_loop_final.pt`
+  - `no_language_final.pt` when `run.train_baseline: true`
 - `plots/`
 - `analysis/continuous_collapse/` after running the offline analyzer
 
