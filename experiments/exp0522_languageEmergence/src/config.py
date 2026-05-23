@@ -65,8 +65,6 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_error_legend_ncols",
         "plot_message_legend_ncols",
         "plot_training_series",
-        "plot_rollout_series",
-        "plot_error_series",
         "plot_show_message_traces",
         "plot_show_message_norm",
         "plot_show_training_timeline",
@@ -157,8 +155,6 @@ class ExperimentConfig:
         "full_train",
         "full_val",
     )
-    plot_rollout_series: tuple[str, ...] = ("target", "full")
-    plot_error_series: tuple[str, ...] = ("full",)
     plot_show_message_traces: bool = True
     plot_show_message_norm: bool = True
     plot_show_training_timeline: bool = True
@@ -311,11 +307,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["target_kind"] = str(payload["target_kind"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
     payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
-    for key in (
-        "plot_training_series",
-        "plot_rollout_series",
-        "plot_error_series",
-    ):
+    for key in ("plot_training_series",):
         value = payload[key]
         if not isinstance(value, (list, tuple)):
             raise ValueError(f"{key} must be a yaml list.")
@@ -468,20 +460,12 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "baseline_train",
         "baseline_val",
     }
-    allowed_rollout_series = {"target"} | _VALID_EVAL_CONDITIONS
-    allowed_error_series = _VALID_EVAL_CONDITIONS
-    for key, allowed in (
-        ("plot_training_series", allowed_training_series),
-        ("plot_rollout_series", allowed_rollout_series),
-        ("plot_error_series", allowed_error_series),
-    ):
+    for key, allowed in (("plot_training_series", allowed_training_series),):
         invalid = [item for item in payload[key] if item not in allowed]
         if invalid:
             raise ValueError(f"{key} contains unknown entries: {invalid}")
     if len(payload["plot_training_series"]) == 0:
         raise ValueError("plot_training_series must contain at least one curve.")
-    if len(payload["plot_rollout_series"]) == 0:
-        raise ValueError("plot_rollout_series must contain at least one curve.")
 
     return ExperimentConfig(**payload)
 

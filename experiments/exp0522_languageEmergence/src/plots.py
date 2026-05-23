@@ -84,7 +84,7 @@ def _build_rollout_panels(config: ExperimentConfig, *, has_continuous: bool) -> 
     panels: list[tuple[str, float]] = [("short", 1.35), ("long", 1.35)]
     if has_continuous:
         panels.append(("continuous_long", 1.35))
-    if config.plot_error_series:
+    if config.eval_conditions:
         panels.append(("error", 1.0))
     if config.plot_show_message_traces:
         panels.append(("messages", 1.0))
@@ -268,30 +268,28 @@ def plot_rollout_diagnostics(
         if ref is None:
             return
         steps = np.arange(len(ref["target"]))
-        for series_name in config.plot_rollout_series:
-            if series_name == "target":
-                ax.plot(
-                    steps,
-                    ref["target"].numpy(),
-                    label="target",
-                    color=config.plot_target_color,
-                    linestyle=config.plot_target_linestyle,
-                    linewidth=config.plot_target_linewidth,
-                )
-            else:
-                rollout = _slice_rollout(evals.get(series_name), num_steps)
-                if rollout is None:
-                    continue
-                width_kind = _condition_width_kind(series_name)
-                ax.plot(
-                    steps,
-                    rollout["prediction"].numpy(),
-                    label=series_name,
-                    linewidth=_linewidth(config, width_kind),
-                    color=_CONDITION_COLORS.get(series_name),
-                    zorder=3 if series_name == "full" else 2,
-                )
-        for vline_step, vline_label, vline_color in _build_transition_vlines(config.plot_rollout_series, num_steps):
+        ax.plot(
+            steps,
+            ref["target"].numpy(),
+            label="target",
+            color=config.plot_target_color,
+            linestyle=config.plot_target_linestyle,
+            linewidth=config.plot_target_linewidth,
+        )
+        for condition in config.eval_conditions:
+            rollout = _slice_rollout(evals.get(condition), num_steps)
+            if rollout is None:
+                continue
+            width_kind = _condition_width_kind(condition)
+            ax.plot(
+                steps,
+                rollout["prediction"].numpy(),
+                label=condition,
+                linewidth=_linewidth(config, width_kind),
+                color=_CONDITION_COLORS.get(condition),
+                zorder=3 if condition == "full" else 2,
+            )
+        for vline_step, vline_label, vline_color in _build_transition_vlines(config.eval_conditions, num_steps):
             ax.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
         ax.set_title(title)
         ax.set_ylabel("value")
@@ -325,21 +323,21 @@ def plot_rollout_diagnostics(
             ref = _slice_rollout(ref_evals.get("full"), config.plot_error_steps)
             if ref is not None:
                 error_target = ref["target"].numpy()
-                for series_name in config.plot_error_series:
-                    rollout = _slice_rollout(ref_evals.get(series_name), config.plot_error_steps)
+                for condition in config.eval_conditions:
+                    rollout = _slice_rollout(ref_evals.get(condition), config.plot_error_steps)
                     if rollout is None:
                         continue
-                    width_kind = _condition_width_kind(series_name)
+                    width_kind = _condition_width_kind(condition)
                     error_axis.plot(
                         error_steps,
                         rollout["prediction"].numpy() - error_target,
-                        label=f"{series_name} error",
+                        label=f"{condition} error",
                         linewidth=_linewidth(config, width_kind),
-                        color=_CONDITION_COLORS.get(series_name),
-                        zorder=3 if series_name == "full" else 2,
+                        color=_CONDITION_COLORS.get(condition),
+                        zorder=3 if condition == "full" else 2,
                     )
         error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
-        for vline_step, vline_label, vline_color in _build_transition_vlines(config.plot_error_series, config.plot_error_steps):
+        for vline_step, vline_label, vline_color in _build_transition_vlines(config.eval_conditions, config.plot_error_steps):
             error_axis.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
         error_axis.set_title("Short rollout error")
         error_axis.set_ylabel("pred - target")
