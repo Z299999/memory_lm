@@ -10,9 +10,9 @@ model:
   trunk_dims:
     - 32                       # hidden width of the MLP trunk
     # - 32
-  activation: tanh            # hidden activation: tanh or relu
+  activation: tanh            # hidden activation: tanh, relu, or leaky_relu
   language_dim: 10              # number of language input/output heads
-  language_readout_coverage: 1  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  language_readout_coverage: 5  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
 
 task:
   cycle_steps: 32               # number of steps in one full target cycle
@@ -21,7 +21,7 @@ task:
   mixed_sin_second_harmonic_amplitude: 0.5  # amplitude of the 2x harmonic before static normalization
 
 train:
-  epochs: 10000                  # total training epochs
+  epochs: 3000                  # total training epochs
   lr: 0.003                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
