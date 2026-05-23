@@ -209,7 +209,7 @@ def _train_single_model(
             )
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        prediction, _messages, _hidden, final_message = model.rollout(
+        prediction, messages, _hidden, final_message = model.rollout(
             num_steps=effective_steps,
             pulse_value=config.pulse_value,
             initial_message=train_message_state,
@@ -217,13 +217,55 @@ def _train_single_model(
             return_hidden=False,
         )
         train_loss = torch.mean((prediction - train_target) ** 2)
-        train_loss.backward()
+
+        use_aux = (
+            config.sequence_mode == "continuous_window"
+            and model.use_language
+            and config.message_aux_loss_weight > 0.0
+        )
+        aux_loss_val = 0.0
+        if use_aux:
+            _, aux_target = _build_train_target(
+                num_steps=1,
+                cycle_steps=config.cycle_steps,
+                device=device,
+                train_phase_mode="continuous",
+                start_step=train_window_start + effective_steps,
+                target_kind=config.target_kind,
+                mixed_sin_components=config.mixed_sin_components,
+            )
+            aux_pred, _, _, _ = model.rollout(
+                num_steps=1,
+                pulse_value=config.pulse_value,
+                initial_message=final_message,
+                disable_language=False,
+                return_hidden=False,
+            )
+            aux_loss = torch.mean((aux_pred - aux_target) ** 2)
+            total_loss = train_loss + config.message_aux_loss_weight * aux_loss
+            aux_loss_val = float(aux_loss.item())
+        else:
+            total_loss = train_loss
+
+        total_loss.backward()
         if config.grad_clip > 0.0:
             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
         optimizer.step()
 
         if config.sequence_mode == "continuous_window" and model.use_language:
-            train_message_state = final_message.detach()
+            if config.message_refresh and messages.shape[0] >= 2:
+                m_prev = messages[-2].unsqueeze(0).detach()
+                with torch.no_grad():
+                    _, _, _, refreshed = model.rollout(
+                        num_steps=1,
+                        pulse_value=config.pulse_value,
+                        initial_message=m_prev,
+                        disable_language=False,
+                        return_hidden=False,
+                    )
+                train_message_state = refreshed.detach()
+            else:
+                train_message_state = final_message.detach()
         elif config.sequence_mode == "continuous_window":
             train_message_state = None
         else:
@@ -247,6 +289,8 @@ def _train_single_model(
             "train_loss": float(train_loss.item()),
             "val_loss": float(val_result["mse"]),
         }
+        if use_aux:
+            row["aux_loss"] = aux_loss_val
         if config.sequence_mode == "continuous_window":
             row["train_window_start"] = float(train_window_start)
             row["train_window_end"] = float(train_window_start + effective_steps - 1)
@@ -357,6 +401,8 @@ def _build_summary(
             "epochs": config.epochs,
             "sequence_mode": config.sequence_mode,
             "fixed_train_steps": config.fixed_train_steps,
+            "message_aux_loss_weight": config.message_aux_loss_weight,
+            "message_refresh": config.message_refresh,
             "trunk_dims": list(config.trunk_dims),
             "activation": config.activation,
             "language_dim": config.language_dim,

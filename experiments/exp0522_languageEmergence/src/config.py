@@ -23,6 +23,8 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "sequence_mode",
         "fixed_train_steps",
         "train_phase_mode",
+        "message_aux_loss_weight",
+        "message_refresh",
     ),
     "eval": (
         "eval_steps",
@@ -87,6 +89,8 @@ class ExperimentConfig:
     grad_clip: float = 1.0
     sequence_mode: str = "reset"
     fixed_train_steps: int = 128
+    message_aux_loss_weight: float = 0.0
+    message_refresh: bool = False
     trunk_dims: tuple[int, ...] = (32,)
     activation: str = "tanh"
     language_dim: int = 4
@@ -241,6 +245,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "weight_decay",
         "grad_clip",
         "pulse_value",
+        "message_aux_loss_weight",
         "plot_training_fig_width",
         "plot_training_fig_height",
         "plot_diag_fig_width",
@@ -270,7 +275,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         if not isinstance(value, (list, tuple)):
             raise ValueError(f"{key} must be a yaml list.")
         payload[key] = tuple(str(item) for item in value)
-    for key in ("train_baseline", "eval_mute_deaf", "plot_show_message_traces", "plot_show_message_norm"):
+    for key in ("train_baseline", "eval_mute_deaf", "message_refresh", "plot_show_message_traces", "plot_show_message_norm"):
         value = payload[key]
         if not isinstance(value, bool):
             raise ValueError(f"{key} must be true or false.")
@@ -278,6 +283,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
 
     if payload["epochs"] <= 0:
         raise ValueError("epochs must be positive.")
+    if payload["message_aux_loss_weight"] < 0.0:
+        raise ValueError("message_aux_loss_weight must be >= 0.")
     if payload["sequence_mode"] not in {"reset", "continuous_window"}:
         raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
     if payload["activation"] not in {"tanh", "relu", "leaky_relu"}:
