@@ -1,4 +1,4 @@
-"""Single-entry runner for exp0522 (train + eval)."""
+"""Standalone training script for exp0522."""
 
 from __future__ import annotations
 
@@ -14,12 +14,12 @@ def _add_src_to_path() -> Path:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run exp0522 from config.yaml (train + eval).")
+    parser = argparse.ArgumentParser(description="Train an exp0522 model from config.yaml.")
     parser.add_argument(
         "--config",
         type=str,
         default="config.yaml",
-        help="Path to the yaml config. Defaults to exp0522/config.yaml.",
+        help="Path to the yaml config.",
     )
     parser.add_argument(
         "--epochs",
@@ -40,7 +40,6 @@ def main() -> None:
     root = _add_src_to_path()
     from config import load_config_from_yaml
     from train import train_model
-    from eval import evaluate_model
 
     args = parse_args()
     config_path = Path(args.config).expanduser()
@@ -57,7 +56,6 @@ def main() -> None:
         config.run_name = str(args.run_name)
 
     run_dir = train_model(config=config, config_path=config_path)
-    summary = evaluate_model(config=config, run_dir=run_dir)
     print(run_dir)
 
 

@@ -1,4 +1,4 @@
-"""Training loop for exp0522 constant-pulse external clock experiments."""
+"""Training logic for exp0522 constant-pulse external clock experiments."""
 
 from __future__ import annotations
 
@@ -14,14 +14,14 @@ from torch import nn
 
 try:
     from .config import ExperimentConfig, copy_config_to_run_dir, write_resolved_config
+    from .eval import _evaluate_rollout
     from .model import ExternalClockMLP
-    from .plots import plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
-    from .task import build_rollout_targets
+    from .plots import plot_training_curves, plot_training_timeline
 except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig, copy_config_to_run_dir, write_resolved_config
+    from eval import _evaluate_rollout
     from model import ExternalClockMLP
-    from plots import plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
-    from task import build_rollout_targets
+    from plots import plot_training_curves, plot_training_timeline
 
 
 def make_run_dir(base_dir: Path, run_name: str) -> Path:
@@ -51,118 +51,6 @@ def _to_serializable_history(history: list[dict[str, float]]) -> list[dict[str, 
     ]
 
 
-def _evaluate_rollout(
-    model: ExternalClockMLP,
-    *,
-    num_steps: int,
-    cycle_steps: int,
-    pulse_value: float,
-    target_kind: str,
-    mixed_sin_components: tuple[tuple[float, float], ...],
-    start_step: int = 0,
-    initial_message: torch.Tensor | None = None,
-    initial_error: torch.Tensor | None = None,
-    detach_error_input: bool = True,
-    force_zero_error_input: bool = False,
-    disable_language: bool = False,
-) -> dict[str, Any]:
-    model.eval()
-    device = next(model.parameters()).device
-    with torch.no_grad():
-        phase, target = build_rollout_targets(
-            num_steps,
-            cycle_steps,
-            device,
-            start_step=start_step,
-            target_kind=target_kind,
-            mixed_sin_components=mixed_sin_components,
-        )
-        prediction, messages, hidden, final_message, final_error = model.rollout(
-            num_steps=num_steps,
-            pulse_value=pulse_value,
-            target_sequence=target,
-            initial_message=initial_message,
-            initial_error=initial_error,
-            detach_error_input=detach_error_input,
-            force_zero_error_input=force_zero_error_input,
-            disable_language=disable_language,
-            return_hidden=True,
-        )
-        mse = torch.mean((prediction - target) ** 2).item()
-        message_norm = torch.linalg.norm(messages, dim=1) if messages.numel() else torch.zeros(num_steps, device=device)
-
-    return {
-        "mse": float(mse),
-        "phase": phase.cpu(),
-        "target": target.squeeze(1).cpu(),
-        "prediction": prediction.squeeze(1).cpu(),
-        "messages": messages.cpu(),
-        "message_norm": message_norm.cpu(),
-        "hidden": hidden.cpu() if hidden is not None else None,
-        "final_message": final_message.cpu(),
-        "final_error": final_error.cpu(),
-        "start_step": int(start_step),
-    }
-
-
-def _evaluate_continuous_stream(
-    model: ExternalClockMLP,
-    *,
-    measured_steps: int,
-    warmup_steps: int,
-    cycle_steps: int,
-    pulse_value: float,
-    target_kind: str,
-    mixed_sin_components: tuple[tuple[float, float], ...],
-    detach_error_input: bool = True,
-    force_zero_error_input: bool = False,
-    disable_language: bool = False,
-) -> dict[str, Any]:
-    device = next(model.parameters()).device
-    initial_message = None
-    initial_error = None
-    if warmup_steps > 0:
-        with torch.no_grad():
-            _warmup_phase, warmup_target = build_rollout_targets(
-                warmup_steps,
-                cycle_steps,
-                device,
-                start_step=0,
-                target_kind=target_kind,
-                mixed_sin_components=mixed_sin_components,
-            )
-            _prediction, _messages, _hidden, final_message, final_error = model.rollout(
-                num_steps=warmup_steps,
-                pulse_value=pulse_value,
-                target_sequence=warmup_target,
-                initial_message=None,
-                initial_error=None,
-                detach_error_input=detach_error_input,
-                force_zero_error_input=force_zero_error_input,
-                disable_language=disable_language,
-                return_hidden=False,
-            )
-            if model.use_language:
-                initial_message = final_message.detach()
-            if model.use_error_input:
-                initial_error = final_error.detach()
-
-    return _evaluate_rollout(
-        model,
-        num_steps=measured_steps,
-        cycle_steps=cycle_steps,
-        pulse_value=pulse_value,
-        target_kind=target_kind,
-        mixed_sin_components=mixed_sin_components,
-        start_step=warmup_steps,
-        initial_message=initial_message,
-        initial_error=initial_error,
-        detach_error_input=detach_error_input,
-        force_zero_error_input=force_zero_error_input,
-        disable_language=disable_language,
-    )
-
-
 def _build_train_target(
     *,
     num_steps: int,
@@ -173,6 +61,10 @@ def _build_train_target(
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    try:
+        from .task import build_rollout_targets
+    except ImportError:
+        from task import build_rollout_targets
     offset = start_step if train_phase_mode == "continuous" else 0
     return build_rollout_targets(
         num_steps,
@@ -245,6 +137,16 @@ def _record_training_timeline_overlap(
         panel["prediction"].extend(float(value) for value in prediction_np[local_start : local_end + 1])
         if panel["start_step"] <= train_window_end <= panel["end_step"]:
             panel["update_steps"].append(int(train_window_end))
+
+
+def _save_checkpoint(model: ExternalClockMLP, output_path: Path, metadata: dict[str, Any]) -> None:
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "metadata": metadata,
+        },
+        output_path,
+    )
 
 
 def _train_single_model(
@@ -434,161 +336,8 @@ def _train_single_model(
     }
 
 
-def _save_checkpoint(model: ExternalClockMLP, output_path: Path, metadata: dict[str, Any]) -> None:
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "metadata": metadata,
-        },
-        output_path,
-    )
-
-
-def _save_rollout_csv(
-    *,
-    output_path: Path,
-    normal_eval: dict[str, Any],
-    baseline_eval: dict[str, Any] | None,
-    mute_deaf_eval: dict[str, Any] | None,
-    language_dim: int,
-    normal_column_label: str = "full_prediction",
-    baseline_column_label: str = "baseline_prediction",
-    mute_column_label: str = "mute_deaf_prediction",
-) -> None:
-    header = [
-        "step",
-        "global_step",
-        "phase",
-        "target",
-        normal_column_label,
-        "message_norm",
-    ]
-    if baseline_eval is not None:
-        header.append(baseline_column_label)
-    if mute_deaf_eval is not None:
-        header.append(mute_column_label)
-    header.extend([f"message_{idx}" for idx in range(language_dim)])
-
-    rows = [header]
-    num_steps = len(normal_eval["target"])
-    for step in range(num_steps):
-        row = [
-            step,
-            int(normal_eval.get("start_step", 0)) + step,
-            float(normal_eval["phase"][step].item()),
-            float(normal_eval["target"][step].item()),
-            float(normal_eval["prediction"][step].item()),
-            float(normal_eval["message_norm"][step].item()),
-        ]
-        if baseline_eval is not None:
-            row.append(float(baseline_eval["prediction"][step].item()))
-        if mute_deaf_eval is not None:
-            row.append(float(mute_deaf_eval["prediction"][step].item()))
-        if language_dim > 0:
-            row.extend(
-                float(normal_eval["messages"][step, idx].item())
-                for idx in range(language_dim)
-            )
-        rows.append(row)
-    output_path.write_text("\n".join(",".join(str(value) for value in row) for row in rows))
-
-
-def _build_summary(
-    *,
-    config: ExperimentConfig,
-    full_history: list[dict[str, float]],
-    baseline_history: list[dict[str, float]] | None,
-    full_reset_eval: dict[str, Any] | None,
-    full_reset_long: dict[str, Any] | None,
-    full_continuous_eval: dict[str, Any] | None,
-    full_mute_reset_eval: dict[str, Any] | None,
-    full_mute_reset_long: dict[str, Any] | None,
-    full_mute_continuous_eval: dict[str, Any] | None,
-    baseline_reset_eval: dict[str, Any] | None,
-    baseline_reset_long: dict[str, Any] | None,
-    baseline_continuous_eval: dict[str, Any] | None,
-) -> dict[str, Any]:
-    def _mse(result: dict[str, Any] | None) -> float | None:
-        return None if result is None else float(result["mse"])
-
-    def _gap(lhs: dict[str, Any] | None, rhs: dict[str, Any] | None) -> float | None:
-        if lhs is None or rhs is None:
-            return None
-        return float(lhs["mse"] - rhs["mse"])
-
-    def _better(lhs: dict[str, Any] | None, rhs: dict[str, Any] | None) -> bool | None:
-        if lhs is None or rhs is None:
-            return None
-        return bool(lhs["mse"] < rhs["mse"])
-
-    return {
-        "config": {
-            "run_name": config.run_name,
-            "train_baseline": config.train_baseline,
-            "eval_mute_deaf": config.eval_mute_deaf,
-            "epochs": config.epochs,
-            "sequence_mode": config.sequence_mode,
-            "fixed_train_steps": config.fixed_train_steps,
-            "message_aux_loss_weight": config.message_aux_loss_weight,
-            "detach_error_input": config.detach_error_input,
-            "carry_error_between_windows": config.carry_error_between_windows,
-            "force_zero_error_input": config.force_zero_error_input,
-            "trunk_dims": list(config.trunk_dims),
-            "activation": config.activation,
-            "language_dim": config.language_dim,
-            "language_readout_coverage": config.language_readout_coverage,
-            "use_error_input": config.use_error_input,
-            "cycle_steps": config.cycle_steps,
-            "target_kind": config.target_kind,
-            "mixed_sin_components": [list(c) for c in config.mixed_sin_components],
-            "eval_steps": config.eval_steps,
-            "long_steps": config.long_steps,
-            "continuous_eval_steps": config.continuous_eval_steps,
-            "enable_continuous_collapse": config.enable_continuous_collapse,
-            "checkpoint_epochs": list(config.checkpoint_epochs),
-            "pulse_value": config.pulse_value,
-            "train_phase_mode": config.train_phase_mode,
-            "eval_phase_mode": config.eval_phase_mode,
-            "seed": config.seed,
-        },
-        "full_language": {
-            "final_train_mse": float(full_history[-1]["train_loss"]),
-            "final_val_mse": float(full_history[-1]["val_loss"]),
-            "reset_eval_mse": _mse(full_reset_eval),
-            "reset_long_mse": _mse(full_reset_long),
-            "continuous_eval_mse": _mse(full_continuous_eval),
-            "mute_deaf_reset_eval_mse": _mse(full_mute_reset_eval),
-            "mute_deaf_reset_long_mse": _mse(full_mute_reset_long),
-            "mute_deaf_continuous_eval_mse": _mse(full_mute_continuous_eval),
-        },
-        "no_language_baseline": None if baseline_history is None else {
-            "final_train_mse": float(baseline_history[-1]["train_loss"]),
-            "final_val_mse": float(baseline_history[-1]["val_loss"]),
-            "reset_eval_mse": _mse(baseline_reset_eval),
-            "reset_long_mse": _mse(baseline_reset_long),
-            "continuous_eval_mse": _mse(baseline_continuous_eval),
-        },
-        "comparisons": {
-            "reset_eval_gap_vs_baseline": _gap(baseline_reset_eval, full_reset_eval),
-            "reset_long_gap_vs_baseline": _gap(baseline_reset_long, full_reset_long),
-            "continuous_eval_gap_vs_baseline": _gap(baseline_continuous_eval, full_continuous_eval),
-            "reset_eval_gap_vs_mute_deaf": _gap(full_mute_reset_eval, full_reset_eval),
-            "reset_long_gap_vs_mute_deaf": _gap(full_mute_reset_long, full_reset_long),
-            "continuous_eval_gap_vs_mute_deaf": _gap(full_mute_continuous_eval, full_continuous_eval),
-        },
-        "success_checks": {
-            "better_than_baseline_reset_eval": _better(full_reset_eval, baseline_reset_eval),
-            "better_than_baseline_reset_long": _better(full_reset_long, baseline_reset_long),
-            "better_than_baseline_continuous_eval": _better(full_continuous_eval, baseline_continuous_eval),
-            "better_than_mute_deaf_reset_eval": _better(full_reset_eval, full_mute_reset_eval),
-            "better_than_mute_deaf_reset_long": _better(full_reset_long, full_mute_reset_long),
-            "better_than_mute_deaf_continuous_eval": _better(full_continuous_eval, full_mute_continuous_eval),
-        },
-    }
-
-
-def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any]:
-    """Run the exp0522 constant-pulse external clock experiment."""
+def train_model(config: ExperimentConfig, config_path: Path) -> Path:
+    """Train the full-language model, save checkpoint and training artifacts. Returns run_dir."""
     _seed_everything(config.seed)
 
     root = config_path.resolve().parent
@@ -606,10 +355,6 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
 
     device = torch.device("cpu")
 
-    reset_eval_enabled = config.eval_phase_mode in {"reset", "both"}
-    continuous_eval_enabled = config.eval_phase_mode in {"continuous", "both"}
-    continuous_warmup_steps = config.fixed_train_steps
-
     full_model = ExternalClockMLP(
         trunk_dims=config.trunk_dims,
         activation=config.activation,
@@ -619,6 +364,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         use_language=True,
         seed=config.seed,
     ).to(device)
+
     full_checkpoint_epochs = _analysis_checkpoint_epochs(config)
     full_result = _train_single_model(
         model_name="full_language",
@@ -628,212 +374,26 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         checkpoint_dir=ckpt_dir,
         checkpoint_epochs=full_checkpoint_epochs,
     )
-    baseline_result: dict[str, Any] | None = None
-    if config.train_baseline:
-        baseline_model = ExternalClockMLP(
-            trunk_dims=config.trunk_dims,
-            activation=config.activation,
-            language_dim=config.language_dim,
-            language_readout_coverage=config.language_readout_coverage,
-            use_error_input=False,
-            use_language=False,
-            seed=config.seed,
-        ).to(device)
-        baseline_result = _train_single_model(
-            model_name="no_language",
-            model=baseline_model,
-            config=config,
-            device=device,
-        )
 
-    full_reset_eval = (
-        _evaluate_rollout(
-            full_result["model"],
-            num_steps=config.eval_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=config.force_zero_error_input,
-            disable_language=False,
-        )
-        if reset_eval_enabled
-        else None
+    _write_json(
+        metrics_dir / "history_full_language.json",
+        _to_serializable_history(full_result["history"]),
     )
-    full_reset_long = (
-        _evaluate_rollout(
-            full_result["model"],
-            num_steps=config.long_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=config.force_zero_error_input,
-            disable_language=False,
-        )
-        if reset_eval_enabled
-        else None
-    )
-    full_mute_reset_eval = (
-        _evaluate_rollout(
-            full_result["model"],
-            num_steps=config.eval_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=config.force_zero_error_input,
-            disable_language=True,
-        )
-        if reset_eval_enabled and config.eval_mute_deaf
-        else None
-    )
-    full_mute_reset_long = (
-        _evaluate_rollout(
-            full_result["model"],
-            num_steps=config.long_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=config.force_zero_error_input,
-            disable_language=True,
-        )
-        if reset_eval_enabled and config.eval_mute_deaf
-        else None
-    )
-    baseline_reset_eval = (
-        _evaluate_rollout(
-            baseline_result["model"],
-            num_steps=config.eval_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=False,
-            disable_language=False,
-        )
-        if reset_eval_enabled and baseline_result is not None
-        else None
-    )
-    baseline_reset_long = (
-        _evaluate_rollout(
-            baseline_result["model"],
-            num_steps=config.long_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=False,
-            disable_language=False,
-        )
-        if reset_eval_enabled and baseline_result is not None
-        else None
-    )
-
-    full_continuous_eval = (
-        _evaluate_continuous_stream(
-            full_result["model"],
-            measured_steps=config.continuous_eval_steps,
-            warmup_steps=continuous_warmup_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=config.force_zero_error_input,
-            disable_language=False,
-        )
-        if continuous_eval_enabled
-        else None
-    )
-    full_mute_continuous_eval = (
-        _evaluate_continuous_stream(
-            full_result["model"],
-            measured_steps=config.continuous_eval_steps,
-            warmup_steps=continuous_warmup_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=config.force_zero_error_input,
-            disable_language=True,
-        )
-        if continuous_eval_enabled and config.eval_mute_deaf
-        else None
-    )
-    baseline_continuous_eval = (
-        _evaluate_continuous_stream(
-            baseline_result["model"],
-            measured_steps=config.continuous_eval_steps,
-            warmup_steps=continuous_warmup_steps,
-            cycle_steps=config.cycle_steps,
-            pulse_value=config.pulse_value,
-            target_kind=config.target_kind,
-            mixed_sin_components=config.mixed_sin_components,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=False,
-            disable_language=False,
-        )
-        if continuous_eval_enabled and baseline_result is not None
-        else None
-    )
-
-    _write_json(metrics_dir / "history_full_language.json", _to_serializable_history(full_result["history"]))
     if full_result["training_timeline"] is not None:
         _write_json(metrics_dir / "training_timeline.json", full_result["training_timeline"])
-    if baseline_result is not None:
-        _write_json(metrics_dir / "history_no_language.json", _to_serializable_history(baseline_result["history"]))
 
-    if full_reset_eval is not None and (baseline_reset_eval is not None or full_mute_reset_eval is not None):
-        _save_rollout_csv(
-            output_path=metrics_dir / "reset_eval_rollout.csv",
-            normal_eval=full_reset_eval,
-            baseline_eval=baseline_reset_eval,
-            mute_deaf_eval=full_mute_reset_eval,
-            language_dim=config.language_dim,
-        )
-        _save_rollout_csv(
-            output_path=metrics_dir / "eval_rollout.csv",
-            normal_eval=full_reset_eval,
-            baseline_eval=baseline_reset_eval,
-            mute_deaf_eval=full_mute_reset_eval,
-            language_dim=config.language_dim,
-        )
-    if full_reset_long is not None and (baseline_reset_long is not None or full_mute_reset_long is not None):
-        _save_rollout_csv(
-            output_path=metrics_dir / "reset_long_rollout.csv",
-            normal_eval=full_reset_long,
-            baseline_eval=baseline_reset_long,
-            mute_deaf_eval=full_mute_reset_long,
-            language_dim=config.language_dim,
-        )
-        _save_rollout_csv(
-            output_path=metrics_dir / "long_rollout.csv",
-            normal_eval=full_reset_long,
-            baseline_eval=baseline_reset_long,
-            mute_deaf_eval=full_mute_reset_long,
-            language_dim=config.language_dim,
-        )
-    if full_continuous_eval is not None and (baseline_continuous_eval is not None or full_mute_continuous_eval is not None):
-        _save_rollout_csv(
-            output_path=metrics_dir / "continuous_eval_rollout.csv",
-            normal_eval=full_continuous_eval,
-            baseline_eval=baseline_continuous_eval,
-            mute_deaf_eval=full_mute_continuous_eval,
-            language_dim=config.language_dim,
-        )
+    final_metadata = {
+        "config": config.to_resolved_dict(),
+        "model_name": "full_language",
+        "epoch": int(config.epochs),
+        "checkpoint_kind": "final",
+    }
+    _save_checkpoint(full_result["model"], ckpt_dir / "full_language_final.pt", metadata=final_metadata)
+    _save_checkpoint(full_result["model"], ckpt_dir / "full_language.pt", metadata=final_metadata)
 
     plot_training_curves(
         full_history=full_result["history"],
-        baseline_history=None if baseline_result is None else baseline_result["history"],
+        baseline_history=None,
         output_path=plots_dir / "training_curves.png",
         config=config,
     )
@@ -843,74 +403,5 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             output_path=plots_dir / "training_timeline.png",
             config=config,
         )
-    plot_rollout_diagnostics(
-        short_full=full_reset_eval or full_continuous_eval,
-        short_baseline=baseline_reset_eval or baseline_continuous_eval,
-        short_mute_deaf=full_mute_reset_eval or full_mute_continuous_eval,
-        long_full=full_reset_long or full_continuous_eval,
-        long_baseline=baseline_reset_long or baseline_continuous_eval,
-        long_mute_deaf=full_mute_reset_long or full_mute_continuous_eval,
-        continuous_long_full=full_continuous_eval,
-        continuous_long_baseline=baseline_continuous_eval,
-        continuous_long_mute_deaf=full_mute_continuous_eval,
-        output_path=plots_dir / "rollout_diagnostics.png",
-        config=config,
-    )
 
-    full_final_metadata = {
-        "config": config.to_resolved_dict(),
-        "model_name": "full_language",
-        "epoch": int(config.epochs),
-        "checkpoint_kind": "final",
-    }
-    _save_checkpoint(
-        full_result["model"],
-        ckpt_dir / "full_language_final.pt",
-        metadata=full_final_metadata,
-    )
-    _save_checkpoint(
-        full_result["model"],
-        ckpt_dir / "full_language.pt",
-        metadata=full_final_metadata,
-    )
-    if baseline_result is not None:
-        baseline_final_metadata = {
-            "config": config.to_resolved_dict(),
-            "model_name": "no_language",
-            "epoch": int(config.epochs),
-            "checkpoint_kind": "final",
-        }
-        _save_checkpoint(
-            baseline_result["model"],
-            ckpt_dir / "no_language_final.pt",
-            metadata=baseline_final_metadata,
-        )
-        _save_checkpoint(
-            baseline_result["model"],
-            ckpt_dir / "no_language.pt",
-            metadata=baseline_final_metadata,
-        )
-
-    summary = _build_summary(
-        config=config,
-        full_history=full_result["history"],
-        baseline_history=None if baseline_result is None else baseline_result["history"],
-        full_reset_eval=full_reset_eval,
-        full_reset_long=full_reset_long,
-        full_continuous_eval=full_continuous_eval,
-        full_mute_reset_eval=full_mute_reset_eval,
-        full_mute_reset_long=full_mute_reset_long,
-        full_mute_continuous_eval=full_mute_continuous_eval,
-        baseline_reset_eval=baseline_reset_eval,
-        baseline_reset_long=baseline_reset_long,
-        baseline_continuous_eval=baseline_continuous_eval,
-    )
-    _write_json(metrics_dir / "summary.json", summary)
-
-    print("Final summary:")
-    print(json.dumps(summary, indent=2))
-
-    return {
-        "run_dir": str(run_dir),
-        "summary": summary,
-    }
+    return run_dir

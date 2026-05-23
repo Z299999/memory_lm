@@ -12,12 +12,12 @@ import torch
 
 try:
     from .config import ExperimentConfig, config_from_user_dict
+    from .eval import _evaluate_continuous_stream
     from .model import ExternalClockMLP
-    from .train import _evaluate_continuous_stream
 except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig, config_from_user_dict
+    from eval import _evaluate_continuous_stream
     from model import ExternalClockMLP
-    from train import _evaluate_continuous_stream
 
 
 def _write_json(output_path: Path, payload: dict[str, Any] | list[dict[str, Any]]) -> None:

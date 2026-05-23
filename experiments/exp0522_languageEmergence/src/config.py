@@ -12,7 +12,7 @@ import yaml
 
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
-    "run": ("run_name", "seed", "log_every", "output_root", "train_baseline", "eval_mute_deaf"),
+    "run": ("run_name", "seed", "log_every", "output_root"),
     "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components"),
     "train": (
@@ -33,6 +33,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "long_steps",
         "continuous_eval_steps",
         "eval_phase_mode",
+        "eval_conditions",
     ),
     "analysis": (
         "enable_continuous_collapse",
@@ -72,6 +73,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
 
 
 LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
+    "run": ("train_baseline", "eval_mute_deaf"),
     "train": ("rollout_schedule", "train_steps", "message_refresh"),
     "task": (
         "train_steps",
@@ -83,6 +85,8 @@ LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither"})
+
 
 @dataclass
 class ExperimentConfig:
@@ -90,8 +94,6 @@ class ExperimentConfig:
 
     run_name: str = "exp0522_clock_v0"
     seed: int = 42
-    train_baseline: bool = True
-    eval_mute_deaf: bool = True
     epochs: int = 400
     lr: float = 3e-3
     weight_decay: float = 0.0
@@ -113,6 +115,7 @@ class ExperimentConfig:
     eval_steps: int = 128
     long_steps: int = 512
     continuous_eval_steps: int = 512
+    eval_conditions: tuple[str, ...] = ("full", "sole_eye")
     enable_continuous_collapse: bool = True
     checkpoint_epochs: tuple[int, ...] = (1, 10, 50, 100, 500, 1000)
     pulse_value: float = 1.0
@@ -143,11 +146,9 @@ class ExperimentConfig:
     plot_training_series: tuple[str, ...] = (
         "full_train",
         "full_val",
-        "baseline_train",
-        "baseline_val",
     )
-    plot_rollout_series: tuple[str, ...] = ("target", "full", "baseline", "mute_deaf")
-    plot_error_series: tuple[str, ...] = ("full", "baseline", "mute_deaf")
+    plot_rollout_series: tuple[str, ...] = ("target", "full")
+    plot_error_series: tuple[str, ...] = ("full",)
     plot_show_message_traces: bool = True
     plot_show_message_norm: bool = True
     plot_show_training_timeline: bool = True
@@ -195,7 +196,8 @@ def _flatten_user_config(raw: dict[str, object], defaults: ExperimentConfig) -> 
     """Support grouped yaml while remaining backward compatible with flat keys."""
     valid_keys = set(asdict(defaults).keys())
     valid_sections = set(SECTION_KEYS.keys())
-    unknown = set(raw.keys()) - valid_keys - valid_sections
+    legacy_keys = {k for keys in LEGACY_SECTION_KEYS.values() for k in keys}
+    unknown = set(raw.keys()) - valid_keys - valid_sections - legacy_keys
     if unknown:
         raise ValueError(f"Unknown config keys: {sorted(unknown)}")
 
@@ -276,9 +278,14 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_zero_linewidth",
     ):
         payload[key] = float(payload[key])
+
+    # Drop legacy and removed keys
     payload.pop("rollout_schedule", None)
     payload.pop("train_steps", None)
     payload.pop("message_refresh", None)
+    payload.pop("train_baseline", None)
+    payload.pop("eval_mute_deaf", None)
+
     payload["sequence_mode"] = str(payload["sequence_mode"])
     payload["activation"] = str(payload["activation"])
     payload["train_phase_mode"] = str(payload["train_phase_mode"])
@@ -299,9 +306,13 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if not isinstance(checkpoint_epochs, (list, tuple)):
         raise ValueError("checkpoint_epochs must be a yaml list.")
     payload["checkpoint_epochs"] = tuple(int(item) for item in checkpoint_epochs)
+
+    eval_conditions_raw = payload.get("eval_conditions", defaults.eval_conditions)
+    if not isinstance(eval_conditions_raw, (list, tuple)):
+        raise ValueError("eval_conditions must be a yaml list.")
+    payload["eval_conditions"] = tuple(str(item) for item in eval_conditions_raw)
+
     for key in (
-        "train_baseline",
-        "eval_mute_deaf",
         "use_error_input",
         "enable_continuous_collapse",
         "detach_error_input",
@@ -345,6 +356,13 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
     if any(epoch <= 0 for epoch in payload["checkpoint_epochs"]):
         raise ValueError("checkpoint_epochs entries must all be positive.")
+
+    invalid_conds = [c for c in payload["eval_conditions"] if c not in _VALID_EVAL_CONDITIONS]
+    if invalid_conds:
+        raise ValueError(f"eval_conditions contains unknown values: {invalid_conds}. Valid: {sorted(_VALID_EVAL_CONDITIONS)}")
+    if "full" not in payload["eval_conditions"]:
+        raise ValueError("eval_conditions must contain 'full'.")
+
     raw_components = payload["mixed_sin_components"]
     if not isinstance(raw_components, (list, tuple)) or not raw_components:
         raise ValueError("mixed_sin_components must be a non-empty list of [freq, amplitude] pairs.")
@@ -371,8 +389,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("continuous_window mode requires train_phase_mode='continuous'.")
     if payload["sequence_mode"] == "reset" and payload["train_phase_mode"] != "reset":
         raise ValueError("reset mode requires train_phase_mode='reset'.")
-    if payload["force_zero_error_input"] and not payload["use_error_input"]:
-        raise ValueError("force_zero_error_input=true requires model.use_error_input=true.")
     legacy_rollout_schedule = raw.get("rollout_schedule")
     if legacy_rollout_schedule is None and isinstance(raw.get("train"), dict):
         legacy_rollout_schedule = raw["train"].get("rollout_schedule")
@@ -424,8 +440,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "baseline_train",
         "baseline_val",
     }
-    allowed_rollout_series = {"target", "full", "baseline", "mute_deaf"}
-    allowed_error_series = {"full", "baseline", "mute_deaf"}
+    allowed_rollout_series = {"target"} | _VALID_EVAL_CONDITIONS
+    allowed_error_series = _VALID_EVAL_CONDITIONS
     for key, allowed in (
         ("plot_training_series", allowed_training_series),
         ("plot_rollout_series", allowed_rollout_series),

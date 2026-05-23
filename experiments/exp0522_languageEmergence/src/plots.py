@@ -34,19 +34,6 @@ _TRAINING_SERIES_SPECS = {
     "baseline_val": ("baseline val", "val_loss", "baseline", "aux"),
 }
 
-_ROLLOUT_SERIES_SPECS = {
-    "target": ("target", "target", None, "target"),
-    "full": ("full", "prediction", None, "main"),
-    "baseline": ("baseline", "prediction", None, "aux"),
-    "mute_deaf": ("mute_deaf", "prediction", None, "aux"),
-}
-
-_ERROR_SERIES_SPECS = {
-    "full": ("full error", "prediction", "main"),
-    "baseline": ("baseline error", "prediction", "aux"),
-    "mute_deaf": ("mute_deaf error", "prediction", "aux"),
-}
-
 
 def _slice_rollout(rollout: dict[str, Any] | None, num_steps: int) -> dict[str, Any] | None:
     if rollout is None:
@@ -73,8 +60,14 @@ def _linestyle(config: ExperimentConfig, width_kind: str) -> str:
     return "-"
 
 
-def _build_rollout_panels(config: ExperimentConfig) -> list[tuple[str, float]]:
+def _condition_width_kind(condition_name: str) -> str:
+    return "main" if condition_name == "full" else "aux"
+
+
+def _build_rollout_panels(config: ExperimentConfig, *, has_continuous: bool) -> list[tuple[str, float]]:
     panels: list[tuple[str, float]] = [("short", 1.35), ("long", 1.35)]
+    if has_continuous:
+        panels.append(("continuous_long", 1.35))
     if config.plot_error_series:
         panels.append(("error", 1.0))
     if config.plot_show_message_traces:
@@ -203,54 +196,39 @@ def plot_training_timeline(
 
 def plot_rollout_diagnostics(
     *,
-    short_full: dict[str, Any],
-    short_baseline: dict[str, Any] | None,
-    short_mute_deaf: dict[str, Any] | None,
-    long_full: dict[str, Any],
-    long_baseline: dict[str, Any] | None,
-    long_mute_deaf: dict[str, Any] | None,
-    continuous_long_full: dict[str, Any] | None,
-    continuous_long_baseline: dict[str, Any] | None,
-    continuous_long_mute_deaf: dict[str, Any] | None,
+    reset_evals: dict[str, dict] | None,
+    reset_long_evals: dict[str, dict] | None,
+    continuous_evals: dict[str, dict] | None,
     output_path: Path,
     config: ExperimentConfig,
-    full_label: str = "full",
-    baseline_label: str = "baseline",
-    mute_label: str = "mute_deaf",
 ) -> None:
-    short_full = _slice_rollout(short_full, config.plot_short_steps)
-    short_baseline = _slice_rollout(short_baseline, config.plot_short_steps)
-    short_mute_deaf = _slice_rollout(short_mute_deaf, config.plot_short_steps)
-    long_full = _slice_rollout(long_full, config.plot_long_steps)
-    long_baseline = _slice_rollout(long_baseline, config.plot_long_steps)
-    long_mute_deaf = _slice_rollout(long_mute_deaf, config.plot_long_steps)
-    if continuous_long_full is not None:
-        continuous_long_full = _slice_rollout(continuous_long_full, config.plot_long_steps)
-        continuous_long_baseline = _slice_rollout(continuous_long_baseline, config.plot_long_steps)
-        continuous_long_mute_deaf = _slice_rollout(continuous_long_mute_deaf, config.plot_long_steps)
-    error_full = _slice_rollout(short_full, config.plot_error_steps)
-    error_baseline = _slice_rollout(short_baseline, config.plot_error_steps)
-    error_mute_deaf = _slice_rollout(short_mute_deaf, config.plot_error_steps)
-    message_source = continuous_long_full if continuous_long_full is not None else short_full
-    message_rollout = _slice_rollout(message_source, config.plot_message_steps)
+    has_reset = reset_evals is not None and "full" in reset_evals
+    has_continuous = continuous_evals is not None and "full" in continuous_evals
 
-    short_steps = np.arange(len(short_full["target"]))
-    long_steps = np.arange(len(long_full["target"]))
-    error_steps = np.arange(len(error_full["target"]))
-    message_steps = np.arange(len(message_rollout["target"]))
+    # Determine the primary reference rollout (for messages / norm panels)
+    if has_reset:
+        primary_short = _slice_rollout(reset_evals["full"], config.plot_short_steps)
+        primary_long = _slice_rollout(reset_long_evals["full"] if reset_long_evals else None, config.plot_long_steps)
+    else:
+        primary_short = _slice_rollout(continuous_evals["full"] if has_continuous else None, config.plot_short_steps)
+        primary_long = primary_short
 
-    short_target = short_full["target"].numpy()
-    long_target = long_full["target"].numpy()
-    short_full_pred = short_full["prediction"].numpy()
-    short_baseline_pred = short_baseline["prediction"].numpy() if short_baseline is not None else None
-    short_mute_pred = short_mute_deaf["prediction"].numpy() if short_mute_deaf is not None else None
-    long_full_pred = long_full["prediction"].numpy()
-    long_baseline_pred = long_baseline["prediction"].numpy() if long_baseline is not None else None
-    long_mute_pred = long_mute_deaf["prediction"].numpy() if long_mute_deaf is not None else None
+    if primary_short is None:
+        return
 
-    panels = _build_rollout_panels(config)
-    if continuous_long_full is not None:
-        panels.insert(2, ("continuous_long", 1.35))
+    message_source = (
+        _slice_rollout(continuous_evals["full"], config.plot_message_steps)
+        if has_continuous
+        else _slice_rollout(primary_short, config.plot_message_steps)
+    )
+
+    short_steps = np.arange(len(primary_short["target"]))
+    long_steps = np.arange(len(primary_long["target"])) if primary_long is not None else short_steps
+    error_rollout = _slice_rollout(primary_short, config.plot_error_steps)
+    error_steps = np.arange(len(error_rollout["target"]))
+    message_steps = np.arange(len(message_source["target"]))
+
+    panels = _build_rollout_panels(config, has_continuous=has_continuous)
     fig, axes = plt.subplots(
         len(panels),
         1,
@@ -261,129 +239,77 @@ def plot_rollout_diagnostics(
         axes = np.array([axes])
     axis_by_panel = {panel_name: ax for ax, (panel_name, _) in zip(axes, panels)}
 
-    rollout_predictions = {
-        "target": short_target,
-        "full": short_full_pred,
-        "baseline": short_baseline_pred,
-        "mute_deaf": short_mute_pred,
-    }
-    short_axis = axis_by_panel["short"]
-    for series_name in config.plot_rollout_series:
-        if rollout_predictions[series_name] is None:
-            continue
-        label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
-        if series_name == "full":
-            display_label = full_label
-        elif series_name == "baseline":
-            display_label = baseline_label
-        elif series_name == "mute_deaf":
-            display_label = mute_label
-        else:
-            display_label = label
-        short_axis.plot(
-            short_steps,
-            rollout_predictions[series_name],
-            label=display_label,
-            color=config.plot_target_color if series_name == "target" else color,
-            linestyle=_linestyle(config, width_kind),
-            linewidth=_linewidth(config, width_kind),
-        )
-    short_axis.set_title("Reset short eval" if continuous_long_full is not None else "Short rollout")
-    short_axis.set_ylabel("value")
-    short_axis.grid(True, alpha=config.plot_grid_alpha)
-    _maybe_add_legend(short_axis, ncol=config.plot_prediction_legend_ncols)
-
-    long_predictions = {
-        "target": long_target,
-        "full": long_full_pred,
-        "baseline": long_baseline_pred,
-        "mute_deaf": long_mute_pred,
-    }
-    long_axis = axis_by_panel["long"]
-    for series_name in config.plot_rollout_series:
-        if long_predictions[series_name] is None:
-            continue
-        label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
-        if series_name == "full":
-            display_label = full_label
-        elif series_name == "baseline":
-            display_label = baseline_label
-        elif series_name == "mute_deaf":
-            display_label = mute_label
-        else:
-            display_label = label
-        long_axis.plot(
-            long_steps,
-            long_predictions[series_name],
-            label=display_label,
-            color=config.plot_target_color if series_name == "target" else color,
-            linestyle=_linestyle(config, width_kind),
-            linewidth=_linewidth(config, width_kind),
-        )
-    long_axis.set_title("Reset long eval" if continuous_long_full is not None else "Long rollout")
-    long_axis.set_ylabel("value")
-    long_axis.grid(True, alpha=config.plot_grid_alpha)
-    _maybe_add_legend(long_axis, ncol=config.plot_prediction_legend_ncols)
-
-    if "continuous_long" in axis_by_panel:
-        continuous_target = continuous_long_full["target"].numpy()
-        continuous_steps = np.arange(len(continuous_target))
-        continuous_predictions = {
-            "target": continuous_target,
-            "full": continuous_long_full["prediction"].numpy(),
-            "baseline": None if continuous_long_baseline is None else continuous_long_baseline["prediction"].numpy(),
-            "mute_deaf": None if continuous_long_mute_deaf is None else continuous_long_mute_deaf["prediction"].numpy(),
-        }
-        continuous_axis = axis_by_panel["continuous_long"]
+    def _plot_rollout_panel(ax: plt.Axes, evals: dict[str, dict] | None, num_steps: int, title: str) -> None:
+        if evals is None:
+            return
+        ref = _slice_rollout(evals.get("full"), num_steps)
+        if ref is None:
+            return
+        steps = np.arange(len(ref["target"]))
         for series_name in config.plot_rollout_series:
-            if continuous_predictions[series_name] is None:
-                continue
-            label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
-            if series_name == "full":
-                display_label = full_label
-            elif series_name == "baseline":
-                display_label = baseline_label
-            elif series_name == "mute_deaf":
-                display_label = mute_label
+            if series_name == "target":
+                ax.plot(
+                    steps,
+                    ref["target"].numpy(),
+                    label="target",
+                    color=config.plot_target_color,
+                    linestyle=config.plot_target_linestyle,
+                    linewidth=config.plot_target_linewidth,
+                )
             else:
-                display_label = label
-            continuous_axis.plot(
-                continuous_steps,
-                continuous_predictions[series_name],
-                label=display_label,
-                color=config.plot_target_color if series_name == "target" else color,
-                linestyle=_linestyle(config, width_kind),
-                linewidth=_linewidth(config, width_kind),
-            )
-        continuous_axis.set_title("Continuous long eval")
-        continuous_axis.set_ylabel("value")
-        continuous_axis.grid(True, alpha=config.plot_grid_alpha)
-        _maybe_add_legend(continuous_axis, ncol=config.plot_prediction_legend_ncols)
+                rollout = _slice_rollout(evals.get(series_name), num_steps)
+                if rollout is None:
+                    continue
+                width_kind = _condition_width_kind(series_name)
+                ax.plot(
+                    steps,
+                    rollout["prediction"].numpy(),
+                    label=series_name,
+                    linewidth=_linewidth(config, width_kind),
+                )
+        ax.set_title(title)
+        ax.set_ylabel("value")
+        ax.grid(True, alpha=config.plot_grid_alpha)
+        _maybe_add_legend(ax, ncol=config.plot_prediction_legend_ncols)
+
+    _plot_rollout_panel(
+        axis_by_panel["short"],
+        reset_evals,
+        config.plot_short_steps,
+        "Reset short eval" if has_continuous else "Short rollout",
+    )
+    _plot_rollout_panel(
+        axis_by_panel["long"],
+        reset_long_evals,
+        config.plot_long_steps,
+        "Reset long eval" if has_continuous else "Long rollout",
+    )
+    if "continuous_long" in axis_by_panel:
+        _plot_rollout_panel(
+            axis_by_panel["continuous_long"],
+            continuous_evals,
+            config.plot_long_steps,
+            "Continuous long eval",
+        )
 
     if "error" in axis_by_panel:
-        error_target = error_full["target"].numpy()
-        error_rollouts = {
-            "full": error_full,
-            "baseline": error_baseline,
-            "mute_deaf": error_mute_deaf,
-        }
         error_axis = axis_by_panel["error"]
-        for series_name in config.plot_error_series:
-            if error_rollouts[series_name] is None:
-                continue
-            label, prediction_key, width_kind = _ERROR_SERIES_SPECS[series_name]
-            if series_name == "full":
-                display_label = label.replace("full", full_label, 1)
-            elif series_name == "baseline":
-                display_label = label.replace("baseline", baseline_label, 1)
-            else:
-                display_label = label.replace("mute_deaf", mute_label, 1)
-            error_axis.plot(
-                error_steps,
-                error_rollouts[series_name][prediction_key].numpy() - error_target,
-                label=display_label,
-                linewidth=_linewidth(config, width_kind),
-            )
+        ref_evals = reset_evals if has_reset else continuous_evals
+        if ref_evals is not None:
+            ref = _slice_rollout(ref_evals.get("full"), config.plot_error_steps)
+            if ref is not None:
+                error_target = ref["target"].numpy()
+                for series_name in config.plot_error_series:
+                    rollout = _slice_rollout(ref_evals.get(series_name), config.plot_error_steps)
+                    if rollout is None:
+                        continue
+                    width_kind = _condition_width_kind(series_name)
+                    error_axis.plot(
+                        error_steps,
+                        rollout["prediction"].numpy() - error_target,
+                        label=f"{series_name} error",
+                        linewidth=_linewidth(config, width_kind),
+                    )
         error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
         error_axis.set_title("Short rollout error")
         error_axis.set_ylabel("pred - target")
@@ -391,7 +317,7 @@ def plot_rollout_diagnostics(
         _maybe_add_legend(error_axis, ncol=config.plot_error_legend_ncols)
 
     if "messages" in axis_by_panel:
-        messages = message_rollout["messages"].numpy()
+        messages = message_source["messages"].numpy()
         message_axis = axis_by_panel["messages"]
         if messages.shape[1] > 0:
             for idx in range(messages.shape[1]):
@@ -410,7 +336,7 @@ def plot_rollout_diagnostics(
         norm_axis = axis_by_panel["message_norm"]
         norm_axis.plot(
             message_steps,
-            message_rollout["message_norm"].numpy(),
+            message_source["message_norm"].numpy(),
             color="black",
             linewidth=config.plot_series_linewidth,
         )
