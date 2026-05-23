@@ -422,4 +422,9 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
             config=config,
         )
 
+    latest_link = run_root / "latest"
+    if latest_link.is_symlink() or latest_link.exists():
+        latest_link.unlink()
+    latest_link.symlink_to(run_dir, target_is_directory=True)
+
     return run_dir

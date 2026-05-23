@@ -6,11 +6,11 @@ run:
 
 model:
   trunk_dims:
-    - 32                       # hidden width of the MLP trunk
-    - 32
+    - 64                       # hidden width of the MLP trunk
+    # - 32
     # - 32
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 7              # number of language input/output heads
+  language_dim: 13              # number of language input/output heads
   language_readout_coverage: 5  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims (no-op for single-layer trunk)
@@ -28,17 +28,17 @@ task:
     - [2, 0.5]
     - [3, 0.25]
     - [5, 0.125]
-    # - [7, 0.1]
+    - [7, 0.1]
     
 
 train:
-  epochs: 3000                  # total training epochs
+  epochs: 5000                  # total training epochs
   lr: 0.0001                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
   # sequence_mode: reset         # reset or continuous_window message handling between training windows
-  fixed_train_steps: 11        # rollout length used for every training episode/window
+  fixed_train_steps: 5        # rollout length used for every training episode/window
   train_phase_mode: continuous      # reset or continuous phase progression during training
   # train_phase_mode: reset      # reset or continuous phase progression during training
   message_aux_loss_weight: 1.0  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
