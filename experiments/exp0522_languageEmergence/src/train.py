@@ -367,6 +367,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
         language_readout_coverage=config.language_readout_coverage,
         use_error_input=config.use_error_input,
         use_language=True,
+        use_residual=config.use_residual,
         seed=config.seed,
     ).to(device)
 

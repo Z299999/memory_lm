@@ -117,6 +117,7 @@ class ExternalClockMLP(nn.Module):
         pulse_dim: int = 1,
         use_error_input: bool = False,
         use_language: bool = True,
+        use_residual: bool = True,
         seed: int = 42,
     ) -> None:
         super().__init__()
@@ -127,6 +128,7 @@ class ExternalClockMLP(nn.Module):
         self.use_error_input = bool(use_error_input)
         self.language_dim = int(language_dim) if use_language else 0
         self.use_language = bool(use_language) and self.language_dim > 0
+        self.use_residual = bool(use_residual)
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
 
@@ -154,7 +156,10 @@ class ExternalClockMLP(nn.Module):
     def _step_hidden(self, step_input: torch.Tensor) -> torch.Tensor:
         hidden = step_input
         for layer in self.trunk:
-            hidden = self.activation(layer(hidden))
+            new_hidden = self.activation(layer(hidden))
+            if self.use_residual and hidden.shape[-1] == new_hidden.shape[-1]:
+                new_hidden = new_hidden + hidden
+            hidden = new_hidden
         return hidden
 
     def rollout(

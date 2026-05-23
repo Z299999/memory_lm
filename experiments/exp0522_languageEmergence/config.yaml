@@ -7,28 +7,31 @@ run:
 model:
   trunk_dims:
     - 32                       # hidden width of the MLP trunk
-    # - 32
+    - 32
     # - 32
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
   language_dim: 7              # number of language input/output heads
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
+  use_residual: true           # skip connections on hidden→hidden layers with matching dims (no-op for single-layer trunk)
 
 task:
   cycle_steps: 32               # number of steps in one full target cycle
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
-    - [0.7, 0.5]
+    # - [0.01, 1]
+    # - [0.05, 3]
+    # - [0.7, 2]
     - [1, 1.0]
     - [2, 0.5]
     - [3, 0.25]
-    - [5, 0.125]
-    - [7, 0.1]
+    # - [5, 0.125]
+    # - [7, 0.1]
     
 
 train:
-  epochs: 2000                  # total training epochs
+  epochs: 10000                  # total training epochs
   lr: 0.003                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
@@ -80,7 +83,7 @@ plot:
   plot_show_message_traces: true # whether to show the per-channel message traces panel
   plot_show_message_norm: true  # whether to show the message-norm panel
   plot_show_training_timeline: true # whether to generate training_timeline.png for continuous_window runs
-  plot_training_timeline_num_panels: 12 # number of evenly sampled local windows shown in the training timeline figure
-  plot_training_timeline_ncols: 3      # number of columns in the training timeline grid
+  plot_training_timeline_num_panels: 30 # number of evenly sampled local windows shown in the training timeline figure
+  plot_training_timeline_ncols: 5      # number of columns in the training timeline grid
   plot_training_timeline_window_steps: 200 # number of global time steps shown inside each training timeline panel
-  plot_training_timeline_fig_width: 16.0   # width of training_timeline.png (independent of training_curves width)
+  plot_training_timeline_fig_width: 27.0   # width of training_timeline.png (independent of training_curves width)

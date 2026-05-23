@@ -39,6 +39,7 @@ def _build_model(config: ExperimentConfig, model_name: str) -> ExternalClockMLP:
         language_readout_coverage=config.language_readout_coverage,
         use_error_input=use_error_input,
         use_language=True,
+        use_residual=config.use_residual,
         seed=config.seed,
     )
 
