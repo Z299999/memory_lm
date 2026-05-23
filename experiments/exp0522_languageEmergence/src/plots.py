@@ -71,6 +71,7 @@ _CONDITION_COLORS: dict[str, str] = {
     "neither":     "#d62728",  # matplotlib C3 red
     "late_blind":  "#c05030",  # muted red-orange
     "late_mute":   "#9467bd",  # purple
+    "blink":       "#17becf",  # teal
 }
 
 _LATE_TRANSITION_VLINE_COLORS: dict[str, str] = {
@@ -252,6 +253,12 @@ def plot_rollout_diagnostics(
             step = config.eval_late_blind_step if condition == "late_blind" else config.eval_late_mute_step
             if step < num_steps:
                 vlines.append((step - 1, f"↓{condition}", color))
+        if "blink" in series:
+            color = _CONDITION_COLORS["blink"]
+            if config.eval_blink_blind_start < num_steps:
+                vlines.append((config.eval_blink_blind_start - 1, "↓blink", color))
+            if config.eval_blink_blind_end < num_steps:
+                vlines.append((config.eval_blink_blind_end - 1, "↑blink", color))
         return vlines
 
     def _plot_rollout_panel(ax: plt.Axes, evals: dict[str, dict] | None, num_steps: int, title: str) -> None:

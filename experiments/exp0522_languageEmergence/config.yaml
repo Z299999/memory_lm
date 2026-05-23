@@ -19,11 +19,12 @@ task:
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
-    - [2, 1.0]
-    - [3, 0.5]
-    - [5, 0.25]
-    - [7, 0.125]
-    - [13, 0.1]
+    - [1, 1.0]
+    - [2, 0.5]
+    - [3, 0.25]
+    - [5, 0.125]
+    - [7, 0.1]
+    
 
 train:
   epochs: 2000                  # total training epochs
@@ -45,9 +46,11 @@ eval:
   long_steps: 512              # long-horizon rollout length for stress test
   continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
   eval_phase_mode: both        # which evals to write: reset, continuous, or both
-  eval_conditions: [full, sole_eye, sole_speech, late_blind, late_mute]  # ablation conditions: full | sole_eye | sole_speech | neither | late_blind | late_mute
-  eval_late_blind_step: 60        # step at which late_blind switches from full to sole_speech
-  eval_late_mute_step: 60         # step at which late_mute switches from full to sole_eye
+  eval_conditions: [full, late_blind, late_mute, blink]  # ablation conditions: full | sole_eye | sole_speech | neither | late_blind | late_mute | blink
+  eval_late_blind_step: 40        # step at which late_blind switches from full to sole_speech
+  eval_late_mute_step: 100        # step at which late_mute switches from full to sole_eye
+  eval_blink_blind_start: 40      # step at which blink goes blind (full → sole_speech)
+  eval_blink_blind_end: 80        # step at which blink regains sight (sole_speech → full)
 
 analysis:
   enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis
@@ -75,8 +78,8 @@ plot:
   plot_error_legend_ncols: 3   # legend columns for the error panel
   plot_message_legend_ncols: 2 # legend columns for message traces
   plot_training_series: [full_train, full_val]
-  plot_rollout_series: [target, full, sole_eye, sole_speech, late_blind, late_mute]  # which eval_conditions to draw (plus target)
-  plot_error_series: [full, sole_eye, sole_speech, late_blind, late_mute]            # which eval_conditions to show in the error panel
+  plot_rollout_series: [target, full, late_blind, late_mute, blink]  # which eval_conditions to draw (plus target)
+  plot_error_series: [full, late_blind, late_mute, blink]            # which eval_conditions to show in the error panel
   plot_show_message_traces: true # whether to show the per-channel message traces panel
   plot_show_message_norm: true  # whether to show the message-norm panel
   plot_show_training_timeline: true # whether to generate training_timeline.png for continuous_window runs

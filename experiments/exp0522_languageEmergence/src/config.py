@@ -36,6 +36,8 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "eval_conditions",
         "eval_late_blind_step",
         "eval_late_mute_step",
+        "eval_blink_blind_start",
+        "eval_blink_blind_end",
     ),
     "analysis": (
         "enable_continuous_collapse",
@@ -89,7 +91,7 @@ LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither", "late_blind", "late_mute"})
+_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither", "late_blind", "late_mute", "blink"})
 
 
 @dataclass
@@ -122,6 +124,8 @@ class ExperimentConfig:
     eval_conditions: tuple[str, ...] = ("full", "sole_eye")
     eval_late_blind_step: int = 60
     eval_late_mute_step: int = 60
+    eval_blink_blind_start: int = 40
+    eval_blink_blind_end: int = 80
     enable_continuous_collapse: bool = True
     checkpoint_epochs: tuple[int, ...] = (1, 10, 50, 100, 500, 1000)
     pulse_value: float = 1.0
@@ -270,6 +274,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_training_timeline_window_steps",
         "eval_late_blind_step",
         "eval_late_mute_step",
+        "eval_blink_blind_start",
+        "eval_blink_blind_end",
     ):
         payload[key] = int(payload[key])
     for key in (
@@ -378,6 +384,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("eval_late_blind_step must be positive.")
     if payload["eval_late_mute_step"] <= 0:
         raise ValueError("eval_late_mute_step must be positive.")
+    if payload["eval_blink_blind_start"] < 0:
+        raise ValueError("eval_blink_blind_start must be >= 0.")
+    if payload["eval_blink_blind_end"] <= payload["eval_blink_blind_start"]:
+        raise ValueError("eval_blink_blind_end must be > eval_blink_blind_start.")
 
     raw_components = payload["mixed_sin_components"]
     if not isinstance(raw_components, (list, tuple)) or not raw_components:
