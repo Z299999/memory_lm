@@ -34,6 +34,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "continuous_eval_steps",
         "eval_phase_mode",
         "eval_conditions",
+        "eval_late_blind_step",
     ),
     "analysis": (
         "enable_continuous_collapse",
@@ -87,7 +88,7 @@ LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither"})
+_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither", "late_blind"})
 
 
 @dataclass
@@ -118,6 +119,7 @@ class ExperimentConfig:
     long_steps: int = 512
     continuous_eval_steps: int = 512
     eval_conditions: tuple[str, ...] = ("full", "sole_eye")
+    eval_late_blind_step: int = 60
     enable_continuous_collapse: bool = True
     checkpoint_epochs: tuple[int, ...] = (1, 10, 50, 100, 500, 1000)
     pulse_value: float = 1.0
@@ -264,6 +266,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_training_timeline_num_panels",
         "plot_training_timeline_ncols",
         "plot_training_timeline_window_steps",
+        "eval_late_blind_step",
     ):
         payload[key] = int(payload[key])
     for key in (
@@ -368,6 +371,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError(f"eval_conditions contains unknown values: {invalid_conds}. Valid: {sorted(_VALID_EVAL_CONDITIONS)}")
     if "full" not in payload["eval_conditions"]:
         raise ValueError("eval_conditions must contain 'full'.")
+    if payload["eval_late_blind_step"] <= 0:
+        raise ValueError("eval_late_blind_step must be positive.")
 
     raw_components = payload["mixed_sin_components"]
     if not isinstance(raw_components, (list, tuple)) or not raw_components:

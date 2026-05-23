@@ -10,7 +10,7 @@ model:
     # - 32
     # - 32
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 5              # number of language input/output heads
+  language_dim: 7              # number of language input/output heads
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
 
@@ -23,15 +23,16 @@ task:
     - [3, 0.5]
     - [5, 0.25]
     - [7, 0.125]
+    - [13, 0.1]
 
 train:
-  epochs: 10000                  # total training epochs
+  epochs: 2000                  # total training epochs
   lr: 0.003                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
   # sequence_mode: reset         # reset or continuous_window message handling between training windows
-  fixed_train_steps: 10        # rollout length used for every training episode/window
+  fixed_train_steps: 19        # rollout length used for every training episode/window
   train_phase_mode: continuous      # reset or continuous phase progression during training
   # train_phase_mode: reset      # reset or continuous phase progression during training
   message_aux_loss_weight: 1.0  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
@@ -44,7 +45,8 @@ eval:
   long_steps: 512              # long-horizon rollout length for stress test
   continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
   eval_phase_mode: both        # which evals to write: reset, continuous, or both
-  eval_conditions: [full, sole_eye, sole_speech]  # ablation conditions: full | sole_eye | sole_speech | neither
+  eval_conditions: [full, sole_eye, sole_speech, late_blind]  # ablation conditions: full | sole_eye | sole_speech | neither | late_blind
+  eval_late_blind_step: 60        # step at which late_blind switches from full to sole_speech
 
 analysis:
   enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis
@@ -72,8 +74,8 @@ plot:
   plot_error_legend_ncols: 3   # legend columns for the error panel
   plot_message_legend_ncols: 2 # legend columns for message traces
   plot_training_series: [full_train, full_val]
-  plot_rollout_series: [target, full, sole_eye, sole_speech]  # which eval_conditions to draw (plus target)
-  plot_error_series: [full, sole_eye, sole_speech]            # which eval_conditions to show in the error panel
+  plot_rollout_series: [target, full, sole_eye, sole_speech, late_blind]  # which eval_conditions to draw (plus target)
+  plot_error_series: [full, sole_eye, sole_speech, late_blind]            # which eval_conditions to show in the error panel
   plot_show_message_traces: true # whether to show the per-channel message traces panel
   plot_show_message_norm: true  # whether to show the message-norm panel
   plot_show_training_timeline: true # whether to generate training_timeline.png for continuous_window runs

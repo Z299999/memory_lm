@@ -29,7 +29,7 @@ _CONDITION_FLAGS: dict[str, tuple[bool, bool]] = {
     "neither":     (True,  True),
 }
 
-_CONDITIONS_NEEDING_ERROR = frozenset({"sole_speech", "neither"})
+_CONDITIONS_NEEDING_ERROR = frozenset({"sole_speech", "neither", "late_blind"})
 
 
 def _condition_flags(condition_name: str) -> tuple[bool, bool]:
@@ -93,6 +93,69 @@ def _evaluate_rollout(
         "hidden": hidden.cpu() if hidden is not None else None,
         "final_message": final_message.cpu(),
         "final_error": final_error.cpu(),
+        "start_step": int(start_step),
+    }
+
+
+def _evaluate_late_blind_rollout(
+    model: ExternalClockMLP,
+    *,
+    num_steps: int,
+    transition_step: int,
+    cycle_steps: int,
+    pulse_value: float,
+    target_kind: str,
+    mixed_sin_components: tuple[tuple[float, float], ...],
+    start_step: int = 0,
+    initial_message: torch.Tensor | None = None,
+    initial_error: torch.Tensor | None = None,
+    detach_error_input: bool = True,
+) -> dict[str, Any]:
+    """Run full model for transition_step steps, then sole_speech for the rest."""
+    effective_transition = min(transition_step, num_steps)
+    phase1 = _evaluate_rollout(
+        model,
+        num_steps=effective_transition,
+        cycle_steps=cycle_steps,
+        pulse_value=pulse_value,
+        target_kind=target_kind,
+        mixed_sin_components=mixed_sin_components,
+        start_step=start_step,
+        initial_message=initial_message,
+        initial_error=initial_error,
+        detach_error_input=detach_error_input,
+        force_zero_error_input=False,
+        disable_language=False,
+    )
+    remaining = num_steps - effective_transition
+    if remaining <= 0:
+        return phase1
+    phase2 = _evaluate_rollout(
+        model,
+        num_steps=remaining,
+        cycle_steps=cycle_steps,
+        pulse_value=pulse_value,
+        target_kind=target_kind,
+        mixed_sin_components=mixed_sin_components,
+        start_step=start_step + effective_transition,
+        initial_message=phase1["final_message"],
+        initial_error=phase1["final_error"],
+        detach_error_input=detach_error_input,
+        force_zero_error_input=True,
+        disable_language=False,
+    )
+    prediction = torch.cat([phase1["prediction"], phase2["prediction"]])
+    target = torch.cat([phase1["target"], phase2["target"]])
+    return {
+        "mse": float(torch.mean((prediction - target) ** 2).item()),
+        "phase": torch.cat([phase1["phase"], phase2["phase"]]),
+        "target": target,
+        "prediction": prediction,
+        "messages": torch.cat([phase1["messages"], phase2["messages"]]),
+        "message_norm": torch.cat([phase1["message_norm"], phase2["message_norm"]]),
+        "hidden": None,
+        "final_message": phase2["final_message"],
+        "final_error": phase2["final_error"],
         "start_step": int(start_step),
     }
 
@@ -322,34 +385,67 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         reset_evals = {}
         reset_long_evals = {}
         for condition in config.eval_conditions:
-            fze, dl = _condition_flags(condition)
-            reset_evals[condition] = _evaluate_rollout(
-                model,
-                num_steps=config.eval_steps,
-                force_zero_error_input=fze,
-                disable_language=dl,
-                **common_kwargs,
-            )
-            reset_long_evals[condition] = _evaluate_rollout(
-                model,
-                num_steps=config.long_steps,
-                force_zero_error_input=fze,
-                disable_language=dl,
-                **common_kwargs,
-            )
+            if condition == "late_blind":
+                reset_evals[condition] = _evaluate_late_blind_rollout(
+                    model,
+                    num_steps=config.eval_steps,
+                    transition_step=config.eval_late_blind_step,
+                    **common_kwargs,
+                )
+                reset_long_evals[condition] = _evaluate_late_blind_rollout(
+                    model,
+                    num_steps=config.long_steps,
+                    transition_step=config.eval_late_blind_step,
+                    **common_kwargs,
+                )
+            else:
+                fze, dl = _condition_flags(condition)
+                reset_evals[condition] = _evaluate_rollout(
+                    model,
+                    num_steps=config.eval_steps,
+                    force_zero_error_input=fze,
+                    disable_language=dl,
+                    **common_kwargs,
+                )
+                reset_long_evals[condition] = _evaluate_rollout(
+                    model,
+                    num_steps=config.long_steps,
+                    force_zero_error_input=fze,
+                    disable_language=dl,
+                    **common_kwargs,
+                )
 
     if continuous_eval_enabled:
         continuous_evals = {}
         for condition in config.eval_conditions:
-            fze, dl = _condition_flags(condition)
-            continuous_evals[condition] = _evaluate_continuous_stream(
-                model,
-                measured_steps=config.continuous_eval_steps,
-                warmup_steps=continuous_warmup_steps,
-                force_zero_error_input=fze,
-                disable_language=dl,
-                **common_kwargs,
-            )
+            if condition == "late_blind":
+                # Warmup as full model, then late_blind within the measured segment.
+                warmup_result = _evaluate_rollout(
+                    model,
+                    num_steps=continuous_warmup_steps,
+                    force_zero_error_input=False,
+                    disable_language=False,
+                    **common_kwargs,
+                ) if continuous_warmup_steps > 0 else None
+                continuous_evals[condition] = _evaluate_late_blind_rollout(
+                    model,
+                    num_steps=config.continuous_eval_steps,
+                    transition_step=config.eval_late_blind_step,
+                    start_step=continuous_warmup_steps,
+                    initial_message=warmup_result["final_message"] if warmup_result and model.use_language else None,
+                    initial_error=warmup_result["final_error"] if warmup_result and model.use_error_input else None,
+                    **common_kwargs,
+                )
+            else:
+                fze, dl = _condition_flags(condition)
+                continuous_evals[condition] = _evaluate_continuous_stream(
+                    model,
+                    measured_steps=config.continuous_eval_steps,
+                    warmup_steps=continuous_warmup_steps,
+                    force_zero_error_input=fze,
+                    disable_language=dl,
+                    **common_kwargs,
+                )
 
     if reset_evals is not None:
         _save_rollout_csv(
