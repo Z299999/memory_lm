@@ -20,9 +20,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "weight_decay",
         "grad_clip",
         "sequence_mode",
-        "rollout_schedule",
         "fixed_train_steps",
-        "train_steps",
         "train_phase_mode",
     ),
     "eval": (
@@ -43,6 +41,8 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_message_steps",
         "plot_grid_alpha",
         "plot_title_fontsize",
+        "plot_target_color",
+        "plot_target_linestyle",
         "plot_target_linewidth",
         "plot_series_linewidth",
         "plot_aux_linewidth",
@@ -60,6 +60,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
 
 
 LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
+    "train": ("rollout_schedule", "train_steps"),
     "task": (
         "train_steps",
         "eval_steps",
@@ -82,13 +83,11 @@ class ExperimentConfig:
     weight_decay: float = 0.0
     grad_clip: float = 1.0
     sequence_mode: str = "reset"
-    rollout_schedule: str = "curriculum"
     fixed_train_steps: int = 128
     trunk_dims: tuple[int, ...] = (32,)
     language_dim: int = 4
     language_readout_coverage: int = 1
     cycle_steps: int = 32
-    train_steps: int = 128
     eval_steps: int = 128
     long_steps: int = 512
     continuous_eval_steps: int = 512
@@ -108,7 +107,9 @@ class ExperimentConfig:
     plot_message_steps: int = 128
     plot_grid_alpha: float = 0.25
     plot_title_fontsize: int = 14
-    plot_target_linewidth: float = 2.1
+    plot_target_color: str = "#8a8a8a"
+    plot_target_linestyle: str = "--"
+    plot_target_linewidth: float = 1.0
     plot_series_linewidth: float = 1.7
     plot_aux_linewidth: float = 1.5
     plot_zero_linewidth: float = 1.0
@@ -175,6 +176,8 @@ def _flatten_user_config(raw: dict[str, object], defaults: ExperimentConfig) -> 
             raise ValueError(
                 f"Unknown keys inside section {section_name!r}: {sorted(unknown_section_keys)}"
             )
+        if section_name in {"train", "task"} and "train_steps" in section_payload and "fixed_train_steps" not in section_payload:
+            flat_payload["fixed_train_steps"] = section_payload["train_steps"]
         flat_payload.update(section_payload)
 
     # Allow flat keys as backward-compatible overrides.
@@ -202,7 +205,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "language_dim",
         "language_readout_coverage",
         "cycle_steps",
-        "train_steps",
         "eval_steps",
         "long_steps",
         "continuous_eval_steps",
@@ -235,10 +237,13 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_zero_linewidth",
     ):
         payload[key] = float(payload[key])
+    payload.pop("rollout_schedule", None)
+    payload.pop("train_steps", None)
     payload["sequence_mode"] = str(payload["sequence_mode"])
-    payload["rollout_schedule"] = str(payload["rollout_schedule"])
     payload["train_phase_mode"] = str(payload["train_phase_mode"])
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
+    payload["plot_target_color"] = str(payload["plot_target_color"])
+    payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
     for key in (
         "plot_training_series",
         "plot_rollout_series",
@@ -258,8 +263,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("epochs must be positive.")
     if payload["sequence_mode"] not in {"reset", "continuous_window"}:
         raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
-    if payload["rollout_schedule"] not in {"curriculum", "fixed"}:
-        raise ValueError("rollout_schedule must be either 'curriculum' or 'fixed'.")
     if payload["fixed_train_steps"] <= 0:
         raise ValueError("fixed_train_steps must be positive.")
     if payload["train_phase_mode"] not in {"reset", "continuous"}:
@@ -274,13 +277,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("language_readout_coverage must be <= language_dim.")
     if payload["cycle_steps"] <= 1:
         raise ValueError("cycle_steps must be greater than 1.")
-    if (
-        payload["train_steps"] <= 0
-        or payload["eval_steps"] <= 0
-        or payload["long_steps"] <= 0
-        or payload["continuous_eval_steps"] <= 0
-    ):
-        raise ValueError("train_steps, eval_steps, long_steps, and continuous_eval_steps must be positive.")
+    if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
+        raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
     if payload["fixed_train_steps"] > payload["long_steps"]:
         raise ValueError("fixed_train_steps must be <= long_steps.")
     if payload["fixed_train_steps"] > payload["continuous_eval_steps"]:
@@ -289,13 +287,15 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("eval_steps must be at least one cycle long.")
     if payload["long_steps"] < payload["eval_steps"]:
         raise ValueError("long_steps must be greater than or equal to eval_steps.")
-    if payload["sequence_mode"] == "continuous_window":
-        if payload["rollout_schedule"] != "fixed":
-            raise ValueError("continuous_window mode only supports rollout_schedule='fixed'.")
-        if payload["train_phase_mode"] != "continuous":
-            raise ValueError("continuous_window mode requires train_phase_mode='continuous'.")
+    if payload["sequence_mode"] == "continuous_window" and payload["train_phase_mode"] != "continuous":
+        raise ValueError("continuous_window mode requires train_phase_mode='continuous'.")
     if payload["sequence_mode"] == "reset" and payload["train_phase_mode"] != "reset":
         raise ValueError("reset mode requires train_phase_mode='reset'.")
+    legacy_rollout_schedule = raw.get("rollout_schedule")
+    if legacy_rollout_schedule is None and isinstance(raw.get("train"), dict):
+        legacy_rollout_schedule = raw["train"].get("rollout_schedule")
+    if legacy_rollout_schedule is not None and str(legacy_rollout_schedule) != "fixed":
+        raise ValueError("curriculum training has been removed; only fixed_train_steps is supported now.")
     if payload["log_every"] <= 0:
         raise ValueError("log_every must be positive.")
     if payload["plot_dpi"] <= 0:
@@ -312,6 +312,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("plot_grid_alpha must be in [0, 1].")
     if payload["plot_title_fontsize"] <= 0:
         raise ValueError("plot_title_fontsize must be positive.")
+    if not payload["plot_target_color"].strip():
+        raise ValueError("plot_target_color must be a non-empty string.")
+    if not payload["plot_target_linestyle"].strip():
+        raise ValueError("plot_target_linestyle must be a non-empty string.")
     if payload["plot_target_linewidth"] <= 0 or payload["plot_series_linewidth"] <= 0:
         raise ValueError("plot_target_linewidth and plot_series_linewidth must be positive.")
     if payload["plot_aux_linewidth"] <= 0 or payload["plot_zero_linewidth"] <= 0:

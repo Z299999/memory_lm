@@ -122,27 +122,6 @@ def _evaluate_continuous_stream(
     )
 
 
-def _scheduled_train_steps(epoch: int, config: ExperimentConfig) -> int:
-    """Return the rollout length used for the current training epoch."""
-    if config.rollout_schedule == "fixed":
-        return int(config.fixed_train_steps)
-
-    # Default: short-to-long curriculum to stabilize oscillator learning.
-    if config.train_steps <= config.cycle_steps:
-        return config.train_steps
-
-    stage_lengths = [
-        config.cycle_steps,
-        min(config.train_steps, 2 * config.cycle_steps),
-        min(config.train_steps, 3 * config.cycle_steps),
-        config.train_steps,
-    ]
-    stage_lengths = list(dict.fromkeys(stage_lengths))
-    progress = epoch / max(config.epochs, 1)
-    stage_idx = min(int(progress * len(stage_lengths)), len(stage_lengths) - 1)
-    return int(stage_lengths[stage_idx])
-
-
 def _build_train_target(
     *,
     num_steps: int,
@@ -169,21 +148,11 @@ def _train_single_model(
     )
     target_cache: dict[tuple[int, int], torch.Tensor] = {}
     cache_steps = {
-        _scheduled_train_steps(1, config),
+        config.fixed_train_steps,
         config.eval_steps,
         config.long_steps,
+        config.continuous_eval_steps,
     }
-    if config.rollout_schedule == "curriculum":
-        cache_steps.update(
-            {
-                config.cycle_steps,
-                min(config.train_steps, 2 * config.cycle_steps),
-                min(config.train_steps, 3 * config.cycle_steps),
-                config.train_steps,
-            }
-        )
-    else:
-        cache_steps.add(config.fixed_train_steps)
 
     if config.train_phase_mode == "reset":
         for steps in cache_steps:
@@ -200,7 +169,7 @@ def _train_single_model(
     train_time_cursor = 0
     train_message_state: torch.Tensor | None = None
     for epoch in range(1, config.epochs + 1):
-        effective_steps = _scheduled_train_steps(epoch, config)
+        effective_steps = int(config.fixed_train_steps)
         train_window_start = train_time_cursor if config.train_phase_mode == "continuous" else 0
         if config.train_phase_mode == "reset":
             train_target = target_cache[(effective_steps, 0)]
@@ -353,13 +322,11 @@ def _build_summary(
             "run_name": config.run_name,
             "epochs": config.epochs,
             "sequence_mode": config.sequence_mode,
-            "rollout_schedule": config.rollout_schedule,
             "fixed_train_steps": config.fixed_train_steps,
             "trunk_dims": list(config.trunk_dims),
             "language_dim": config.language_dim,
             "language_readout_coverage": config.language_readout_coverage,
             "cycle_steps": config.cycle_steps,
-            "train_steps": config.train_steps,
             "eval_steps": config.eval_steps,
             "long_steps": config.long_steps,
             "continuous_eval_steps": config.continuous_eval_steps,
@@ -411,8 +378,10 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
     root = config_path.resolve().parent
     run_root = (root / config.output_root).resolve()
     run_dir = make_run_dir(run_root, config.run_name)
+    metrics_dir = run_dir / "metrics"
     plots_dir = run_dir / "plots"
     ckpt_dir = run_dir / "checkpoints"
+    metrics_dir.mkdir(parents=True, exist_ok=True)
     plots_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -557,19 +526,19 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         else None
     )
 
-    _write_json(run_dir / "history_full_language.json", _to_serializable_history(full_result["history"]))
-    _write_json(run_dir / "history_no_language.json", _to_serializable_history(baseline_result["history"]))
+    _write_json(metrics_dir / "history_full_language.json", _to_serializable_history(full_result["history"]))
+    _write_json(metrics_dir / "history_no_language.json", _to_serializable_history(baseline_result["history"]))
 
     if full_reset_eval is not None and baseline_reset_eval is not None and full_mute_reset_eval is not None:
         _save_rollout_csv(
-            output_path=run_dir / "reset_eval_rollout.csv",
+            output_path=metrics_dir / "reset_eval_rollout.csv",
             normal_eval=full_reset_eval,
             baseline_eval=baseline_reset_eval,
             mute_deaf_eval=full_mute_reset_eval,
             language_dim=config.language_dim,
         )
         _save_rollout_csv(
-            output_path=run_dir / "eval_rollout.csv",
+            output_path=metrics_dir / "eval_rollout.csv",
             normal_eval=full_reset_eval,
             baseline_eval=baseline_reset_eval,
             mute_deaf_eval=full_mute_reset_eval,
@@ -577,14 +546,14 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         )
     if full_reset_long is not None and baseline_reset_long is not None and full_mute_reset_long is not None:
         _save_rollout_csv(
-            output_path=run_dir / "reset_long_rollout.csv",
+            output_path=metrics_dir / "reset_long_rollout.csv",
             normal_eval=full_reset_long,
             baseline_eval=baseline_reset_long,
             mute_deaf_eval=full_mute_reset_long,
             language_dim=config.language_dim,
         )
         _save_rollout_csv(
-            output_path=run_dir / "long_rollout.csv",
+            output_path=metrics_dir / "long_rollout.csv",
             normal_eval=full_reset_long,
             baseline_eval=baseline_reset_long,
             mute_deaf_eval=full_mute_reset_long,
@@ -596,7 +565,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         and full_mute_continuous_eval is not None
     ):
         _save_rollout_csv(
-            output_path=run_dir / "continuous_eval_rollout.csv",
+            output_path=metrics_dir / "continuous_eval_rollout.csv",
             normal_eval=full_continuous_eval,
             baseline_eval=baseline_continuous_eval,
             mute_deaf_eval=full_mute_continuous_eval,
@@ -648,7 +617,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         baseline_reset_long=baseline_reset_long,
         baseline_continuous_eval=baseline_continuous_eval,
     )
-    _write_json(run_dir / "summary.json", summary)
+    _write_json(metrics_dir / "summary.json", summary)
 
     print("Final summary:")
     print(json.dumps(summary, indent=2))

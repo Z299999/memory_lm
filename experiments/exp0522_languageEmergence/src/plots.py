@@ -35,7 +35,7 @@ _TRAINING_SERIES_SPECS = {
 }
 
 _ROLLOUT_SERIES_SPECS = {
-    "target": ("target", "target", "black", "target"),
+    "target": ("target", "target", None, "target"),
     "full": ("full", "prediction", None, "main"),
     "baseline": ("baseline", "prediction", None, "aux"),
     "mute_deaf": ("mute_deaf", "prediction", None, "aux"),
@@ -63,6 +63,12 @@ def _linewidth(config: ExperimentConfig, width_kind: str) -> float:
     if width_kind == "main":
         return config.plot_series_linewidth
     return config.plot_aux_linewidth
+
+
+def _linestyle(config: ExperimentConfig, width_kind: str) -> str:
+    if width_kind == "target":
+        return config.plot_target_linestyle
+    return "-"
 
 
 def _build_rollout_panels(config: ExperimentConfig) -> list[tuple[str, float]]:
@@ -187,7 +193,8 @@ def plot_rollout_diagnostics(
             short_steps,
             rollout_predictions[series_name],
             label=label,
-            color=color,
+            color=config.plot_target_color if series_name == "target" else color,
+            linestyle=_linestyle(config, width_kind),
             linewidth=_linewidth(config, width_kind),
         )
     short_axis.set_title("Reset short eval" if continuous_long_full is not None else "Short rollout")
@@ -208,7 +215,8 @@ def plot_rollout_diagnostics(
             long_steps,
             long_predictions[series_name],
             label=label,
-            color=color,
+            color=config.plot_target_color if series_name == "target" else color,
+            linestyle=_linestyle(config, width_kind),
             linewidth=_linewidth(config, width_kind),
         )
     long_axis.set_title("Reset long eval" if continuous_long_full is not None else "Long rollout")
@@ -232,7 +240,8 @@ def plot_rollout_diagnostics(
                 continuous_steps,
                 continuous_predictions[series_name],
                 label=label,
-                color=color,
+                color=config.plot_target_color if series_name == "target" else color,
+                linestyle=_linestyle(config, width_kind),
                 linewidth=_linewidth(config, width_kind),
             )
         continuous_axis.set_title("Continuous long eval")

@@ -12,7 +12,7 @@ model:
   language_readout_coverage: 1  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
 
 task:
-  cycle_steps: 32              # number of steps in one full sine cycle
+  cycle_steps: 64              # number of steps in one full sine cycle
   pulse_value: 1.0             # constant ordinary input x_t at every step
 
 train:
@@ -21,9 +21,7 @@ train:
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window # reset or continuous_window message handling between training windows
-  rollout_schedule: fixed # training rollout schedule: curriculum or fixed
-  fixed_train_steps: 128       # rollout length used when rollout_schedule is fixed
-  train_steps: 128             # rollout length used for final training stage in curriculum mode
+  fixed_train_steps: 64       # rollout length used for every training episode/window
   train_phase_mode: continuous # reset or continuous phase progression during training
 
 eval:

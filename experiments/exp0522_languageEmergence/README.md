@@ -63,24 +63,14 @@ cd experiments/exp0522_languageEmergence
 python3 run.py --config config.yaml --epochs 50 --run-name smoke
 ```
 
-## Training Rollout Schedule
+## Training Rollout Length
 
-Training always uses a rollout, but the rollout length can now be configured in
-two ways from `train:` in `config.yaml`:
-
-- `rollout_schedule: curriculum`
-  - uses the original short-to-long schedule
-  - gradually trains on `cycle_steps`, then about `2x`, `3x`, and finally `train_steps`
-
-- `rollout_schedule: fixed`
-  - uses one constant rollout length for every epoch
-  - the length is set by `fixed_train_steps`
+Training always uses a fixed rollout length set by `train.fixed_train_steps`.
 
 Example: always train on 32-step rollouts
 
 ```yaml
 train:
-  rollout_schedule: fixed
   fixed_train_steps: 32
 ```
 
@@ -88,7 +78,6 @@ Example: always train on full 128-step rollouts
 
 ```yaml
 train:
-  rollout_schedule: fixed
   fixed_train_steps: 128
 ```
 
@@ -106,14 +95,12 @@ The experiment now supports two training-state modes:
   - the next window reuses the previous window's final message
   - the carried message is detached at the window boundary
   - use `train_phase_mode: continuous`
-  - this mode only supports `rollout_schedule: fixed`
 
 Example:
 
 ```yaml
 train:
   sequence_mode: continuous_window
-  rollout_schedule: fixed
   fixed_train_steps: 32
   train_phase_mode: continuous
 
@@ -129,14 +116,15 @@ for example `runs/20260522/20260522_173059_exp0522_clock_v0/`, containing:
 
 - `config.yaml`
 - `resolved_config.json`
-- `summary.json`
-- `history_full_language.json`
-- `history_no_language.json`
-- `eval_rollout.csv`
-- `long_rollout.csv`
-- `reset_eval_rollout.csv`
-- `reset_long_rollout.csv`
-- `continuous_eval_rollout.csv` when continuous evaluation is enabled
+- `metrics/`
+  - `summary.json`
+  - `history_full_language.json`
+  - `history_no_language.json`
+  - `eval_rollout.csv`
+  - `long_rollout.csv`
+  - `reset_eval_rollout.csv`
+  - `reset_long_rollout.csv`
+  - `continuous_eval_rollout.csv` when continuous evaluation is enabled
 - `checkpoints/`
 - `plots/`
 
