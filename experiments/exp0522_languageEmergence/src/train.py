@@ -57,6 +57,8 @@ def _evaluate_rollout(
     num_steps: int,
     cycle_steps: int,
     pulse_value: float,
+    target_kind: str,
+    mixed_sin_second_harmonic_amplitude: float,
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     disable_language: bool = False,
@@ -64,7 +66,14 @@ def _evaluate_rollout(
     model.eval()
     device = next(model.parameters()).device
     with torch.no_grad():
-        phase, target = build_rollout_targets(num_steps, cycle_steps, device, start_step=start_step)
+        phase, target = build_rollout_targets(
+            num_steps,
+            cycle_steps,
+            device,
+            start_step=start_step,
+            target_kind=target_kind,
+            mixed_sin_second_harmonic_amplitude=mixed_sin_second_harmonic_amplitude,
+        )
         prediction, messages, hidden, final_message = model.rollout(
             num_steps=num_steps,
             pulse_value=pulse_value,
@@ -95,6 +104,8 @@ def _evaluate_continuous_stream(
     warmup_steps: int,
     cycle_steps: int,
     pulse_value: float,
+    target_kind: str,
+    mixed_sin_second_harmonic_amplitude: float,
     disable_language: bool = False,
 ) -> dict[str, Any]:
     device = next(model.parameters()).device
@@ -116,6 +127,8 @@ def _evaluate_continuous_stream(
         num_steps=measured_steps,
         cycle_steps=cycle_steps,
         pulse_value=pulse_value,
+        target_kind=target_kind,
+        mixed_sin_second_harmonic_amplitude=mixed_sin_second_harmonic_amplitude,
         start_step=warmup_steps,
         initial_message=initial_message,
         disable_language=disable_language,
@@ -129,9 +142,18 @@ def _build_train_target(
     device: torch.device,
     train_phase_mode: str,
     start_step: int,
+    target_kind: str,
+    mixed_sin_second_harmonic_amplitude: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     offset = start_step if train_phase_mode == "continuous" else 0
-    return build_rollout_targets(num_steps, cycle_steps, device, start_step=offset)
+    return build_rollout_targets(
+        num_steps,
+        cycle_steps,
+        device,
+        start_step=offset,
+        target_kind=target_kind,
+        mixed_sin_second_harmonic_amplitude=mixed_sin_second_harmonic_amplitude,
+    )
 
 
 def _train_single_model(
@@ -162,6 +184,8 @@ def _train_single_model(
                 device=device,
                 train_phase_mode="reset",
                 start_step=0,
+                target_kind=config.target_kind,
+                mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             )
             target_cache[(int(steps), 0)] = target
 
@@ -180,6 +204,8 @@ def _train_single_model(
                 device=device,
                 train_phase_mode=config.train_phase_mode,
                 start_step=train_window_start,
+                target_kind=config.target_kind,
+                mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             )
         model.train()
         optimizer.zero_grad(set_to_none=True)
@@ -211,6 +237,8 @@ def _train_single_model(
             num_steps=config.eval_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
         row = {
@@ -327,6 +355,8 @@ def _build_summary(
             "language_dim": config.language_dim,
             "language_readout_coverage": config.language_readout_coverage,
             "cycle_steps": config.cycle_steps,
+            "target_kind": config.target_kind,
+            "mixed_sin_second_harmonic_amplitude": config.mixed_sin_second_harmonic_amplitude,
             "eval_steps": config.eval_steps,
             "long_steps": config.long_steps,
             "continuous_eval_steps": config.continuous_eval_steps,
@@ -428,6 +458,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             num_steps=config.eval_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
         if reset_eval_enabled
@@ -439,6 +471,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             num_steps=config.long_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
         if reset_eval_enabled
@@ -450,6 +484,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             num_steps=config.eval_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=True,
         )
         if reset_eval_enabled
@@ -461,6 +497,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             num_steps=config.long_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=True,
         )
         if reset_eval_enabled
@@ -472,6 +510,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             num_steps=config.eval_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
         if reset_eval_enabled
@@ -483,6 +523,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             num_steps=config.long_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
         if reset_eval_enabled
@@ -496,6 +538,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             warmup_steps=continuous_warmup_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
         if continuous_eval_enabled
@@ -508,6 +552,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             warmup_steps=continuous_warmup_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=True,
         )
         if continuous_eval_enabled
@@ -520,6 +566,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             warmup_steps=continuous_warmup_steps,
             cycle_steps=config.cycle_steps,
             pulse_value=config.pulse_value,
+            target_kind=config.target_kind,
+            mixed_sin_second_harmonic_amplitude=config.mixed_sin_second_harmonic_amplitude,
             disable_language=False,
         )
         if continuous_eval_enabled

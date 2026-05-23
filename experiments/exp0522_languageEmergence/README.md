@@ -9,7 +9,15 @@ external state register for a feed-forward MLP.
 - The agent never observes phase, time, or target value.
 - The only ordinary input is a constant pulse `x_t = 1`.
 - The full model also receives its previous language signal `m_{t-1}`.
-- At every step the model predicts the current target `sin(phi_t)`.
+- At every step the model predicts the current target waveform.
+
+Supported target kinds:
+
+- `sine`
+  - `sin(phi_t)`
+- `mixed_sin`
+  - `(sin(phi_t) + 0.5 * sin(2 * phi_t)) / 1.5` by default
+  - used to test whether reset-mode training can launch a more complex periodic trajectory without mixing in the harder continuous handoff problem
 
 Config convention:
 
@@ -79,6 +87,23 @@ Example: always train on full 128-step rollouts
 ```yaml
 train:
   fixed_train_steps: 128
+```
+
+## Task Variants
+
+The default config now uses a reset-first mixed-sine target:
+
+```yaml
+task:
+  target_kind: mixed_sin
+  mixed_sin_second_harmonic_amplitude: 0.5
+```
+
+To switch back to the original single-sine target:
+
+```yaml
+task:
+  target_kind: sine
 ```
 
 ## Sequence Modes

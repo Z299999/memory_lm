@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
+import math
 from pathlib import Path
 import shutil
 
@@ -13,7 +14,7 @@ import yaml
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
     "model": ("trunk_dims", "language_dim", "language_readout_coverage"),
-    "task": ("cycle_steps", "pulse_value"),
+    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_second_harmonic_amplitude"),
     "train": (
         "epochs",
         "lr",
@@ -88,6 +89,8 @@ class ExperimentConfig:
     language_dim: int = 4
     language_readout_coverage: int = 1
     cycle_steps: int = 32
+    target_kind: str = "sine"
+    mixed_sin_second_harmonic_amplitude: float = 0.5
     eval_steps: int = 128
     long_steps: int = 512
     continuous_eval_steps: int = 512
@@ -142,7 +145,8 @@ class ExperimentConfig:
         payload["run"]["output_root"] = str(payload["run"]["output_root"])
         payload["resolved"] = {
             "message_init": 0.0,
-            "target": "sin(phi_t)",
+            "target_kind": self.target_kind,
+            "target": _resolved_target_description(self),
             "phase_init": 0.0,
             "omega": omega_from_cycle_steps(self.cycle_steps),
         }
@@ -153,6 +157,16 @@ def omega_from_cycle_steps(cycle_steps: int) -> float:
     import math
 
     return (2.0 * math.pi) / float(cycle_steps)
+
+
+def _resolved_target_description(config: ExperimentConfig) -> str:
+    if config.target_kind == "sine":
+        return "sin(phi_t)"
+    second_amplitude = config.mixed_sin_second_harmonic_amplitude
+    return (
+        f"(sin(phi_t) + {second_amplitude} * sin(2 * phi_t)) / "
+        f"(1 + abs({second_amplitude}))"
+    )
 
 
 def _flatten_user_config(raw: dict[str, object], defaults: ExperimentConfig) -> dict[str, object]:
@@ -226,6 +240,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "weight_decay",
         "grad_clip",
         "pulse_value",
+        "mixed_sin_second_harmonic_amplitude",
         "plot_training_fig_width",
         "plot_training_fig_height",
         "plot_diag_fig_width",
@@ -242,6 +257,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["sequence_mode"] = str(payload["sequence_mode"])
     payload["train_phase_mode"] = str(payload["train_phase_mode"])
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
+    payload["target_kind"] = str(payload["target_kind"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
     payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
     for key in (
@@ -277,8 +293,12 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("language_readout_coverage must be <= language_dim.")
     if payload["cycle_steps"] <= 1:
         raise ValueError("cycle_steps must be greater than 1.")
+    if payload["target_kind"] not in {"sine", "mixed_sin"}:
+        raise ValueError("target_kind must be either 'sine' or 'mixed_sin'.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
         raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
+    if not math.isfinite(payload["mixed_sin_second_harmonic_amplitude"]):
+        raise ValueError("mixed_sin_second_harmonic_amplitude must be finite.")
     if payload["fixed_train_steps"] > payload["long_steps"]:
         raise ValueError("fixed_train_steps must be <= long_steps.")
     if payload["fixed_train_steps"] > payload["continuous_eval_steps"]:
