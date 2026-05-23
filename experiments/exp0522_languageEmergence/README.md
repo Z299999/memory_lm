@@ -67,6 +67,13 @@ For `V1`, the main comparison is different:
 
 This keeps the target, optimizer, rollout length, and continuous-window protocol identical while only changing whether error feedback is available.
 
+By default, the repo now runs the corrected `V1` model alone. Re-enable the historical `V0` comparison only when you explicitly want an ablation:
+
+```yaml
+run:
+  train_v0_comparator: true
+```
+
 ## Quick Start
 
 ```bash
@@ -192,7 +199,7 @@ eval:
 `run.train_baseline` controls whether the no-language baseline is trained at all.
 `run.eval_mute_deaf` controls whether the trained full model is also evaluated
 with the language channel forcibly disabled.
-`run.train_v0_comparator` switches the experiment into the V1 one-run-two-model layout.
+`run.train_v0_comparator` switches the experiment into the V1 one-run-two-model layout. Leave it `false` for the default corrected-only workflow.
 
 ## Offline Collapse Analysis
 
