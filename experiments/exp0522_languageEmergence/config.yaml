@@ -1,10 +1,11 @@
 run:
-  run_name: exp0522_clock_v0   # run folder suffix
+  run_name: exp0522_v1_error_corrected   # run folder suffix
   seed: 42                     # random seed for model init and fixed language readout
   log_every: 100                # print training status every N epochs
   output_root: runs            # where timestamped run folders are created
-  train_baseline: false        # whether to train the no-language baseline model for this run
-  eval_mute_deaf: true         # whether to run full-model mute-deaf evaluation
+  train_baseline: false        # keep false in V1; the main comparator is V0 open-loop, not the no-language baseline
+  eval_mute_deaf: false        # keep false in V1; first version does not run mute-deaf lesions
+  train_v0_comparator: true    # whether to train the same-run V0 comparator [1,m] alongside the V1 primary [1,e,m]
 
 model:
   trunk_dims:
@@ -14,6 +15,7 @@ model:
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
   language_dim: 8              # number of language input/output heads
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
 
 task:
   cycle_steps: 32               # number of steps in one full target cycle
@@ -34,6 +36,8 @@ train:
   train_phase_mode: continuous      # reset or continuous phase progression during training
   # train_phase_mode: reset      # reset or continuous phase progression during training
   message_aux_loss_weight: 1.0  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
+  detach_error_input: true     # whether e_t is detached before being fed into the next step
+  carry_error_between_windows: true # in continuous_window mode, carry the final detached error into the next window
 
 eval:
   eval_steps: 128              # in-distribution evaluation rollout length
@@ -66,9 +70,9 @@ plot:
   plot_prediction_legend_ncols: 4 # legend columns for rollout panels
   plot_error_legend_ncols: 3   # legend columns for the error panel
   plot_message_legend_ncols: 2 # legend columns for message traces
-  plot_training_series: [full_train, full_val] # which curves appear in training_curves.png
-  plot_rollout_series: [target, full] # which curves appear in short and long rollout panels
-  plot_error_series: [full] # which model errors appear in the short-rollout error panel
+  plot_training_series: [full_train, full_val, baseline_train, baseline_val] # in V1 mode these render as v1_error_corrected and v0_open_loop
+  plot_rollout_series: [target, full, baseline] # in V1 mode these render as target, v1_error_corrected, and v0_open_loop
+  plot_error_series: [full, baseline] # in V1 mode these render as v1_error_corrected and v0_open_loop errors
   # plot_training_series: [full_train, full_val, baseline_train, baseline_val] # which curves appear in training_curves.png
   # plot_rollout_series: [target, full, baseline, mute_deaf] # which curves appear in short and long rollout panels
   # plot_error_series: [full, baseline, mute_deaf] # which model errors appear in the short-rollout error panel

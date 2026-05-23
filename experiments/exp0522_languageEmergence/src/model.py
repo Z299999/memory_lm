@@ -115,6 +115,7 @@ class ExternalClockMLP(nn.Module):
         language_dim: int,
         language_readout_coverage: int = 1,
         pulse_dim: int = 1,
+        use_error_input: bool = False,
         use_language: bool = True,
         seed: int = 42,
     ) -> None:
@@ -122,9 +123,11 @@ class ExternalClockMLP(nn.Module):
         self.activation_name = str(activation)
         self.activation = _activation_fn(self.activation_name)
         self.pulse_dim = int(pulse_dim)
+        self.error_dim = 1 if use_error_input else 0
+        self.use_error_input = bool(use_error_input)
         self.language_dim = int(language_dim) if use_language else 0
         self.use_language = bool(use_language)
-        input_dim = self.pulse_dim + self.language_dim
+        input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
 
         self.trunk = nn.ModuleList(
@@ -159,10 +162,13 @@ class ExternalClockMLP(nn.Module):
         *,
         num_steps: int,
         pulse_value: float,
+        target_sequence: torch.Tensor | None = None,
         initial_message: torch.Tensor | None = None,
+        initial_error: torch.Tensor | None = None,
+        detach_error_input: bool = True,
         disable_language: bool = False,
         return_hidden: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
         device = self.output_head.weight.device
         batch_size = 1
         hidden_snapshots: list[torch.Tensor] = []
@@ -182,13 +188,34 @@ class ExternalClockMLP(nn.Module):
         else:
             message_prev = torch.zeros(batch_size, 0, device=device)
         pulse = torch.full((batch_size, self.pulse_dim), float(pulse_value), device=device)
+        if self.use_error_input:
+            if target_sequence is None:
+                raise ValueError("target_sequence is required when use_error_input=True.")
+            if tuple(target_sequence.shape) != (num_steps, 1):
+                raise ValueError(
+                    f"target_sequence must have shape {(num_steps, 1)}, got {tuple(target_sequence.shape)}."
+                )
+            if initial_error is None:
+                error_prev = torch.zeros(batch_size, self.error_dim, device=device)
+            else:
+                if tuple(initial_error.shape) != (batch_size, self.error_dim):
+                    raise ValueError(
+                        f"initial_error must have shape {(batch_size, self.error_dim)}, "
+                        f"got {tuple(initial_error.shape)}."
+                    )
+                error_prev = initial_error.to(device=device)
+            target_sequence = target_sequence.to(device=device)
+        else:
+            error_prev = torch.zeros(batch_size, 0, device=device)
 
-        for _ in range(num_steps):
+        for step_idx in range(num_steps):
+            input_parts = [pulse]
+            if self.use_error_input:
+                input_parts.append(error_prev)
             if self.use_language:
                 language_input = torch.zeros_like(message_prev) if disable_language else message_prev
-                step_input = torch.cat([pulse, language_input], dim=1)
-            else:
-                step_input = pulse
+                input_parts.append(language_input)
+            step_input = torch.cat(input_parts, dim=1)
             hidden = self._step_hidden(step_input)
             y_t = self.output_head(hidden)
             if self.use_language and not disable_language:
@@ -203,7 +230,11 @@ class ExternalClockMLP(nn.Module):
             if return_hidden:
                 hidden_snapshots.append(hidden)
             message_prev = message_t
+            if self.use_error_input:
+                error_t = target_sequence[step_idx : step_idx + 1] - y_t
+                error_prev = error_t.detach() if detach_error_input else error_t
 
         hidden_tensor = torch.cat(hidden_snapshots, dim=0) if return_hidden else None
         final_message = message_prev
-        return torch.cat(outputs, dim=0), torch.cat(messages, dim=0), hidden_tensor, final_message
+        final_error = error_prev
+        return torch.cat(outputs, dim=0), torch.cat(messages, dim=0), hidden_tensor, final_message, final_error

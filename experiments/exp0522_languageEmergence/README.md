@@ -25,11 +25,12 @@ Config convention:
 - `train` defines how windows are used for optimization
 - `eval` defines which rollout lengths and phase modes are measured
 
-The key comparison is:
+The repository currently supports two main experiment styles:
 
-- full language model
-- no-language baseline
-- mute-deaf evaluation of the full model
+- `V0`
+  - open-loop self-talk with `[1, m_{t-1}]`
+- `V1`
+  - error-corrected self-talk with `[1, e_{t-1}, m_{t-1}]`
 
 ## Comparison Groups
 
@@ -56,6 +57,15 @@ So the two main comparisons mean different things:
 
 - `full` vs `mute-deaf`
   - tests whether the trained model is causally using that channel at inference time
+
+For `V1`, the main comparison is different:
+
+- `v1_error_corrected`
+  - closed-loop self-talk with `[1, e_{t-1}, m_{t-1}]`
+- `v0_open_loop`
+  - comparator model with `[1, m_{t-1}]`
+
+This keeps the target, optimizer, rollout length, and continuous-window protocol identical while only changing whether error feedback is available.
 
 ## Quick Start
 
@@ -135,6 +145,15 @@ Supported values:
 - `relu`
 - `leaky_relu`
 
+The primary model can also receive the previous prediction error as a separate input:
+
+```yaml
+model:
+  use_error_input: true
+```
+
+When enabled, the primary model input becomes `[1, e_{t-1}, m_{t-1}]`. The V0 comparator still uses `[1, m_{t-1}]`.
+
 ## Sequence Modes
 
 The experiment now supports two training-state modes:
@@ -154,13 +173,16 @@ Example:
 
 ```yaml
 run:
+  train_v0_comparator: true
   train_baseline: false
-  eval_mute_deaf: true
+  eval_mute_deaf: false
 
 train:
   sequence_mode: continuous_window
   fixed_train_steps: 32
   train_phase_mode: continuous
+  detach_error_input: true
+  carry_error_between_windows: true
 
 eval:
   eval_phase_mode: both
@@ -170,6 +192,7 @@ eval:
 `run.train_baseline` controls whether the no-language baseline is trained at all.
 `run.eval_mute_deaf` controls whether the trained full model is also evaluated
 with the language channel forcibly disabled.
+`run.train_v0_comparator` switches the experiment into the V1 one-run-two-model layout.
 
 ## Offline Collapse Analysis
 
@@ -183,12 +206,17 @@ analysis:
   checkpoint_epochs: [1, 10, 50, 100, 500, 1000]
 ```
 
-When enabled, the full model saves milestone checkpoints during training:
+When enabled, the primary analyzed model saves milestone checkpoints during training:
 
 - `checkpoints/full_language_epoch_0001.pt`
 - `checkpoints/full_language_epoch_0010.pt`
 - ...
 - `checkpoints/full_language_final.pt`
+
+In V1 mode the corresponding files are:
+
+- `checkpoints/v1_error_corrected_epoch_0001.pt`
+- `checkpoints/v1_error_corrected_final.pt`
 
 The offline analyzer replays those checkpoints on one fixed `continuous_eval` stream and writes:
 
@@ -196,6 +224,14 @@ The offline analyzer replays those checkpoints on one fixed `continuous_eval` st
 - `analysis/continuous_collapse/collapse_metrics.png`
 - `analysis/continuous_collapse/checkpoint_rollouts.png`
 - `analysis/continuous_collapse/snapshots/*.json`
+
+To analyze a non-default checkpoint family explicitly, pass `--model-name`, for example:
+
+```bash
+python3 analyze_continuous_collapse.py \
+  --run-dir runs/20260522/20260522_232044_smoke_v1_error_input \
+  --model-name v0_open_loop
+```
 
 The four core collapse metrics are:
 
@@ -213,16 +249,19 @@ for example `runs/20260522/20260522_173059_exp0522_clock_v0/`, containing:
 - `resolved_config.json`
 - `metrics/`
   - `summary.json`
-  - `history_full_language.json`
-  - `history_no_language.json`
+  - `history_full_language.json` or `history_v1_error_corrected.json`
+  - `history_no_language.json` or `history_v0_open_loop.json`
   - `eval_rollout.csv`
   - `long_rollout.csv`
   - `reset_eval_rollout.csv`
   - `reset_long_rollout.csv`
   - `continuous_eval_rollout.csv` when continuous evaluation is enabled
 - `checkpoints/`
-  - `full_language_epoch_0001.pt`, etc. when continuous-collapse checkpointing is enabled
+  - `full_language_epoch_0001.pt`, etc. for V0-style runs when continuous-collapse checkpointing is enabled
   - `full_language_final.pt`
+  - `v1_error_corrected_epoch_0001.pt`, etc. for V1 comparator runs
+  - `v1_error_corrected_final.pt`
+  - `v0_open_loop_final.pt`
 - `plots/`
 - `analysis/continuous_collapse/` after running the offline analyzer
 

@@ -23,6 +23,12 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Path to a completed exp0522 run directory.",
     )
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default=None,
+        help="Optional checkpoint prefix to analyze, e.g. v1_error_corrected or v0_open_loop.",
+    )
     return parser.parse_args()
 
 
@@ -39,7 +45,10 @@ def main() -> None:
     from collapse_analysis import analyze_continuous_collapse
 
     args = parse_args()
-    result = analyze_continuous_collapse(Path(args.run_dir).expanduser())
+    result = analyze_continuous_collapse(
+        Path(args.run_dir).expanduser(),
+        model_name=args.model_name,
+    )
     print(result["analysis_dir"])
     print(result["metrics_path"])
 

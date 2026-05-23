@@ -96,6 +96,8 @@ def plot_training_curves(
     baseline_history: list[dict[str, float]] | None,
     output_path: Path,
     config: ExperimentConfig,
+    full_label: str = "full",
+    baseline_label: str = "baseline",
 ) -> None:
     fig, ax = plt.subplots(
         figsize=(config.plot_training_fig_width, config.plot_training_fig_height),
@@ -110,10 +112,14 @@ def plot_training_curves(
         history = histories[history_key]
         if history is None:
             continue
+        if history_key == "full":
+            display_label = label.replace("full", full_label, 1)
+        else:
+            display_label = label.replace("baseline", baseline_label, 1)
         ax.plot(
             epochs,
             [row[metric_key] for row in history],
-            label=label,
+            label=display_label,
             linewidth=_linewidth(config, width_kind),
         )
     ax.set_yscale("log")
@@ -140,6 +146,9 @@ def plot_rollout_diagnostics(
     continuous_long_mute_deaf: dict[str, Any] | None,
     output_path: Path,
     config: ExperimentConfig,
+    full_label: str = "full",
+    baseline_label: str = "baseline",
+    mute_label: str = "mute_deaf",
 ) -> None:
     short_full = _slice_rollout(short_full, config.plot_short_steps)
     short_baseline = _slice_rollout(short_baseline, config.plot_short_steps)
@@ -195,10 +204,18 @@ def plot_rollout_diagnostics(
         if rollout_predictions[series_name] is None:
             continue
         label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
+        if series_name == "full":
+            display_label = full_label
+        elif series_name == "baseline":
+            display_label = baseline_label
+        elif series_name == "mute_deaf":
+            display_label = mute_label
+        else:
+            display_label = label
         short_axis.plot(
             short_steps,
             rollout_predictions[series_name],
-            label=label,
+            label=display_label,
             color=config.plot_target_color if series_name == "target" else color,
             linestyle=_linestyle(config, width_kind),
             linewidth=_linewidth(config, width_kind),
@@ -219,10 +236,18 @@ def plot_rollout_diagnostics(
         if long_predictions[series_name] is None:
             continue
         label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
+        if series_name == "full":
+            display_label = full_label
+        elif series_name == "baseline":
+            display_label = baseline_label
+        elif series_name == "mute_deaf":
+            display_label = mute_label
+        else:
+            display_label = label
         long_axis.plot(
             long_steps,
             long_predictions[series_name],
-            label=label,
+            label=display_label,
             color=config.plot_target_color if series_name == "target" else color,
             linestyle=_linestyle(config, width_kind),
             linewidth=_linewidth(config, width_kind),
@@ -246,10 +271,18 @@ def plot_rollout_diagnostics(
             if continuous_predictions[series_name] is None:
                 continue
             label, _, color, width_kind = _ROLLOUT_SERIES_SPECS[series_name]
+            if series_name == "full":
+                display_label = full_label
+            elif series_name == "baseline":
+                display_label = baseline_label
+            elif series_name == "mute_deaf":
+                display_label = mute_label
+            else:
+                display_label = label
             continuous_axis.plot(
                 continuous_steps,
                 continuous_predictions[series_name],
-                label=label,
+                label=display_label,
                 color=config.plot_target_color if series_name == "target" else color,
                 linestyle=_linestyle(config, width_kind),
                 linewidth=_linewidth(config, width_kind),
@@ -271,10 +304,16 @@ def plot_rollout_diagnostics(
             if error_rollouts[series_name] is None:
                 continue
             label, prediction_key, width_kind = _ERROR_SERIES_SPECS[series_name]
+            if series_name == "full":
+                display_label = label.replace("full", full_label, 1)
+            elif series_name == "baseline":
+                display_label = label.replace("baseline", baseline_label, 1)
+            else:
+                display_label = label.replace("mute_deaf", mute_label, 1)
             error_axis.plot(
                 error_steps,
                 error_rollouts[series_name][prediction_key].numpy() - error_target,
-                label=label,
+                label=display_label,
                 linewidth=_linewidth(config, width_kind),
             )
         error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)

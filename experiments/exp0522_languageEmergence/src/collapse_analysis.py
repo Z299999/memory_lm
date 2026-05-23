@@ -30,21 +30,33 @@ def _load_resolved_config(run_dir: Path) -> ExperimentConfig:
     return config_from_user_dict(payload)
 
 
-def _build_full_model(config: ExperimentConfig) -> ExternalClockMLP:
+def _build_model(config: ExperimentConfig, model_name: str) -> ExternalClockMLP:
+    use_error_input = config.use_error_input if model_name != "v0_open_loop" else False
     return ExternalClockMLP(
         trunk_dims=config.trunk_dims,
         activation=config.activation,
         language_dim=config.language_dim,
         language_readout_coverage=config.language_readout_coverage,
+        use_error_input=use_error_input,
         use_language=True,
         seed=config.seed,
     )
 
 
-def _checkpoint_records(run_dir: Path) -> list[dict[str, Any]]:
+def _resolve_model_name(run_dir: Path, requested_model_name: str | None) -> str:
+    if requested_model_name:
+        return requested_model_name
+    ckpt_dir = run_dir / "checkpoints"
+    for candidate in ("v1_error_corrected", "full_language", "v0_open_loop"):
+        if (ckpt_dir / f"{candidate}_final.pt").exists() or (ckpt_dir / f"{candidate}.pt").exists():
+            return candidate
+    raise FileNotFoundError(f"No known model checkpoints found in {ckpt_dir}.")
+
+
+def _checkpoint_records(run_dir: Path, model_name: str) -> list[dict[str, Any]]:
     ckpt_dir = run_dir / "checkpoints"
     records: list[dict[str, Any]] = []
-    for ckpt_path in sorted(ckpt_dir.glob("full_language_epoch_*.pt")):
+    for ckpt_path in sorted(ckpt_dir.glob(f"{model_name}_epoch_*.pt")):
         stem = ckpt_path.stem
         epoch = int(stem.rsplit("_", 1)[-1])
         records.append(
@@ -55,7 +67,7 @@ def _checkpoint_records(run_dir: Path) -> list[dict[str, Any]]:
                 "is_final": False,
             }
         )
-    final_path = ckpt_dir / "full_language_final.pt"
+    final_path = ckpt_dir / f"{model_name}_final.pt"
     if final_path.exists():
         final_payload = torch.load(final_path, map_location="cpu")
         final_epoch = int(final_payload.get("metadata", {}).get("epoch", -1))
@@ -68,6 +80,19 @@ def _checkpoint_records(run_dir: Path) -> list[dict[str, Any]]:
                 "is_final": True,
             }
         )
+    elif not records:
+        legacy_path = ckpt_dir / f"{model_name}.pt"
+        if legacy_path.exists():
+            legacy_payload = torch.load(legacy_path, map_location="cpu")
+            legacy_epoch = int(legacy_payload.get("metadata", {}).get("epoch", -1))
+            records.append(
+                {
+                    "epoch": legacy_epoch,
+                    "label": "final",
+                    "path": legacy_path,
+                    "is_final": True,
+                }
+            )
     return sorted(records, key=lambda record: (record["epoch"], record["is_final"]))
 
 
@@ -139,6 +164,7 @@ def _plot_checkpoint_rollouts(
     output_path: Path,
     checkpoint_entries: list[dict[str, Any]],
     config: ExperimentConfig,
+    model_name: str,
 ) -> None:
     nrows = len(checkpoint_entries)
     pred_steps = min(config.plot_long_steps, config.continuous_eval_steps)
@@ -168,7 +194,7 @@ def _plot_checkpoint_rollouts(
             pred_x,
             result["prediction"][:pred_steps].numpy(),
             linewidth=config.plot_series_linewidth,
-            label="full",
+            label=model_name,
         )
         pred_axis.set_title(f"{entry['label']} prediction", fontsize=11)
         pred_axis.set_xlabel("Global Step")
@@ -195,21 +221,26 @@ def _plot_checkpoint_rollouts(
     plt.close(fig)
 
 
-def analyze_continuous_collapse(run_dir: Path) -> dict[str, Any]:
+def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None) -> dict[str, Any]:
     run_dir = run_dir.resolve()
     config = _load_resolved_config(run_dir)
-    checkpoint_entries = _checkpoint_records(run_dir)
+    default_model_name = _resolve_model_name(run_dir, None)
+    resolved_model_name = _resolve_model_name(run_dir, model_name)
+    checkpoint_entries = _checkpoint_records(run_dir, resolved_model_name)
     if not checkpoint_entries:
-        raise FileNotFoundError(f"No full_language checkpoints found in {run_dir / 'checkpoints'}.")
+        raise FileNotFoundError(f"No checkpoints found for {resolved_model_name!r} in {run_dir / 'checkpoints'}.")
 
-    analysis_dir = run_dir / "analysis" / "continuous_collapse"
+    if model_name is None or resolved_model_name == default_model_name:
+        analysis_dir = run_dir / "analysis" / "continuous_collapse"
+    else:
+        analysis_dir = run_dir / "analysis" / f"continuous_collapse_{resolved_model_name}"
     snapshots_dir = analysis_dir / "snapshots"
     snapshots_dir.mkdir(parents=True, exist_ok=True)
 
     analyzed_entries: list[dict[str, Any]] = []
     for record in checkpoint_entries:
         checkpoint_payload = torch.load(record["path"], map_location="cpu")
-        model = _build_full_model(config)
+        model = _build_model(config, resolved_model_name)
         model.load_state_dict(checkpoint_payload["model_state_dict"])
         model.eval()
         rollout = _evaluate_continuous_stream(
@@ -220,6 +251,7 @@ def analyze_continuous_collapse(run_dir: Path) -> dict[str, Any]:
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
         )
         metrics = _rollout_metrics(rollout)
@@ -245,10 +277,12 @@ def analyze_continuous_collapse(run_dir: Path) -> dict[str, Any]:
         output_path=analysis_dir / "checkpoint_rollouts.png",
         checkpoint_entries=analyzed_entries,
         config=config,
+        model_name=resolved_model_name,
     )
 
     metrics_payload = {
         "analysis_kind": "continuous_collapse",
+        "model_name": resolved_model_name,
         "analysis_config": {
             "continuous_eval_steps": config.continuous_eval_steps,
             "warmup_steps": config.fixed_train_steps,

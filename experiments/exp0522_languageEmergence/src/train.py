@@ -61,6 +61,8 @@ def _evaluate_rollout(
     mixed_sin_components: tuple[tuple[float, float], ...],
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
+    initial_error: torch.Tensor | None = None,
+    detach_error_input: bool = True,
     disable_language: bool = False,
 ) -> dict[str, Any]:
     model.eval()
@@ -74,10 +76,13 @@ def _evaluate_rollout(
             target_kind=target_kind,
             mixed_sin_components=mixed_sin_components,
         )
-        prediction, messages, hidden, final_message = model.rollout(
+        prediction, messages, hidden, final_message, final_error = model.rollout(
             num_steps=num_steps,
             pulse_value=pulse_value,
+            target_sequence=target,
             initial_message=initial_message,
+            initial_error=initial_error,
+            detach_error_input=detach_error_input,
             disable_language=disable_language,
             return_hidden=True,
         )
@@ -93,6 +98,7 @@ def _evaluate_rollout(
         "message_norm": message_norm.cpu(),
         "hidden": hidden.cpu() if hidden is not None else None,
         "final_message": final_message.cpu(),
+        "final_error": final_error.cpu(),
         "start_step": int(start_step),
     }
 
@@ -106,21 +112,36 @@ def _evaluate_continuous_stream(
     pulse_value: float,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
+    detach_error_input: bool = True,
     disable_language: bool = False,
 ) -> dict[str, Any]:
     device = next(model.parameters()).device
     initial_message = None
+    initial_error = None
     if warmup_steps > 0:
         with torch.no_grad():
-            _prediction, _messages, _hidden, final_message = model.rollout(
+            _warmup_phase, warmup_target = build_rollout_targets(
+                warmup_steps,
+                cycle_steps,
+                device,
+                start_step=0,
+                target_kind=target_kind,
+                mixed_sin_components=mixed_sin_components,
+            )
+            _prediction, _messages, _hidden, final_message, final_error = model.rollout(
                 num_steps=warmup_steps,
                 pulse_value=pulse_value,
+                target_sequence=warmup_target,
                 initial_message=None,
+                initial_error=None,
+                detach_error_input=detach_error_input,
                 disable_language=disable_language,
                 return_hidden=False,
             )
             if model.use_language:
                 initial_message = final_message.detach()
+            if model.use_error_input:
+                initial_error = final_error.detach()
 
     return _evaluate_rollout(
         model,
@@ -131,6 +152,8 @@ def _evaluate_continuous_stream(
         mixed_sin_components=mixed_sin_components,
         start_step=warmup_steps,
         initial_message=initial_message,
+        initial_error=initial_error,
+        detach_error_input=detach_error_input,
         disable_language=disable_language,
     )
 
@@ -200,6 +223,7 @@ def _train_single_model(
     history: list[dict[str, float]] = []
     train_time_cursor = 0
     train_message_state: torch.Tensor | None = None
+    train_error_state: torch.Tensor | None = None
     for epoch in range(1, config.epochs + 1):
         effective_steps = int(config.fixed_train_steps)
         train_window_start = train_time_cursor if config.train_phase_mode == "continuous" else 0
@@ -217,10 +241,13 @@ def _train_single_model(
             )
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        prediction, messages, _hidden, final_message = model.rollout(
+        prediction, messages, _hidden, final_message, final_error = model.rollout(
             num_steps=effective_steps,
             pulse_value=config.pulse_value,
+            target_sequence=train_target,
             initial_message=train_message_state,
+            initial_error=train_error_state,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
             return_hidden=False,
         )
@@ -242,10 +269,13 @@ def _train_single_model(
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
             )
-            aux_pred, _, _, _ = model.rollout(
+            aux_pred, _, _, _, _ = model.rollout(
                 num_steps=1,
                 pulse_value=config.pulse_value,
+                target_sequence=aux_target,
                 initial_message=final_message,
+                initial_error=final_error,
+                detach_error_input=config.detach_error_input,
                 disable_language=False,
                 return_hidden=False,
             )
@@ -266,6 +296,10 @@ def _train_single_model(
             train_message_state = None
         else:
             train_message_state = None
+        if config.sequence_mode == "continuous_window" and model.use_error_input and config.carry_error_between_windows:
+            train_error_state = final_error.detach()
+        else:
+            train_error_state = None
 
         if config.train_phase_mode == "continuous":
             train_time_cursor += effective_steps
@@ -277,6 +311,7 @@ def _train_single_model(
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
         )
         row = {
@@ -334,19 +369,22 @@ def _save_rollout_csv(
     baseline_eval: dict[str, Any] | None,
     mute_deaf_eval: dict[str, Any] | None,
     language_dim: int,
+    normal_column_label: str = "full_prediction",
+    baseline_column_label: str = "baseline_prediction",
+    mute_column_label: str = "mute_deaf_prediction",
 ) -> None:
     header = [
         "step",
         "global_step",
         "phase",
         "target",
-        "full_prediction",
+        normal_column_label,
         "message_norm",
     ]
     if baseline_eval is not None:
-        header.append("baseline_prediction")
+        header.append(baseline_column_label)
     if mute_deaf_eval is not None:
-        header.append("mute_deaf_prediction")
+        header.append(mute_column_label)
     header.extend([f"message_{idx}" for idx in range(language_dim)])
 
     rows = [header]
@@ -371,6 +409,88 @@ def _save_rollout_csv(
             )
         rows.append(row)
     output_path.write_text("\n".join(",".join(str(value) for value in row) for row in rows))
+
+
+def _build_v1_summary(
+    *,
+    config: ExperimentConfig,
+    v1_history: list[dict[str, float]],
+    v0_history: list[dict[str, float]],
+    v1_reset_eval: dict[str, Any] | None,
+    v1_reset_long: dict[str, Any] | None,
+    v1_continuous_eval: dict[str, Any] | None,
+    v0_reset_eval: dict[str, Any] | None,
+    v0_reset_long: dict[str, Any] | None,
+    v0_continuous_eval: dict[str, Any] | None,
+) -> dict[str, Any]:
+    def _mse(result: dict[str, Any] | None) -> float | None:
+        return None if result is None else float(result["mse"])
+
+    def _gap(v0_result: dict[str, Any] | None, v1_result: dict[str, Any] | None) -> float | None:
+        if v0_result is None or v1_result is None:
+            return None
+        return float(v0_result["mse"] - v1_result["mse"])
+
+    def _better(v1_result: dict[str, Any] | None, v0_result: dict[str, Any] | None) -> bool | None:
+        if v0_result is None or v1_result is None:
+            return None
+        return bool(v1_result["mse"] < v0_result["mse"])
+
+    return {
+        "config": {
+            "run_name": config.run_name,
+            "train_v0_comparator": config.train_v0_comparator,
+            "train_baseline": config.train_baseline,
+            "eval_mute_deaf": config.eval_mute_deaf,
+            "epochs": config.epochs,
+            "sequence_mode": config.sequence_mode,
+            "fixed_train_steps": config.fixed_train_steps,
+            "message_aux_loss_weight": config.message_aux_loss_weight,
+            "detach_error_input": config.detach_error_input,
+            "carry_error_between_windows": config.carry_error_between_windows,
+            "trunk_dims": list(config.trunk_dims),
+            "activation": config.activation,
+            "language_dim": config.language_dim,
+            "language_readout_coverage": config.language_readout_coverage,
+            "use_error_input": config.use_error_input,
+            "cycle_steps": config.cycle_steps,
+            "target_kind": config.target_kind,
+            "mixed_sin_components": [list(c) for c in config.mixed_sin_components],
+            "eval_steps": config.eval_steps,
+            "long_steps": config.long_steps,
+            "continuous_eval_steps": config.continuous_eval_steps,
+            "enable_continuous_collapse": config.enable_continuous_collapse,
+            "checkpoint_epochs": list(config.checkpoint_epochs),
+            "pulse_value": config.pulse_value,
+            "train_phase_mode": config.train_phase_mode,
+            "eval_phase_mode": config.eval_phase_mode,
+            "seed": config.seed,
+        },
+        "v1_error_corrected": {
+            "final_train_mse": float(v1_history[-1]["train_loss"]),
+            "final_val_mse": float(v1_history[-1]["val_loss"]),
+            "reset_eval_mse": _mse(v1_reset_eval),
+            "reset_long_mse": _mse(v1_reset_long),
+            "continuous_eval_mse": _mse(v1_continuous_eval),
+        },
+        "v0_open_loop": {
+            "final_train_mse": float(v0_history[-1]["train_loss"]),
+            "final_val_mse": float(v0_history[-1]["val_loss"]),
+            "reset_eval_mse": _mse(v0_reset_eval),
+            "reset_long_mse": _mse(v0_reset_long),
+            "continuous_eval_mse": _mse(v0_continuous_eval),
+        },
+        "comparisons": {
+            "reset_eval_gap_vs_v0": _gap(v0_reset_eval, v1_reset_eval),
+            "reset_long_gap_vs_v0": _gap(v0_reset_long, v1_reset_long),
+            "continuous_eval_gap_vs_v0": _gap(v0_continuous_eval, v1_continuous_eval),
+        },
+        "success_checks": {
+            "better_than_v0_reset_eval": _better(v1_reset_eval, v0_reset_eval),
+            "better_than_v0_reset_long": _better(v1_reset_long, v0_reset_long),
+            "better_than_v0_continuous_eval": _better(v1_continuous_eval, v0_continuous_eval),
+        },
+    }
 
 
 def _build_summary(
@@ -406,14 +526,18 @@ def _build_summary(
             "run_name": config.run_name,
             "train_baseline": config.train_baseline,
             "eval_mute_deaf": config.eval_mute_deaf,
+            "train_v0_comparator": config.train_v0_comparator,
             "epochs": config.epochs,
             "sequence_mode": config.sequence_mode,
             "fixed_train_steps": config.fixed_train_steps,
             "message_aux_loss_weight": config.message_aux_loss_weight,
+            "detach_error_input": config.detach_error_input,
+            "carry_error_between_windows": config.carry_error_between_windows,
             "trunk_dims": list(config.trunk_dims),
             "activation": config.activation,
             "language_dim": config.language_dim,
             "language_readout_coverage": config.language_readout_coverage,
+            "use_error_input": config.use_error_input,
             "cycle_steps": config.cycle_steps,
             "target_kind": config.target_kind,
             "mixed_sin_components": [list(c) for c in config.mixed_sin_components],
@@ -482,11 +606,269 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
 
     device = torch.device("cpu")
 
+    reset_eval_enabled = config.eval_phase_mode in {"reset", "both"}
+    continuous_eval_enabled = config.eval_phase_mode in {"continuous", "both"}
+    continuous_warmup_steps = config.fixed_train_steps
+
+    if config.train_v0_comparator:
+        v1_model = ExternalClockMLP(
+            trunk_dims=config.trunk_dims,
+            activation=config.activation,
+            language_dim=config.language_dim,
+            language_readout_coverage=config.language_readout_coverage,
+            use_error_input=config.use_error_input,
+            use_language=True,
+            seed=config.seed,
+        ).to(device)
+        v0_model = ExternalClockMLP(
+            trunk_dims=config.trunk_dims,
+            activation=config.activation,
+            language_dim=config.language_dim,
+            language_readout_coverage=config.language_readout_coverage,
+            use_error_input=False,
+            use_language=True,
+            seed=config.seed,
+        ).to(device)
+
+        v1_result = _train_single_model(
+            model_name="v1_error_corrected",
+            model=v1_model,
+            config=config,
+            device=device,
+            checkpoint_dir=ckpt_dir,
+            checkpoint_epochs=_analysis_checkpoint_epochs(config),
+        )
+        v0_result = _train_single_model(
+            model_name="v0_open_loop",
+            model=v0_model,
+            config=config,
+            device=device,
+        )
+
+        v1_reset_eval = (
+            _evaluate_rollout(
+                v1_result["model"],
+                num_steps=config.eval_steps,
+                cycle_steps=config.cycle_steps,
+                pulse_value=config.pulse_value,
+                target_kind=config.target_kind,
+                mixed_sin_components=config.mixed_sin_components,
+                detach_error_input=config.detach_error_input,
+                disable_language=False,
+            )
+            if reset_eval_enabled
+            else None
+        )
+        v1_reset_long = (
+            _evaluate_rollout(
+                v1_result["model"],
+                num_steps=config.long_steps,
+                cycle_steps=config.cycle_steps,
+                pulse_value=config.pulse_value,
+                target_kind=config.target_kind,
+                mixed_sin_components=config.mixed_sin_components,
+                detach_error_input=config.detach_error_input,
+                disable_language=False,
+            )
+            if reset_eval_enabled
+            else None
+        )
+        v1_continuous_eval = (
+            _evaluate_continuous_stream(
+                v1_result["model"],
+                measured_steps=config.continuous_eval_steps,
+                warmup_steps=continuous_warmup_steps,
+                cycle_steps=config.cycle_steps,
+                pulse_value=config.pulse_value,
+                target_kind=config.target_kind,
+                mixed_sin_components=config.mixed_sin_components,
+                detach_error_input=config.detach_error_input,
+                disable_language=False,
+            )
+            if continuous_eval_enabled
+            else None
+        )
+
+        v0_reset_eval = (
+            _evaluate_rollout(
+                v0_result["model"],
+                num_steps=config.eval_steps,
+                cycle_steps=config.cycle_steps,
+                pulse_value=config.pulse_value,
+                target_kind=config.target_kind,
+                mixed_sin_components=config.mixed_sin_components,
+                detach_error_input=config.detach_error_input,
+                disable_language=False,
+            )
+            if reset_eval_enabled
+            else None
+        )
+        v0_reset_long = (
+            _evaluate_rollout(
+                v0_result["model"],
+                num_steps=config.long_steps,
+                cycle_steps=config.cycle_steps,
+                pulse_value=config.pulse_value,
+                target_kind=config.target_kind,
+                mixed_sin_components=config.mixed_sin_components,
+                detach_error_input=config.detach_error_input,
+                disable_language=False,
+            )
+            if reset_eval_enabled
+            else None
+        )
+        v0_continuous_eval = (
+            _evaluate_continuous_stream(
+                v0_result["model"],
+                measured_steps=config.continuous_eval_steps,
+                warmup_steps=continuous_warmup_steps,
+                cycle_steps=config.cycle_steps,
+                pulse_value=config.pulse_value,
+                target_kind=config.target_kind,
+                mixed_sin_components=config.mixed_sin_components,
+                detach_error_input=config.detach_error_input,
+                disable_language=False,
+            )
+            if continuous_eval_enabled
+            else None
+        )
+
+        _write_json(metrics_dir / "history_v1_error_corrected.json", _to_serializable_history(v1_result["history"]))
+        _write_json(metrics_dir / "history_v0_open_loop.json", _to_serializable_history(v0_result["history"]))
+
+        if v1_reset_eval is not None and v0_reset_eval is not None:
+            _save_rollout_csv(
+                output_path=metrics_dir / "reset_eval_rollout.csv",
+                normal_eval=v1_reset_eval,
+                baseline_eval=v0_reset_eval,
+                mute_deaf_eval=None,
+                language_dim=config.language_dim,
+                normal_column_label="v1_error_corrected_prediction",
+                baseline_column_label="v0_open_loop_prediction",
+            )
+            _save_rollout_csv(
+                output_path=metrics_dir / "eval_rollout.csv",
+                normal_eval=v1_reset_eval,
+                baseline_eval=v0_reset_eval,
+                mute_deaf_eval=None,
+                language_dim=config.language_dim,
+                normal_column_label="v1_error_corrected_prediction",
+                baseline_column_label="v0_open_loop_prediction",
+            )
+        if v1_reset_long is not None and v0_reset_long is not None:
+            _save_rollout_csv(
+                output_path=metrics_dir / "reset_long_rollout.csv",
+                normal_eval=v1_reset_long,
+                baseline_eval=v0_reset_long,
+                mute_deaf_eval=None,
+                language_dim=config.language_dim,
+                normal_column_label="v1_error_corrected_prediction",
+                baseline_column_label="v0_open_loop_prediction",
+            )
+            _save_rollout_csv(
+                output_path=metrics_dir / "long_rollout.csv",
+                normal_eval=v1_reset_long,
+                baseline_eval=v0_reset_long,
+                mute_deaf_eval=None,
+                language_dim=config.language_dim,
+                normal_column_label="v1_error_corrected_prediction",
+                baseline_column_label="v0_open_loop_prediction",
+            )
+        if v1_continuous_eval is not None and v0_continuous_eval is not None:
+            _save_rollout_csv(
+                output_path=metrics_dir / "continuous_eval_rollout.csv",
+                normal_eval=v1_continuous_eval,
+                baseline_eval=v0_continuous_eval,
+                mute_deaf_eval=None,
+                language_dim=config.language_dim,
+                normal_column_label="v1_error_corrected_prediction",
+                baseline_column_label="v0_open_loop_prediction",
+            )
+
+        plot_training_curves(
+            full_history=v1_result["history"],
+            baseline_history=v0_result["history"],
+            output_path=plots_dir / "training_curves.png",
+            config=config,
+            full_label="v1_error_corrected",
+            baseline_label="v0_open_loop",
+        )
+        plot_rollout_diagnostics(
+            short_full=v1_reset_eval or v1_continuous_eval,
+            short_baseline=v0_reset_eval or v0_continuous_eval,
+            short_mute_deaf=None,
+            long_full=v1_reset_long or v1_continuous_eval,
+            long_baseline=v0_reset_long or v0_continuous_eval,
+            long_mute_deaf=None,
+            continuous_long_full=v1_continuous_eval,
+            continuous_long_baseline=v0_continuous_eval,
+            continuous_long_mute_deaf=None,
+            output_path=plots_dir / "rollout_diagnostics.png",
+            config=config,
+            full_label="v1_error_corrected",
+            baseline_label="v0_open_loop",
+        )
+
+        v1_final_metadata = {
+            "config": config.to_resolved_dict(),
+            "model_name": "v1_error_corrected",
+            "epoch": int(config.epochs),
+            "checkpoint_kind": "final",
+        }
+        _save_checkpoint(
+            v1_result["model"],
+            ckpt_dir / "v1_error_corrected_final.pt",
+            metadata=v1_final_metadata,
+        )
+        _save_checkpoint(
+            v1_result["model"],
+            ckpt_dir / "v1_error_corrected.pt",
+            metadata=v1_final_metadata,
+        )
+        v0_final_metadata = {
+            "config": config.to_resolved_dict(),
+            "model_name": "v0_open_loop",
+            "epoch": int(config.epochs),
+            "checkpoint_kind": "final",
+        }
+        _save_checkpoint(
+            v0_result["model"],
+            ckpt_dir / "v0_open_loop_final.pt",
+            metadata=v0_final_metadata,
+        )
+        _save_checkpoint(
+            v0_result["model"],
+            ckpt_dir / "v0_open_loop.pt",
+            metadata=v0_final_metadata,
+        )
+
+        summary = _build_v1_summary(
+            config=config,
+            v1_history=v1_result["history"],
+            v0_history=v0_result["history"],
+            v1_reset_eval=v1_reset_eval,
+            v1_reset_long=v1_reset_long,
+            v1_continuous_eval=v1_continuous_eval,
+            v0_reset_eval=v0_reset_eval,
+            v0_reset_long=v0_reset_long,
+            v0_continuous_eval=v0_continuous_eval,
+        )
+        _write_json(metrics_dir / "summary.json", summary)
+
+        print("Final summary:")
+        print(json.dumps(summary, indent=2))
+
+        return {
+            "run_dir": str(run_dir),
+            "summary": summary,
+        }
+
     full_model = ExternalClockMLP(
         trunk_dims=config.trunk_dims,
         activation=config.activation,
         language_dim=config.language_dim,
         language_readout_coverage=config.language_readout_coverage,
+        use_error_input=config.use_error_input,
         use_language=True,
         seed=config.seed,
     ).to(device)
@@ -506,6 +888,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             activation=config.activation,
             language_dim=config.language_dim,
             language_readout_coverage=config.language_readout_coverage,
+            use_error_input=False,
             use_language=False,
             seed=config.seed,
         ).to(device)
@@ -516,10 +899,6 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             device=device,
         )
 
-    reset_eval_enabled = config.eval_phase_mode in {"reset", "both"}
-    continuous_eval_enabled = config.eval_phase_mode in {"continuous", "both"}
-    continuous_warmup_steps = config.fixed_train_steps
-
     full_reset_eval = (
         _evaluate_rollout(
             full_result["model"],
@@ -528,6 +907,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
         )
         if reset_eval_enabled
@@ -541,6 +921,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
         )
         if reset_eval_enabled
@@ -554,6 +935,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=True,
         )
         if reset_eval_enabled and config.eval_mute_deaf
@@ -567,6 +949,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=True,
         )
         if reset_eval_enabled and config.eval_mute_deaf
@@ -580,6 +963,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
         )
         if reset_eval_enabled and baseline_result is not None
@@ -593,6 +977,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
         )
         if reset_eval_enabled and baseline_result is not None
@@ -608,6 +993,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
         )
         if continuous_eval_enabled
@@ -622,6 +1008,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=True,
         )
         if continuous_eval_enabled and config.eval_mute_deaf
@@ -636,6 +1023,7 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            detach_error_input=config.detach_error_input,
             disable_language=False,
         )
         if continuous_eval_enabled and baseline_result is not None
