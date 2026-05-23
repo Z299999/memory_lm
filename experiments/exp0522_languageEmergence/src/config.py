@@ -64,6 +64,9 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_error_series",
         "plot_show_message_traces",
         "plot_show_message_norm",
+        "plot_show_training_timeline",
+        "plot_training_timeline_num_panels",
+        "plot_training_timeline_window_steps",
     ),
 }
 
@@ -147,6 +150,9 @@ class ExperimentConfig:
     plot_error_series: tuple[str, ...] = ("full", "baseline", "mute_deaf")
     plot_show_message_traces: bool = True
     plot_show_message_norm: bool = True
+    plot_show_training_timeline: bool = True
+    plot_training_timeline_num_panels: int = 6
+    plot_training_timeline_window_steps: int = 200
 
     def to_user_dict(self) -> dict[str, object]:
         flat = asdict(self)
@@ -249,6 +255,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_prediction_legend_ncols",
         "plot_error_legend_ncols",
         "plot_message_legend_ncols",
+        "plot_training_timeline_num_panels",
+        "plot_training_timeline_window_steps",
     ):
         payload[key] = int(payload[key])
     for key in (
@@ -301,6 +309,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "force_zero_error_input",
         "plot_show_message_traces",
         "plot_show_message_norm",
+        "plot_show_training_timeline",
     ):
         value = payload[key]
         if not isinstance(value, bool):
@@ -404,6 +413,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("plot_error_steps must be <= eval_steps.")
     if payload["plot_message_steps"] > payload["eval_steps"]:
         raise ValueError("plot_message_steps must be <= eval_steps.")
+    if payload["plot_training_timeline_num_panels"] <= 0:
+        raise ValueError("plot_training_timeline_num_panels must be positive.")
+    if payload["plot_training_timeline_window_steps"] <= 0:
+        raise ValueError("plot_training_timeline_window_steps must be positive.")
     allowed_training_series = {
         "full_train",
         "full_val",

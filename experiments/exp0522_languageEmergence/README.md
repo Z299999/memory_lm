@@ -262,6 +262,7 @@ for example `runs/20260522/20260522_173059_exp0522_clock_v0/`, containing:
 The plots include:
 
 - training curves
+- training timeline for continuous-window runs
 - one combined rollout diagnostics figure with:
   - short rollout comparison
   - long rollout comparison
@@ -278,6 +279,9 @@ Most plotting behavior is configurable from `config.yaml`, including:
 - how many steps are shown in the message panels
 - line widths, grid alpha, and legend column counts
 - which training curves are shown
+- whether to generate a training timeline figure
+- how many training-timeline panels are shown
+- how many global steps each training-timeline panel covers
 - which rollout curves are shown
 - whether the message-trace and message-norm panels are shown
 
@@ -290,6 +294,22 @@ plot:
   plot_show_message_traces: false
   plot_show_message_norm: false
 ```
+
+For continuous-window runs, you can also generate a training-time local timeline view:
+
+```yaml
+plot:
+  plot_show_training_timeline: true
+  plot_training_timeline_num_panels: 6
+  plot_training_timeline_window_steps: 200
+```
+
+This writes:
+
+- `metrics/training_timeline.json`
+- `plots/training_timeline.png`
+
+The timeline figure uses the **real predictions and targets seen during training**, not a later checkpoint replay.
 
 The config is grouped into six top-level sections:
 

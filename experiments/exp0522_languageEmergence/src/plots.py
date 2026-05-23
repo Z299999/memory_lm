@@ -133,6 +133,74 @@ def plot_training_curves(
     plt.close(fig)
 
 
+def plot_training_timeline(
+    *,
+    timeline_payload: dict[str, Any],
+    output_path: Path,
+    config: ExperimentConfig,
+    full_label: str = "full",
+) -> None:
+    panels = timeline_payload.get("panels", [])
+    if not panels:
+        return
+
+    n_panels = len(panels)
+    ncols = 2
+    nrows = int(np.ceil(n_panels / ncols))
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(config.plot_training_fig_width, max(3.4 * nrows, 6.8)),
+        squeeze=False,
+    )
+    flat_axes = list(axes.flat)
+
+    for ax, panel in zip(flat_axes, panels):
+        global_steps = np.asarray(panel["global_step"], dtype=float)
+        target = np.asarray(panel["target"], dtype=float)
+        prediction = np.asarray(panel["prediction"], dtype=float)
+        update_steps = [int(step) for step in panel.get("update_steps", [])]
+
+        ax.plot(
+            global_steps,
+            target,
+            color=config.plot_target_color,
+            linestyle=config.plot_target_linestyle,
+            linewidth=config.plot_target_linewidth,
+            label="target",
+        )
+        ax.plot(
+            global_steps,
+            prediction,
+            linewidth=config.plot_series_linewidth,
+            label=full_label,
+        )
+        for update_step in update_steps:
+            ax.axvline(
+                update_step,
+                color="#bdbdbd",
+                linestyle=":",
+                linewidth=config.plot_zero_linewidth,
+                alpha=0.9,
+            )
+        ax.set_title(
+            f"t={int(panel['start_step'])}..{int(panel['end_step'])}",
+            fontsize=max(config.plot_title_fontsize - 2, 10),
+        )
+        ax.set_xlabel("global step")
+        ax.set_ylabel("value")
+        ax.grid(True, alpha=config.plot_grid_alpha)
+        _maybe_add_legend(ax, ncol=2)
+
+    for ax in flat_axes[n_panels:]:
+        ax.axis("off")
+
+    fig.suptitle("exp0522 training timeline", fontsize=config.plot_title_fontsize)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=config.plot_dpi)
+    plt.close(fig)
+
+
 def plot_rollout_diagnostics(
     *,
     short_full: dict[str, Any],

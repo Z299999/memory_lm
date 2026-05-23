@@ -78,3 +78,6 @@ plot:
   # plot_error_series: [full, baseline, mute_deaf] # which model errors appear in the short-rollout error panel
   plot_show_message_traces: true # whether to show the per-channel message traces panel
   plot_show_message_norm: true  # whether to show the message-norm panel
+  plot_show_training_timeline: true # whether to generate training_timeline.png for continuous_window runs
+  plot_training_timeline_num_panels: 6 # number of evenly sampled local windows shown in the training timeline figure
+  plot_training_timeline_window_steps: 200 # number of global time steps shown inside each training timeline panel

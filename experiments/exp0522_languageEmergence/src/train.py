@@ -15,12 +15,12 @@ from torch import nn
 try:
     from .config import ExperimentConfig, copy_config_to_run_dir, write_resolved_config
     from .model import ExternalClockMLP
-    from .plots import plot_rollout_diagnostics, plot_training_curves
+    from .plots import plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
     from .task import build_rollout_targets
 except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig, copy_config_to_run_dir, write_resolved_config
     from model import ExternalClockMLP
-    from plots import plot_rollout_diagnostics, plot_training_curves
+    from plots import plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
     from task import build_rollout_targets
 
 
@@ -190,6 +190,63 @@ def _analysis_checkpoint_epochs(config: ExperimentConfig) -> tuple[int, ...]:
     return tuple(sorted({epoch for epoch in config.checkpoint_epochs if 1 <= epoch < config.epochs}))
 
 
+def _build_training_timeline_panels(config: ExperimentConfig) -> list[dict[str, Any]]:
+    total_steps = int(config.epochs) * int(config.fixed_train_steps)
+    if total_steps <= 0:
+        return []
+    window_steps = min(int(config.plot_training_timeline_window_steps), total_steps)
+    max_start = max(total_steps - window_steps, 0)
+    panel_count = int(config.plot_training_timeline_num_panels)
+    if panel_count == 1 or max_start == 0:
+        start_candidates = [0]
+    else:
+        start_candidates = [int(round(value)) for value in np.linspace(0, max_start, panel_count)]
+    seen: set[int] = set()
+    starts: list[int] = []
+    for start in start_candidates:
+        if start not in seen:
+            starts.append(start)
+            seen.add(start)
+    return [
+        {
+            "start_step": int(start),
+            "end_step": int(start + window_steps - 1),
+            "global_step": [],
+            "target": [],
+            "prediction": [],
+            "update_steps": [],
+        }
+        for start in starts
+    ]
+
+
+def _record_training_timeline_overlap(
+    *,
+    panels: list[dict[str, Any]],
+    train_window_start: int,
+    train_window_end: int,
+    target: torch.Tensor,
+    prediction: torch.Tensor,
+) -> None:
+    if not panels:
+        return
+    target_np = target.squeeze(1).detach().cpu().numpy()
+    prediction_np = prediction.squeeze(1).detach().cpu().numpy()
+    for panel in panels:
+        overlap_start = max(train_window_start, int(panel["start_step"]))
+        overlap_end = min(train_window_end, int(panel["end_step"]))
+        if overlap_start > overlap_end:
+            continue
+        local_start = overlap_start - train_window_start
+        local_end = overlap_end - train_window_start
+        steps = list(range(overlap_start, overlap_end + 1))
+        panel["global_step"].extend(steps)
+        panel["target"].extend(float(value) for value in target_np[local_start : local_end + 1])
+        panel["prediction"].extend(float(value) for value in prediction_np[local_start : local_end + 1])
+        if panel["start_step"] <= train_window_end <= panel["end_step"]:
+            panel["update_steps"].append(int(train_window_end))
+
+
 def _train_single_model(
     *,
     model_name: str,
@@ -226,6 +283,11 @@ def _train_single_model(
             target_cache[(int(steps), 0)] = target
 
     history: list[dict[str, float]] = []
+    timeline_panels = (
+        _build_training_timeline_panels(config)
+        if config.sequence_mode == "continuous_window" and config.plot_show_training_timeline
+        else []
+    )
     train_time_cursor = 0
     train_message_state: torch.Tensor | None = None
     train_error_state: torch.Tensor | None = None
@@ -297,6 +359,15 @@ def _train_single_model(
             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
         optimizer.step()
 
+        if config.sequence_mode == "continuous_window":
+            _record_training_timeline_overlap(
+                panels=timeline_panels,
+                train_window_start=int(train_window_start),
+                train_window_end=int(train_window_start + effective_steps - 1),
+                target=train_target,
+                prediction=prediction,
+            )
+
         if config.sequence_mode == "continuous_window" and model.use_language:
             train_message_state = final_message.detach()
         elif config.sequence_mode == "continuous_window":
@@ -357,6 +428,9 @@ def _train_single_model(
     return {
         "model": model,
         "history": history,
+        "training_timeline": {
+            "panels": timeline_panels,
+        } if timeline_panels else None,
     }
 
 
@@ -713,6 +787,8 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
     )
 
     _write_json(metrics_dir / "history_full_language.json", _to_serializable_history(full_result["history"]))
+    if full_result["training_timeline"] is not None:
+        _write_json(metrics_dir / "training_timeline.json", full_result["training_timeline"])
     if baseline_result is not None:
         _write_json(metrics_dir / "history_no_language.json", _to_serializable_history(baseline_result["history"]))
 
@@ -761,6 +837,12 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
         output_path=plots_dir / "training_curves.png",
         config=config,
     )
+    if full_result["training_timeline"] is not None:
+        plot_training_timeline(
+            timeline_payload=full_result["training_timeline"],
+            output_path=plots_dir / "training_timeline.png",
+            config=config,
+        )
     plot_rollout_diagnostics(
         short_full=full_reset_eval or full_continuous_eval,
         short_baseline=baseline_reset_eval or baseline_continuous_eval,
