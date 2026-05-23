@@ -1,213 +1,180 @@
 # memory_lm
 
-`memory_lm` is a research sandbox for experiments around external memory, memory compression, and training workflows for language models. The repository is not a single packaged library. It is a collection of small, mostly self-contained experiment folders plus a lightweight literature and prompt workspace.
+`memory_lm` is a research workspace, not a single packaged library.
 
-The codebase is bilingual. Most implementation is in Python, while much of the surrounding documentation is in Chinese with some English mixed in.
+The repo collects a set of small experiment folders around:
 
-## What Is In This Repo
+- external memory and stateless-agent workflows
+- geometric / feed-forward memory architectures
+- reinforcement learning backbones and control tasks
+- analysis notes, literature, prompts, and writing drafts
 
-### Experiments
+Most code is Python. Documentation is mixed Chinese and English.
 
-- `experiments/exp0404_three_world/`
-  - A world-based testbed for stateless agents with external memory.
-  - A `host` controls the world, scoring, and prompting; the tested agent is re-called fresh each round and can only persist information through saved memory files.
-  - The most complete experiment runner in the repo.
+## How To Read This Repo
 
-- `experiments/exp0406_distil/`
-  - A math data generation pipeline that uses an LLM API to create step-by-step supervision data from datasets such as GSM8K and related math corpora.
-  - Output is written as conversation-style JSONL for downstream training or experiments.
+The repo is best treated as a **lab notebook with runnable subprojects**.
 
-- `experiments/exp0408_memory_backprop/`
-  - A follow-on experiment built around an age-structured memory model.
-  - Focuses on the simplest discrete case where memory has a single slot and each new response replaces the previous one.
-  - Combines forward interaction, host-generated feedback, optional backward training, and visualization.
+- Each experiment lives in its own folder under `experiments/`
+- Most experiments have their own `README.md` and `run.py`
+- There is no single root install step
+- Output usually goes to a folder-local `runs/`
 
-- `experiments/exp0409_atten2017_implement/`
-  - A from-scratch PyTorch reimplementation of the Transformer architecture (Vaswani et al., 2017).
-  - Goal: faithful reproduction of every module in the original paper, verified on small data, as a foundation for later fine-tuning experiments.
+If you only want one thing to start from:
 
-- `experiments/exp0410_triangleNet/`
-  - Implementation and validation of the **Triangular Memory Network (TMN)**: a DAG architecture where nodes are arranged in a triangle and signal flows along Y (left→right) and Z (vertical + diagonal) axes.
-  - Benchmarked against an MLP baseline on 1D and 2D function-fitting tasks.
+- for external-memory / language-channel work: `experiments/exp0522_languageEmergence/`
+- for the original stateless-agent memory sandbox: `experiments/exp0404_three_world/`
+- for simplex memory architectures: `experiments/exp0414_simplexNet/`
 
-- `experiments/exp0414_simplexNet/`
-  - **Simplex Memory Networks (SMN)**: a geometric feedforward architecture where hidden nodes are lattice points of a regular n-simplex and information flows along a potential-induced DAG.
-  - Full implementation in PyTorch with SISO, MISO, SIMO, and MIMO support. Benchmarked against an MLP baseline across 1D and 2D tasks.
-  - Configurable via `params.yaml`; output saved as 4-panel comparison plots (scatter + loss curves).
-  - See `report_tex/report.pdf` for the full mathematical treatment.
-
-- `experiments/exp0418_brainSimplex/`
-  - Directed simplex structure analysis of the **Drosophila central brain connectome**, following the methodology of Reimann et al. (2017).
-  - Uses the Oxford C5.4 FlyWire dataset (32 272 nodes, 849 981 directed edges).
-  - Counts simplices of dimension 0–15 and compares against null models.
-
-- `experiments/exp0415_memoryforMLP/`
-  - Smoke test for whether an MLP can encode sequence memory purely through weight dynamics under online learning.
-  - Setup: constant input `1`, alternating targets `0, 1, 0, 1, ...`, MLP `[1, 4, 4, 1]`, one SGD step per time step.
-  - **Key finding**: MLP fails — standard SGD gradient always serves the current step and structurally conflicts with predicting the next alternating target. The network collapses to a fixed output regardless of learning rate.
-  - Establishes the MLP baseline before replacing it with the simplex/triangle architecture.
-
-### Shared Workspaces
-
-- `literature/` — PDFs, TeX notes, and a lightweight bibliography index (`bibliography.jsonl`).
-- `prompt/` — Reusable operational prompts (reading reviews, proof sketches, LaTeX splitting, registering papers).
-
----
-
-## Repo Layout
+## Top-Level Layout
 
 ```text
 memory_lm/
-├── experiments/
-│   ├── exp0404_three_world/        # stateless-agent external-memory simulator
-│   ├── exp0406_distil/             # math data generation
-│   ├── exp0408_memory_backprop/    # age-structured memory backpropagation
-│   ├── exp0409_atten2017_implement/ # Transformer (2017) reimplementation
-│   ├── exp0410_triangleNet/        # Triangular Memory Network + MLP baseline
-│   ├── exp0414_simplexNet/         # Simplex Memory Networks — full MIMO implementation
-│   ├── exp0415_memoryforMLP/       # MLP online learning smoke test
-│   ├── exp0418_brainSimplex/       # Drosophila connectome simplex analysis
-├── literature/                 # papers, books, TeX drafts, bibliography index
-└── prompt/                     # reusable repo prompts / command templates
+├── experiments/   # self-contained research subprojects
+├── literature/    # papers, books, bib index, notes
+├── prompt/        # reusable prompts / command templates
+├── writing/       # drafts and longer writeups
+└── TOOLS/         # shared utilities and imported tool code
 ```
 
----
+## Experiment Map
 
-## Quick Start
+### External Memory / Language / Training Dynamics
 
-Each experiment runs from its own folder. There is no single root install step.
+| Path | Theme | Entrypoint |
+|---|---|---|
+| `experiments/exp0202_ecoevolearning/` | eco-evolutionary hunting simulation with NN-controlled agents | `run.py` |
+| `experiments/exp0404_three_world/` | stateless tested agent + host-controlled world + external memory files | `run.py` |
+| `experiments/exp0406_distil/` | math supervision / distillation data generation with LLM APIs | `run.py` |
+| `experiments/exp0408_memory_backprop/` | baby-case memory backpropagation over external memory updates | `run.py` |
+| `experiments/exp0415_memoryforMLP/` | online-learning smoke test for whether an MLP can hold sequence memory in weights | `run.py` |
+| `experiments/exp0522_languageEmergence/` | fixed language channel as external state register; reset vs continuous-window; error-corrected self-talk | `run.py` |
 
-### `experiments/exp0404_three_world`
+### Geometric / Architecture Experiments
+
+| Path | Theme | Entrypoint |
+|---|---|---|
+| `experiments/exp0409_atten2017_implement/` | from-scratch Transformer reimplementation | `inference.py` |
+| `experiments/exp0410_triangleNet/` | Triangular Memory Network vs MLP | `run.py` |
+| `experiments/exp0414_simplexNet/` | Simplex Memory Networks (SMN), including MIMO variants | `run.py` |
+| `experiments/exp0513_sigmaAlgAddrDopamine/` | self-modulated networks with hidden dopamine nodes | `run.py` |
+
+### RL / Control
+
+| Path | Theme | Entrypoint |
+|---|---|---|
+| `experiments/exp0420_RLforSMN/` | RL framework for Simplex Memory Networks | `run.py` |
+| `experiments/exp0422_DQN_CartPole/` | minimal DQN on custom CartPole | docs only / no current runner at root |
+| `experiments/exp0430_PPO_CartPole/` | PPO on custom CartPole | docs only / no current runner at root |
+| `experiments/exp0501_PPO_LunarLander/` | PPO on customized LunarLander curriculum | docs-led subproject |
+| `experiments/exp0506_PPO_SimplexLunarLander/` | SMN backbone variant of the LunarLander PPO setup | docs-led subproject |
+
+### Reference / Analysis
+
+| Path | Theme | Entrypoint |
+|---|---|---|
+| `experiments/exp0211_ecoevoWorkbenchReference/` | reference UI/workbench copy; not a main runnable experiment | reference only |
+| `experiments/exp0418_brainSimplex/` | simplex analysis of Drosophila central-brain connectome | script-based pipeline |
+
+## Recommended Entry Points
+
+### 1. `exp0522_languageEmergence`
+
+This is currently the clearest small-scale experiment for:
+
+- external state via a fixed language channel
+- continuous-window training
+- collapse analysis
+- corrected vs zero-error self-talk
+
+Run:
+
+```bash
+cd experiments/exp0522_languageEmergence
+python3 run.py --config config.yaml
+```
+
+### 2. `exp0404_three_world`
+
+This is the original external-memory sandbox:
+
+- the tested model is stateless across rounds
+- the host owns the world, scoring, and pedagogy
+- persistent state is only what gets written to external memory files
+
+Run:
 
 ```bash
 cd experiments/exp0404_three_world
 python3 run.py
 ```
 
-Configure `ACTION`, `RUN_ID`, `WORLD_PATH`, `ROUNDS`, `TESTED_MODEL`, `HOST_MODEL` at the top of `run.py`.
-Requires an OpenAI-compatible API endpoint (`DASHSCOPE_API_KEY`, `DASHSCOPE_BASE_URL`).
+### 3. `exp0414_simplexNet`
 
-### `experiments/exp0406_distil`
+This is the most complete geometric architecture implementation in the repo.
 
-```bash
-cd experiments/exp0406_distil
-pip install -r requirements.txt
-python3 run.py generate
-```
-
-Output: `data/generated/distillation_data.jsonl`.
-
-### `experiments/exp0408_memory_backprop`
-
-```bash
-cd experiments/exp0408_memory_backprop
-pip install -r requirements.txt
-python3 run.py
-```
-
-Reads from `../../experiments/exp0406_distil/data/generated/distillation_data.jsonl` by default.
-
-### `experiments/exp0409_atten2017_implement`
-
-```bash
-cd experiments/exp0409_atten2017_implement
-pip install -r requirements.txt
-python3 inference.py
-```
-
-### `experiments/exp0410_triangleNet`
-
-```bash
-cd experiments/exp0410_triangleNet
-pip install -r requirements.txt
-python3 run.py
-```
-
-Configure via `params.yaml`. Output images saved to `runs/`.
-
-### `experiments/exp0414_simplexNet`
+Run:
 
 ```bash
 cd experiments/exp0414_simplexNet
 python3 run.py
 ```
 
-Configure `n`, `m`, `n_in`, `n_out`, `task_name`, `epochs`, `num_train` etc. via `params.yaml`. Output images saved to `runs/`.
-
-### `experiments/exp0415_memoryforMLP`
-
-```bash
-cd experiments/exp0415_memoryforMLP
-pip install -r requirements.txt
-python3 run.py
-```
-
-Configure via `params.yaml`. Output images saved to `runs/`.
-
-### `experiments/exp0418_brainSimplex`
-
-```bash
-cd experiments/exp0418_brainSimplex
-python src/import_oxford_data.py    # standardise raw data
-python src/preprocessing.py         # build adjacency matrix + graph statistics
-python src/simplex_detection.py 15  # count simplices up to dimension 15
-```
-
----
-
-## Literature And Prompt Workspace
+## Shared Workspaces
 
 ### `literature/`
 
-- `literature/pdf_papers/` — one folder per registered paper, named `bXXXXX_short_name`
-- `literature/pdf_books/` — books and longer references
-- `literature/tex/` — drafts and source material
-- `literature/bibliography.jsonl` — JSONL metadata index
+- `pdf_papers/` — paper folders
+- `pdf_books/` — books and long references
+- `tex/` — TeX notes and drafts
+- `bibliography.jsonl` — lightweight bibliography index
 
 ### `prompt/`
 
-| ID | Purpose |
-|----|---------|
-| `c000` | Write a reading review |
-| `c001` | Read a proof and write a proof sketch |
-| `c002` | Split a LaTeX project |
-| `c003` | Register a new paper in `literature/` |
+Reusable operational prompts, for example:
 
-Registry: `prompt/command_list.jsonl`.
+- reading review
+- proof sketching
+- LaTeX splitting
+- literature registration
 
----
+### `writing/`
 
-## Working Style Of The Repo
+Longer theory notes, drafts, and paper-style writeups.
 
-- Experiments are folder-local — each subproject carries its own docs, config, and runner.
-- Runs write transcripts, metrics, and artifacts to `runs/` (gitignored by default via `**/runs/`).
-- Documentation is exploratory — some folders are fairly complete, others are closer to research notes plus initial code.
-- At least `exp0404_three_world` and `exp0406_distil` require a live LLM endpoint for real runs.
+## Repo Conventions
 
----
+- Experiments are folder-local
+- Config usually lives in `config.yaml` or `params.yaml`
+- Runs usually write to `runs/<date>/<timestamp>_<name>/`
+- Many folders are research-grade and intentionally exploratory
+- Some folders are active code; some are preserved references or partial experiments
 
 ## Suggested Reading Order
 
-1. This file.
-2. `experiments/exp0404_three_world/README.md` — the original external-memory testbed.
-3. `experiments/exp0408_memory_backprop/model.md` — memory dynamics motivation.
-4. `experiments/exp0410_triangleNet/readme.md` — triangle network architecture and results.
-5. `experiments/exp0414_simplexNet/report_tex/report.pdf` — Simplex Memory Networks paper.
-6. `experiments/exp0414_simplexNet/README.md` — code, config, and task registry.
-7. `experiments/exp0415_memoryforMLP/readme.md` — MLP baseline and why it fails.
-8. `experiments/exp0418_brainSimplex/README.md` — connectome simplex analysis.
+If you want the main line of ideas in this repo, read:
 
----
+1. this file
+2. `experiments/exp0404_three_world/README.md`
+3. `experiments/exp0415_memoryforMLP/readme.md`
+4. `experiments/exp0410_triangleNet/readme.md`
+5. `experiments/exp0414_simplexNet/README.md`
+6. `experiments/exp0522_languageEmergence/README.md`
+7. `experiments/exp0513_sigmaAlgAddrDopamine/README.md`
 
-## Current State
+## Current Emphasis
 
-| Experiment | Status |
-|---|---|
-| `experiments/exp0404_three_world` | Mature, operational |
-| `experiments/exp0406_distil` | Usable utility project |
-| `experiments/exp0408_memory_backprop` | In-progress, runnable + some forward-looking docs |
-| `experiments/exp0409_atten2017_implement` | Runnable reimplementation |
-| `experiments/exp0410_triangleNet` | Runnable, benchmarked against MLP |
-| `experiments/exp0414_simplexNet` | Complete — full MIMO implementation, benchmarked against MLP |
-| `experiments/exp0415_memoryforMLP` | Smoke test complete — MLP baseline established |
-| `experiments/exp0418_brainSimplex` | Active — Drosophila connectome simplex analysis in progress |
+The most actively iterated experiment in the current repo state is:
+
+- `experiments/exp0522_languageEmergence/`
+
+It currently includes:
+
+- reset vs continuous-window training
+- mixed-sine target generation
+- error-corrected self-talk (`[1, e, m]`)
+- zero-error ablations under the same interface
+- offline continuous-collapse diagnosis
+- training timeline visualizations
+
+For the exact current behavior, always trust the local README inside the experiment folder over this root overview.
