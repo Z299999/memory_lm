@@ -17,28 +17,66 @@ def build_fixed_sparse_signed_readout(
     hidden_dim: int,
     language_dim: int,
     *,
+    coverage: int,
     seed: int,
 ) -> torch.Tensor:
     """Create a fixed sparse signed hidden->message readout matrix."""
-    if hidden_dim < language_dim:
+    if language_dim <= 0:
+        raise ValueError("language_dim must be positive.")
+    if coverage <= 0:
+        raise ValueError("coverage must be positive.")
+    if coverage > language_dim:
+        raise ValueError("coverage must be less than or equal to language_dim.")
+    if hidden_dim < language_dim and coverage == 1:
         raise ValueError(
             f"hidden_dim={hidden_dim} must be >= language_dim={language_dim} for disjoint readout blocks."
         )
 
     generator = torch.Generator().manual_seed(seed)
-    perm = torch.randperm(hidden_dim, generator=generator).tolist()
-    sizes = [hidden_dim // language_dim] * language_dim
-    for idx in range(hidden_dim % language_dim):
-        sizes[idx] += 1
-
     readout = torch.zeros(hidden_dim, language_dim)
-    cursor = 0
-    for head_idx, block_size in enumerate(sizes):
-        indices = perm[cursor:cursor + block_size]
-        cursor += block_size
-        signs = torch.randint(0, 2, (block_size,), generator=generator, dtype=torch.int64)
-        signs = signs.to(torch.float32).mul(2.0).sub(1.0)
-        readout[indices, head_idx] = signs / math.sqrt(float(block_size))
+
+    # Each pass assigns every hidden unit to one language head. Repeating the
+    # pass `coverage` times gives each hidden unit multiple distinct readers.
+    for _ in range(coverage):
+        hidden_order = torch.randperm(hidden_dim, generator=generator).tolist()
+        sizes = [hidden_dim // language_dim] * language_dim
+        for idx in range(hidden_dim % language_dim):
+            sizes[idx] += 1
+        head_tokens: list[int] = []
+        for head_idx, block_size in enumerate(sizes):
+            head_tokens.extend([head_idx] * block_size)
+
+        accepted_pairs: list[tuple[int, int]] | None = None
+        for _attempt in range(128):
+            token_perm = torch.randperm(len(head_tokens), generator=generator).tolist()
+            shuffled_heads = [head_tokens[idx] for idx in token_perm]
+            candidate_pairs = list(zip(hidden_order, shuffled_heads))
+            if all(readout[h_idx, head_idx] == 0.0 for h_idx, head_idx in candidate_pairs):
+                accepted_pairs = candidate_pairs
+                break
+
+        if accepted_pairs is None:
+            # Fallback: assign each hidden unit to a random unused language head.
+            accepted_pairs = []
+            for hidden_idx in hidden_order:
+                available = torch.nonzero(readout[hidden_idx] == 0.0, as_tuple=False).flatten()
+                if available.numel() == 0:
+                    raise ValueError(
+                        "No unused language head remained for a hidden unit; "
+                        "coverage must be <= language_dim."
+                    )
+                choice = int(available[torch.randint(0, available.numel(), (1,), generator=generator)].item())
+                accepted_pairs.append((hidden_idx, choice))
+
+        for hidden_idx, head_idx in accepted_pairs:
+            sign = 1.0 if torch.randint(0, 2, (1,), generator=generator).item() == 1 else -1.0
+            readout[hidden_idx, head_idx] = sign
+
+    counts = (readout != 0.0).sum(dim=0).to(torch.float32)
+    for head_idx in range(language_dim):
+        head_count = float(counts[head_idx].item())
+        if head_count > 0.0:
+            readout[:, head_idx] /= math.sqrt(head_count)
     return readout
 
 
@@ -50,6 +88,7 @@ class ExternalClockMLP(nn.Module):
         *,
         trunk_dims: tuple[int, ...],
         language_dim: int,
+        language_readout_coverage: int = 1,
         pulse_dim: int = 1,
         use_language: bool = True,
         seed: int = 42,
@@ -75,6 +114,7 @@ class ExternalClockMLP(nn.Module):
             readout = build_fixed_sparse_signed_readout(
                 hidden_dim=trunk_dims[-1],
                 language_dim=self.language_dim,
+                coverage=language_readout_coverage,
                 seed=seed,
             )
         else:

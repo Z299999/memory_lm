@@ -12,7 +12,7 @@ import yaml
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
-    "model": ("trunk_dims", "language_dim"),
+    "model": ("trunk_dims", "language_dim", "language_readout_coverage"),
     "task": ("cycle_steps", "train_steps", "eval_steps", "long_steps", "pulse_value"),
     "train": ("epochs", "lr", "weight_decay", "grad_clip"),
     "plot": (
@@ -50,6 +50,7 @@ class ExperimentConfig:
     grad_clip: float = 1.0
     trunk_dims: tuple[int, ...] = (32,)
     language_dim: int = 4
+    language_readout_coverage: int = 1
     cycle_steps: int = 32
     train_steps: int = 128
     eval_steps: int = 128
@@ -149,6 +150,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "seed",
         "epochs",
         "language_dim",
+        "language_readout_coverage",
         "cycle_steps",
         "train_steps",
         "eval_steps",
@@ -186,6 +188,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("epochs must be positive.")
     if payload["language_dim"] <= 0:
         raise ValueError("language_dim must be positive.")
+    if payload["language_readout_coverage"] <= 0:
+        raise ValueError("language_readout_coverage must be positive.")
+    if payload["language_readout_coverage"] > payload["language_dim"]:
+        raise ValueError("language_readout_coverage must be <= language_dim.")
     if payload["cycle_steps"] <= 1:
         raise ValueError("cycle_steps must be greater than 1.")
     if payload["train_steps"] <= 0 or payload["eval_steps"] <= 0 or payload["long_steps"] <= 0:

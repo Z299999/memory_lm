@@ -234,6 +234,7 @@ def _build_summary(
             "epochs": config.epochs,
             "trunk_dims": list(config.trunk_dims),
             "language_dim": config.language_dim,
+            "language_readout_coverage": config.language_readout_coverage,
             "cycle_steps": config.cycle_steps,
             "train_steps": config.train_steps,
             "eval_steps": config.eval_steps,
@@ -290,12 +291,14 @@ def run_experiment(config: ExperimentConfig, config_path: Path) -> dict[str, Any
     full_model = ExternalClockMLP(
         trunk_dims=config.trunk_dims,
         language_dim=config.language_dim,
+        language_readout_coverage=config.language_readout_coverage,
         use_language=True,
         seed=config.seed,
     ).to(device)
     baseline_model = ExternalClockMLP(
         trunk_dims=config.trunk_dims,
         language_dim=config.language_dim,
+        language_readout_coverage=config.language_readout_coverage,
         use_language=False,
         seed=config.seed,
     ).to(device)

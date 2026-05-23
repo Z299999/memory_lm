@@ -8,7 +8,8 @@ model:
   trunk_dims:
     - 32                       # hidden width of the MLP trunk
     # - 32
-  language_dim: 8              # number of language input/output heads
+  language_dim: 10              # number of language input/output heads
+  language_readout_coverage: 1  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
 
 task:
   cycle_steps: 32              # number of steps in one full sine cycle
