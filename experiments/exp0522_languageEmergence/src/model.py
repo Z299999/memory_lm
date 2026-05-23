@@ -23,13 +23,15 @@ def _activation_fn(name: str) -> callable:
         return torch.tanh
     if name == "relu":
         return torch.relu
+    if name == "leaky_relu":
+        return torch.nn.functional.leaky_relu
     raise ValueError(f"Unsupported activation: {name!r}")
 
 
 def _init_linear(linear: nn.Linear, activation: str) -> None:
     if activation == "tanh":
         _init_linear_tanh(linear)
-    elif activation == "relu":
+    elif activation in {"relu", "leaky_relu"}:
         _init_linear_relu(linear)
     else:
         raise ValueError(f"Unsupported activation: {activation!r}")

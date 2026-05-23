@@ -120,6 +120,7 @@ Supported values:
 
 - `tanh` (default)
 - `relu`
+- `leaky_relu`
 
 ## Sequence Modes
 

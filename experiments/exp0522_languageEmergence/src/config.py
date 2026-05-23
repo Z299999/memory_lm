@@ -283,8 +283,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("epochs must be positive.")
     if payload["sequence_mode"] not in {"reset", "continuous_window"}:
         raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
-    if payload["activation"] not in {"tanh", "relu"}:
-        raise ValueError("activation must be either 'tanh' or 'relu'.")
+    if payload["activation"] not in {"tanh", "relu", "leaky_relu"}:
+        raise ValueError("activation must be 'tanh', 'relu', or 'leaky_relu'.")
     if payload["fixed_train_steps"] <= 0:
         raise ValueError("fixed_train_steps must be positive.")
     if payload["train_phase_mode"] not in {"reset", "continuous"}:
