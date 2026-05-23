@@ -64,6 +64,12 @@ def _condition_width_kind(condition_name: str) -> str:
     return "main" if condition_name == "full" else "aux"
 
 
+_LATE_TRANSITION_VLINE_COLORS: dict[str, str] = {
+    "late_blind": "#c05030",
+    "late_mute":  "#3060a0",
+}
+
+
 def _build_rollout_panels(config: ExperimentConfig, *, has_continuous: bool) -> list[tuple[str, float]]:
     panels: list[tuple[str, float]] = [("short", 1.35), ("long", 1.35)]
     if has_continuous:
@@ -229,6 +235,16 @@ def plot_rollout_diagnostics(
         axes = np.array([axes])
     axis_by_panel = {panel_name: ax for ax, (panel_name, _) in zip(axes, panels)}
 
+    def _build_transition_vlines(series: tuple[str, ...], num_steps: int) -> list[tuple[int, str, str]]:
+        vlines = []
+        for condition, color in _LATE_TRANSITION_VLINE_COLORS.items():
+            if condition not in series:
+                continue
+            step = config.eval_late_blind_step if condition == "late_blind" else config.eval_late_mute_step
+            if step < num_steps:
+                vlines.append((step, f"↓{condition}", color))
+        return vlines
+
     def _plot_rollout_panel(ax: plt.Axes, evals: dict[str, dict] | None, num_steps: int, title: str) -> None:
         if evals is None:
             return
@@ -257,6 +273,8 @@ def plot_rollout_diagnostics(
                     label=series_name,
                     linewidth=_linewidth(config, width_kind),
                 )
+        for vline_step, vline_label, vline_color in _build_transition_vlines(config.plot_rollout_series, num_steps):
+            ax.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
         ax.set_title(title)
         ax.set_ylabel("value")
         ax.grid(True, alpha=config.plot_grid_alpha)
@@ -301,6 +319,8 @@ def plot_rollout_diagnostics(
                         linewidth=_linewidth(config, width_kind),
                     )
         error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
+        for vline_step, vline_label, vline_color in _build_transition_vlines(config.plot_error_series, config.plot_error_steps):
+            error_axis.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
         error_axis.set_title("Short rollout error")
         error_axis.set_ylabel("pred - target")
         error_axis.grid(True, alpha=config.plot_grid_alpha)

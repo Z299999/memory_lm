@@ -97,11 +97,13 @@ def _evaluate_rollout(
     }
 
 
-def _evaluate_late_blind_rollout(
+def _evaluate_late_transition_rollout(
     model: ExternalClockMLP,
     *,
     num_steps: int,
     transition_step: int,
+    post_force_zero_error: bool,
+    post_disable_language: bool,
     cycle_steps: int,
     pulse_value: float,
     target_kind: str,
@@ -111,7 +113,7 @@ def _evaluate_late_blind_rollout(
     initial_error: torch.Tensor | None = None,
     detach_error_input: bool = True,
 ) -> dict[str, Any]:
-    """Run full model for transition_step steps, then sole_speech for the rest."""
+    """Run full model for transition_step steps, then switch to given post-transition flags."""
     effective_transition = min(transition_step, num_steps)
     phase1 = _evaluate_rollout(
         model,
@@ -141,8 +143,8 @@ def _evaluate_late_blind_rollout(
         initial_message=phase1["final_message"],
         initial_error=phase1["final_error"],
         detach_error_input=detach_error_input,
-        force_zero_error_input=True,
-        disable_language=False,
+        force_zero_error_input=post_force_zero_error,
+        disable_language=post_disable_language,
     )
     prediction = torch.cat([phase1["prediction"], phase2["prediction"]])
     target = torch.cat([phase1["target"], phase2["target"]])
@@ -158,6 +160,14 @@ def _evaluate_late_blind_rollout(
         "final_error": phase2["final_error"],
         "start_step": int(start_step),
     }
+
+
+# Post-transition flags for each late-transition condition.
+_LATE_TRANSITION_FLAGS: dict[str, tuple[bool, bool]] = {
+    # condition: (post_force_zero_error, post_disable_language)
+    "late_blind": (True,  False),  # lose error → sole_speech
+    "late_mute":  (False, True),   # lose language → sole_eye
+}
 
 
 def _evaluate_continuous_stream(
@@ -381,21 +391,31 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     reset_long_evals: dict[str, dict] | None = None
     continuous_evals: dict[str, dict] | None = None
 
+    def _late_transition_step(condition: str) -> int:
+        if condition == "late_blind":
+            return config.eval_late_blind_step
+        return config.eval_late_mute_step
+
     if reset_eval_enabled:
         reset_evals = {}
         reset_long_evals = {}
         for condition in config.eval_conditions:
-            if condition == "late_blind":
-                reset_evals[condition] = _evaluate_late_blind_rollout(
+            if condition in _LATE_TRANSITION_FLAGS:
+                post_fze, post_dl = _LATE_TRANSITION_FLAGS[condition]
+                reset_evals[condition] = _evaluate_late_transition_rollout(
                     model,
                     num_steps=config.eval_steps,
-                    transition_step=config.eval_late_blind_step,
+                    transition_step=_late_transition_step(condition),
+                    post_force_zero_error=post_fze,
+                    post_disable_language=post_dl,
                     **common_kwargs,
                 )
-                reset_long_evals[condition] = _evaluate_late_blind_rollout(
+                reset_long_evals[condition] = _evaluate_late_transition_rollout(
                     model,
                     num_steps=config.long_steps,
-                    transition_step=config.eval_late_blind_step,
+                    transition_step=_late_transition_step(condition),
+                    post_force_zero_error=post_fze,
+                    post_disable_language=post_dl,
                     **common_kwargs,
                 )
             else:
@@ -418,8 +438,8 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     if continuous_eval_enabled:
         continuous_evals = {}
         for condition in config.eval_conditions:
-            if condition == "late_blind":
-                # Warmup as full model, then late_blind within the measured segment.
+            if condition in _LATE_TRANSITION_FLAGS:
+                post_fze, post_dl = _LATE_TRANSITION_FLAGS[condition]
                 warmup_result = _evaluate_rollout(
                     model,
                     num_steps=continuous_warmup_steps,
@@ -427,10 +447,12 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                     disable_language=False,
                     **common_kwargs,
                 ) if continuous_warmup_steps > 0 else None
-                continuous_evals[condition] = _evaluate_late_blind_rollout(
+                continuous_evals[condition] = _evaluate_late_transition_rollout(
                     model,
                     num_steps=config.continuous_eval_steps,
-                    transition_step=config.eval_late_blind_step,
+                    transition_step=_late_transition_step(condition),
+                    post_force_zero_error=post_fze,
+                    post_disable_language=post_dl,
                     start_step=continuous_warmup_steps,
                     initial_message=warmup_result["final_message"] if warmup_result and model.use_language else None,
                     initial_error=warmup_result["final_error"] if warmup_result and model.use_error_input else None,
