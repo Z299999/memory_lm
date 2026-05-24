@@ -9,13 +9,8 @@ external state register for a feed-forward MLP.
 - The agent never observes phase, time, or target value.
 - The only ordinary input is a constant pulse `x_t = 1`.
 - The full model also receives its previous language signal `m_{t-1}`.
-- At every step the model emits one scalar, whose training target can be:
-  - the waveform value `y_t`
-  - the velocity `y_t - y_{t-1}`
-  - the acceleration `(y_t - y_{t-1}) - (y_{t-1} - y_{t-2})`
-
-No matter which training target is used, rollout/eval plots always display the
-reconstructed waveform `y`.
+- At every step the model emits one scalar, trained directly against the
+  waveform value `y_t`.
 
 Supported target kinds:
 
@@ -239,12 +234,28 @@ At each time step:
 3. **Independent trunks** — each agent runs its own MLP on
    `[pulse, w_in[i]*e, language_input_i]`.
 
-4. **Reservoir readout** — a single learned linear head reads from the
-   concatenation of all agents' last hidden states:
+4. **Reservoir readout** — controlled by `readout_mode`:
 
-   ```
-   y_t = W_out @ concat(h_1, ..., h_N)
-   ```
+   - `shared_linear`
+     - one learned linear head reads from the concatenation of all agents'
+       last hidden states:
+
+       ```
+       y_t = W_out @ concat(h_1, ..., h_N)
+       ```
+
+   - `mean_pool`
+     - each agent emits a local scalar `s_i = v_i @ h_i + b_i`
+     - the final answer is the equal-weight sum `Σ_i s_i`
+
+   - `learnable`
+     - same local scalars as `mean_pool`
+     - but each agent is combined with a learnable residual gain
+       `(1 + Δr_i)`, initialized at `1.0`:
+
+       ```
+       y_t = Σ_i (1 + Δr_i) * (v_i @ h_i + b_i)
+       ```
 
 5. **Language messages** — each agent generates its broadcast message via its
    own fixed sparse readout matrix (different seed per agent).
@@ -256,8 +267,18 @@ model:
   num_agents: 2   # 1 = single agent; >1 = multi-agent reservoir
 ```
 
-`message_carry_mode` is ignored when `num_agents > 1` (the D matrix handles
-all carries).
+Relevant multi-agent toggles:
+
+```yaml
+model:
+  message_carry_mode: learnable_diagonal   # identity | learnable_diagonal | learnable_matrix
+  error_intake_mode: learnable             # identity | learnable
+  readout_mode: learnable                  # shared_linear | mean_pool | learnable
+```
+
+Both `error_intake_mode: learnable` and `readout_mode: learnable` use
+residual `1 + Δ` parameterizations, so initialization exactly matches the
+identity / equal-weight baseline.
 
 ### Outputs
 

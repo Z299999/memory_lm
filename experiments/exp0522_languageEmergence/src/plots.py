@@ -478,15 +478,15 @@ def plot_agent_analysis(
             ax_d.text(j, i, f"{d_norms[i, j]:.2f}", ha="center", va="center", fontsize=9,
                       color="white" if d_norms[i, j] < d_norms.max() * 0.6 else "black")
 
-    # Row 0 right: grouped bar — w_in (input) + readout weight norm (output) per agent
+    # Row 0 right: grouped bar — w_in (input) + readout gain (output) per agent
     ax_w = axes[0, 1]
-    if readout_mode == "mean_pool":
-        readout_norms = np.linalg.norm(
-            model.agent_head_W.detach().cpu().squeeze(1).numpy(), axis=1
-        )  # (N,)
+    if readout_mode == "learnable":
+        readout_gains = (1.0 + model.delta_pool_out).detach().cpu().numpy()  # (N,)
+    elif readout_mode == "mean_pool":
+        readout_gains = np.ones(N)
     else:
         W_out_np = model.readout_head.weight.detach().cpu().numpy()  # (1, N*D_last)
-        readout_norms = np.array([
+        readout_gains = np.array([
             np.linalg.norm(W_out_np[0, i * D_last : (i + 1) * D_last])
             for i in range(N)
         ])
@@ -495,8 +495,9 @@ def plot_agent_analysis(
     width = 0.35
     colors = [f"C{i}" for i in range(N)]
     ax_w.bar(x - width / 2, w_in_eff, width, color=colors, alpha=0.9, label="1+Δw_in (error intake)")
-    ax_w.bar(x + width / 2, readout_norms, width, color=colors, alpha=0.45,
-             hatch="//", label="readout ‖w_i‖")
+    readout_label = "1+Δr_out (readout)" if readout_mode in {"mean_pool", "learnable"} else "readout ‖w_i‖"
+    ax_w.bar(x + width / 2, readout_gains, width, color=colors, alpha=0.45,
+             hatch="//", label=readout_label)
     ax_w.set_xticks(x)
     ax_w.set_xticklabels([f"agent {i}" for i in range(N)])
     ax_w.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.6, label="identity baseline")
@@ -531,8 +532,13 @@ def plot_agent_analysis(
 
     # Compute per-agent readout contributions if hidden states are available
     hidden_all = rollout.get("hidden")  # (T, N, D_last) or None
-    if readout_mode == "mean_pool":
+    if readout_mode in {"mean_pool", "learnable"}:
         W_agents = model.agent_head_W.detach().cpu().squeeze(1).numpy()  # (N, D_last)
+        b_agents = model.agent_head_b.detach().cpu().squeeze(1).numpy()  # (N,)
+        if readout_mode == "learnable":
+            pool_gains = (1.0 + model.delta_pool_out).detach().cpu().numpy()  # (N,)
+        else:
+            pool_gains = np.ones(N)
     else:
         W_out = model.readout_head.weight.detach().cpu().numpy()  # (1, N*D_last)
 
@@ -551,8 +557,9 @@ def plot_agent_analysis(
         ax_contrib = axes[2 + i, 1]
         if hidden_all is not None:
             h_i = hidden_all[:, i, :].numpy()  # (T, D_last)
-            if readout_mode == "mean_pool":
-                contrib_i = h_i @ W_agents[i]  # (T,) — each agent's own head
+            if readout_mode in {"mean_pool", "learnable"}:
+                per_agent_i = h_i @ W_agents[i] + b_agents[i]
+                contrib_i = pool_gains[i] * per_agent_i
             else:
                 w_i = W_out[0, i * D_last : (i + 1) * D_last]
                 contrib_i = h_i @ w_i           # (T,)
@@ -562,7 +569,12 @@ def plot_agent_analysis(
                             linestyle=config.plot_target_linestyle,
                             linewidth=config.plot_target_linewidth, label="target")
             ax_contrib.legend(fontsize=8)
-        ylabel = "v_i · h_i (→ sum)" if readout_mode == "mean_pool" else "W_out_i · h_i"
+        if readout_mode == "mean_pool":
+            ylabel = "v_i · h_i + b_i"
+        elif readout_mode == "learnable":
+            ylabel = "(1+Δr_i)(v_i · h_i + b_i)"
+        else:
+            ylabel = "W_out_i · h_i"
         ax_contrib.set_title(f"Agent {i} readout contribution")
         ax_contrib.set_ylabel(ylabel)
         ax_contrib.grid(alpha=config.plot_grid_alpha)

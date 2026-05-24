@@ -159,9 +159,11 @@ class AgentPool(nn.Module):
         self.trunk_Ws = nn.ParameterList(trunk_Ws)
         self.trunk_bs = nn.ParameterList(trunk_bs)
 
-        # Reservoir readout: shared_linear = one big linear over all agents;
-        # mean_pool = N independent projections (D→1) then average
-        if self.readout_mode == "mean_pool":
+        # Reservoir readout:
+        # - shared_linear = one big linear over all agents
+        # - mean_pool = N independent projections (D→1) then equal-weight sum
+        # - learnable = same local heads, but with learnable residual gains (1 + Δr_i)
+        if self.readout_mode in {"mean_pool", "learnable"}:
             # agent_head_W: (N, 1, D_last), agent_head_b: (N, 1) — stacked for bmm
             head_Ws, head_bs = [], []
             for _ in range(self.num_agents):
@@ -173,12 +175,17 @@ class AgentPool(nn.Module):
             # single head (equivalent to mean at init, but gradients are not diluted).
             self.agent_head_W = nn.Parameter(torch.stack(head_Ws) / self.num_agents)  # (N, 1, D_last)
             self.agent_head_b = nn.Parameter(torch.stack(head_bs) / self.num_agents)  # (N, 1)
+            if self.readout_mode == "learnable":
+                self.delta_pool_out = nn.Parameter(torch.zeros(self.num_agents))
+            else:
+                self.register_parameter("delta_pool_out", None)
             self.register_parameter("readout_head", None)
         else:
             self.readout_head = nn.Linear(self.num_agents * trunk_dims[-1], 1, bias=True)
             _init_linear(self.readout_head, self.activation_name)
             self.register_parameter("agent_head_W", None)
             self.register_parameter("agent_head_b", None)
+            self.register_parameter("delta_pool_out", None)
 
         # Error distribution: (1 + Δw_in[i]) scales the shared error for agent i.
         # identity = no parameter (all agents receive error equally with weight 1).
@@ -319,9 +326,11 @@ class AgentPool(nn.Module):
             # hidden_last: (N, trunk_dims[-1])
 
             # Reservoir readout over all agents
-            if self.readout_mode == "mean_pool":
+            if self.readout_mode in {"mean_pool", "learnable"}:
                 # (N, 1, D) bmm (N, D, 1) → (N, 1, 1) → (N, 1) → mean → (1, 1)
                 per_agent = torch.bmm(self.agent_head_W, hidden_last.unsqueeze(-1)).squeeze(-1) + self.agent_head_b
+                if self.readout_mode == "learnable":
+                    per_agent = (1.0 + self.delta_pool_out).unsqueeze(1) * per_agent
                 y_t = per_agent.sum(dim=0, keepdim=True)  # (1, 1) — sum keeps full gradient per agent
             else:
                 y_t = self.readout_head(hidden_last.reshape(1, -1))  # (1, 1)
@@ -382,6 +391,7 @@ class ExternalClockMLP(nn.Module):
         use_residual: bool = True,
         language_readout_all_layers: bool = False,
         message_carry_mode: str = "identity",
+        readout_mode: str = "shared_linear",
         seed: int = 42,
     ) -> None:
         super().__init__()
@@ -395,6 +405,7 @@ class ExternalClockMLP(nn.Module):
         self.use_residual = bool(use_residual)
         self.language_readout_all_layers = bool(language_readout_all_layers)
         self.message_carry_mode = str(message_carry_mode)
+        self.readout_mode = str(readout_mode)
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
 

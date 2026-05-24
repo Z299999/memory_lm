@@ -428,8 +428,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if payload["num_agents"] < 1:
         raise ValueError("num_agents must be >= 1.")
     payload["readout_mode"] = str(payload.get("readout_mode", "shared_linear"))
-    if payload["readout_mode"] not in {"shared_linear", "mean_pool"}:
-        raise ValueError("readout_mode must be 'shared_linear' or 'mean_pool'.")
+    if payload["readout_mode"] not in {"shared_linear", "mean_pool", "learnable"}:
+        raise ValueError("readout_mode must be 'shared_linear', 'mean_pool', or 'learnable'.")
     payload["error_intake_mode"] = str(payload.get("error_intake_mode", "learnable"))
     if payload["error_intake_mode"] not in {"identity", "learnable"}:
         raise ValueError("error_intake_mode must be 'identity' or 'learnable'.")
