@@ -424,178 +424,195 @@ def plot_agent_analysis(
     output_path: Path,
     config: ExperimentConfig,
 ) -> None:
-    """Multi-agent analysis figure: D heatmap, w_in, per-agent norm, per-agent traces."""
+    """Fixed 4-row agent analysis figure (layout independent of N)."""
     import torch
 
     N = model.num_agents
     language_dim = model.language_dim
-
-    messages = rollout["messages"].numpy()   # (T, N*language_dim)
+    messages = rollout["messages"].numpy()    # (T, N*language_dim)
     message_norm = rollout["message_norm"].numpy()  # (T, N)
+    prediction = rollout["prediction"].numpy()
+    target = rollout["target"].numpy()
     T = messages.shape[0]
     steps = np.arange(T)
 
     readout_mode = getattr(model, "readout_mode", "shared_linear")
     D_last = list(model.trunk_Ws[-1].shape)[1]  # (N, D_out, D_in) → D_out
+    label_fs = max(6, 10 - N // 3)
 
-    # Effective inter-agent coupling summary: (N, N), baseline = 1 for learnable modes.
+    # --- Coupling matrix (N, N) ---
     with torch.no_grad():
         if model.DeltaD is not None:
             DeltaD = model.DeltaD.detach().cpu()
             if getattr(model, "message_carry_mode", "identity") == "learnable_diagonal":
-                coupling_values = (1.0 + DeltaD).mean(dim=2).numpy()  # (N, N)
+                coupling_values = (1.0 + DeltaD).mean(dim=2).numpy()
             else:
                 d = DeltaD.shape[-1]
                 eye = torch.eye(d, dtype=DeltaD.dtype).unsqueeze(0).unsqueeze(0)
-                effective_D = eye + DeltaD
-                coupling_values = (effective_D.diagonal(dim1=-2, dim2=-1).sum(dim=-1) / float(d)).numpy()
+                coupling_values = ((eye + DeltaD).diagonal(dim1=-2, dim2=-1).sum(dim=-1) / float(d)).numpy()
         else:
             coupling_values = np.eye(N, dtype=float)
-        if model.delta_w_in is not None:
-            w_in_eff = (1.0 + model.delta_w_in).detach().cpu().numpy()  # (N,) effective weight
-        else:
-            w_in_eff = np.ones(N)  # identity mode: fixed weight 1
+        w_in_eff = (
+            (1.0 + model.delta_w_in).detach().cpu().numpy()
+            if model.delta_w_in is not None
+            else np.ones(N)
+        )
 
-    # Layout: row 0 = D heatmap + w_in bar (side by side)
-    #         row 1 = per-agent message norm
-    #         rows 2..N+1 = per-agent message traces
-    nrows = 2 + N
-    height_ratios = [1.2, 0.9] + [1.0] * N
-    fig, axes = plt.subplots(
-        nrows,
-        2,
-        figsize=(12.0, max(3.5 * nrows * 0.6, 6.0)),
-        gridspec_kw={"height_ratios": height_ratios},
-        squeeze=False,
-        constrained_layout=True,
-    )
-
-    # Row 0 left: effective coupling heatmap
-    ax_d = axes[0, 0]
-    im = ax_d.imshow(coupling_values, aspect="auto", cmap="viridis", interpolation="nearest")
-    fig.colorbar(im, ax=ax_d, fraction=0.046, pad=0.04)
-    ax_d.set_xticks(range(N))
-    ax_d.set_yticks(range(N))
-    ax_d.set_xticklabels([f"from a{j}" for j in range(N)])
-    ax_d.set_yticklabels([f"agent {i}" for i in range(N)])
-    ax_d.set_title("Effective inter-agent coupling (1+Δ)")
-    d_max = float(np.max(coupling_values)) if coupling_values.size else 0.0
-    for i in range(N):
-        for j in range(N):
-            value = float(coupling_values[i, j])
-            ax_d.text(
-                j,
-                i,
-                f"{value:.2f}",
-                ha="center",
-                va="center",
-                fontsize=9,
-                color="white" if value < d_max * 0.6 else "black",
-            )
-
-    # Row 0 right: grouped bar — w_in (input) + readout gain (output) per agent
-    ax_w = axes[0, 1]
+    # --- Readout gains (N,) ---
     if readout_mode == "learnable":
-        readout_gains = (1.0 + model.delta_pool_out).detach().cpu().numpy()  # (N,)
+        readout_gains = (1.0 + model.delta_pool_out).detach().cpu().numpy()
     elif readout_mode == "mean_pool":
         readout_gains = np.ones(N)
     else:
-        W_out_np = model.readout_head.weight.detach().cpu().numpy()  # (1, N*D_last)
+        W_out_np = model.readout_head.weight.detach().cpu().numpy()
         readout_gains = np.array([
             np.linalg.norm(W_out_np[0, i * D_last : (i + 1) * D_last])
             for i in range(N)
         ])
 
+    # --- Per-agent readout contributions (T, N) ---
+    hidden_all = rollout.get("hidden")  # (T, N, D_last) or None
+    contrib_matrix = None
+    if hidden_all is not None:
+        if readout_mode in {"mean_pool", "learnable"}:
+            W_agents = model.agent_head_W.detach().cpu().squeeze(1).numpy()  # (N, D_last)
+            b_agents = model.agent_head_b.detach().cpu().squeeze(1).numpy()  # (N,)
+            gains = (1.0 + model.delta_pool_out).detach().cpu().numpy() if readout_mode == "learnable" else np.ones(N)
+            contribs = [gains[i] * (hidden_all[:, i, :].numpy() @ W_agents[i] + b_agents[i]) for i in range(N)]
+        else:
+            W_out = model.readout_head.weight.detach().cpu().numpy()
+            contribs = [hidden_all[:, i, :].numpy() @ W_out[0, i * D_last : (i + 1) * D_last] for i in range(N)]
+        contrib_matrix = np.stack(contribs, axis=1)  # (T, N)
+
+    # --- Heatmap matrices: shape (N, T), rows = agents ---
+    msg_norm_heat = message_norm.T if message_norm.ndim == 2 else np.zeros((N, T))  # (N, T)
+    msg_val_heat = np.stack([messages[:, i * language_dim] for i in range(N)], axis=0)  # (N, T), ch 0
+    contrib_heat = contrib_matrix.T if contrib_matrix is not None else None  # (N, T)
+
+    # --- Layout: 4 rows × 2 cols, fixed height ---
+    row0_h = max(1.1, N * 0.22 + 0.5)   # coupling heatmap scales with N
+    height_ratios = [row0_h, 1.1, 0.85, 0.85]
+    fig_h = sum(height_ratios) * 2.2 + 0.8
+    fig, axes = plt.subplots(
+        4, 2,
+        figsize=(13.0, fig_h),
+        gridspec_kw={"height_ratios": height_ratios},
+        squeeze=False,
+        constrained_layout=True,
+    )
+    agent_colors = [f"C{i % 10}" for i in range(N)]
+
+    # --- Row 0 left: coupling heatmap ---
+    ax_d = axes[0, 0]
+    im0 = ax_d.imshow(coupling_values, aspect="auto", cmap="viridis", interpolation="nearest")
+    fig.colorbar(im0, ax=ax_d, fraction=0.046, pad=0.04)
+    ax_d.set_xticks(range(N))
+    ax_d.set_yticks(range(N))
+    ax_d.set_xticklabels([f"a{j}" for j in range(N)], fontsize=label_fs)
+    ax_d.set_yticklabels([f"a{i}" for i in range(N)], fontsize=label_fs)
+    ax_d.set_xlabel("from", fontsize=8)
+    ax_d.set_ylabel("to", fontsize=8)
+    ax_d.set_title("Effective coupling (1+Δ)", fontsize=10)
+    if N <= 12:
+        d_max = float(np.max(coupling_values)) if coupling_values.size else 0.0
+        for i in range(N):
+            for j in range(N):
+                val = float(coupling_values[i, j])
+                ax_d.text(j, i, f"{val:.2f}", ha="center", va="center",
+                          fontsize=max(5, 9 - N // 3),
+                          color="white" if val < d_max * 0.6 else "black")
+
+    # --- Row 0 right: per-agent weight bars ---
+    ax_w = axes[0, 1]
     x = np.arange(N)
     width = 0.35
-    colors = [f"C{i}" for i in range(N)]
-    ax_w.bar(x - width / 2, w_in_eff, width, color=colors, alpha=0.9, label="1+Δw_in (error intake)")
+    ax_w.bar(x - width / 2, w_in_eff, width, color=agent_colors, alpha=0.9, label="1+Δw_in (error)")
     readout_label = "1+Δr_out (readout)" if readout_mode in {"mean_pool", "learnable"} else "readout ‖w_i‖"
-    ax_w.bar(x + width / 2, readout_gains, width, color=colors, alpha=0.45,
+    ax_w.bar(x + width / 2, readout_gains, width, color=agent_colors, alpha=0.45,
              hatch="//", label=readout_label)
     ax_w.set_xticks(x)
-    ax_w.set_xticklabels([f"agent {i}" for i in range(N)])
-    ax_w.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.6, label="identity baseline")
-    ax_w.set_title("Per-agent input / output weights")
-    ax_w.legend(fontsize=8)
+    ax_w.set_xticklabels([f"a{i}" for i in range(N)], fontsize=label_fs)
+    ax_w.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.6, label="baseline=1")
+    ax_w.set_title("Per-agent weights", fontsize=10)
+    ax_w.legend(fontsize=8, loc="upper right")
     ax_w.grid(axis="y", alpha=config.plot_grid_alpha)
 
-    # Row 1 left: per-agent message norm over time
-    ax_norm = axes[1, 0]
-    if message_norm.ndim == 2:
-        for i in range(N):
-            ax_norm.plot(steps, message_norm[:, i], linewidth=config.plot_series_linewidth,
-                         color=f"C{i}", label=f"agent {i}")
-    ax_norm.set_title("Per-agent message norm")
-    ax_norm.set_ylabel("‖m_i‖")
-    ax_norm.grid(alpha=config.plot_grid_alpha)
-    ax_norm.legend(ncol=N, fontsize=8)
-
-    # Row 1 right: prediction vs target
-    ax_pred = axes[1, 1]
-    prediction = rollout["prediction"].numpy()
-    target = rollout["target"].numpy()
+    # --- Row 1 left: output vs target ---
+    ax_pred = axes[1, 0]
     ax_pred.plot(steps, target, color=config.plot_target_color,
                  linestyle=config.plot_target_linestyle,
                  linewidth=config.plot_target_linewidth, label="target")
     ax_pred.plot(steps, prediction, linewidth=config.plot_series_linewidth,
-                 color="#1f77b4", label="prediction")
-    ax_pred.set_title("Reservoir output vs target")
+                 color="#1f77b4", label="output")
+    ax_pred.set_title("Reservoir output vs target", fontsize=10)
     ax_pred.set_ylabel("value")
     ax_pred.grid(alpha=config.plot_grid_alpha)
     ax_pred.legend(fontsize=8)
 
-    # Compute per-agent readout contributions if hidden states are available
-    hidden_all = rollout.get("hidden")  # (T, N, D_last) or None
-    if readout_mode in {"mean_pool", "learnable"}:
-        W_agents = model.agent_head_W.detach().cpu().squeeze(1).numpy()  # (N, D_last)
-        b_agents = model.agent_head_b.detach().cpu().squeeze(1).numpy()  # (N,)
-        if readout_mode == "learnable":
-            pool_gains = (1.0 + model.delta_pool_out).detach().cpu().numpy()  # (N,)
-        else:
-            pool_gains = np.ones(N)
-    else:
-        W_out = model.readout_head.weight.detach().cpu().numpy()  # (1, N*D_last)
+    # --- Row 1 right: all contributions overlaid ---
+    ax_ov = axes[1, 1]
+    if contrib_matrix is not None:
+        for i in range(N):
+            ax_ov.plot(steps, contrib_matrix[:, i], linewidth=config.plot_aux_linewidth,
+                       color=agent_colors[i], alpha=0.85, label=f"a{i}")
+        ax_ov.plot(steps, target, color=config.plot_target_color,
+                   linestyle=config.plot_target_linestyle,
+                   linewidth=config.plot_target_linewidth, label="target")
+    ax_ov.set_title("Readout contributions (overlaid)", fontsize=10)
+    ax_ov.set_ylabel("v_i · h_i")
+    ax_ov.grid(alpha=config.plot_grid_alpha)
+    _maybe_add_legend(ax_ov, ncol=min(N + 1, 7))
 
-    # Rows 2..N+1: per-agent message traces (left) + readout contribution (right)
-    for i in range(N):
-        ax_tr = axes[2 + i, 0]
-        agent_msgs = messages[:, i * language_dim : (i + 1) * language_dim]
-        for ch in range(language_dim):
-            ax_tr.plot(steps, agent_msgs[:, ch], linewidth=config.plot_aux_linewidth,
-                       label=f"m{ch}")
-        ax_tr.set_title(f"Agent {i} message traces")
-        ax_tr.set_ylabel("message")
-        ax_tr.grid(alpha=config.plot_grid_alpha)
-        _maybe_add_legend(ax_tr, ncol=config.plot_message_legend_ncols)
+    # --- Row 2 left: message norm heatmap (N × T) ---
+    ax_mh = axes[2, 0]
+    im2 = ax_mh.imshow(msg_norm_heat, aspect="auto", cmap="plasma",
+                        interpolation="nearest", origin="lower")
+    fig.colorbar(im2, ax=ax_mh, fraction=0.046, pad=0.04)
+    ax_mh.set_yticks(range(N))
+    ax_mh.set_yticklabels([f"a{i}" for i in range(N)], fontsize=label_fs)
+    ax_mh.set_title("Message norm ‖m_i‖ over time", fontsize=10)
+    ax_mh.set_xlabel("step")
+    ax_mh.set_ylabel("agent")
 
-        ax_contrib = axes[2 + i, 1]
-        if hidden_all is not None:
-            h_i = hidden_all[:, i, :].numpy()  # (T, D_last)
-            if readout_mode in {"mean_pool", "learnable"}:
-                per_agent_i = h_i @ W_agents[i] + b_agents[i]
-                contrib_i = pool_gains[i] * per_agent_i
-            else:
-                w_i = W_out[0, i * D_last : (i + 1) * D_last]
-                contrib_i = h_i @ w_i           # (T,)
-            ax_contrib.plot(steps, contrib_i, linewidth=config.plot_series_linewidth,
-                            color=f"C{i}", label=f"agent {i} contribution")
-            ax_contrib.plot(steps, target, color=config.plot_target_color,
-                            linestyle=config.plot_target_linestyle,
-                            linewidth=config.plot_target_linewidth, label="target")
-            ax_contrib.legend(fontsize=8)
-        if readout_mode == "mean_pool":
-            ylabel = "v_i · h_i + b_i"
-        elif readout_mode == "learnable":
-            ylabel = "(1+Δr_i)(v_i · h_i + b_i)"
-        else:
-            ylabel = "W_out_i · h_i"
-        ax_contrib.set_title(f"Agent {i} readout contribution")
-        ax_contrib.set_ylabel(ylabel)
-        ax_contrib.grid(alpha=config.plot_grid_alpha)
+    # --- Row 2 right: message channel-0 heatmap (N × T) ---
+    ax_mv = axes[2, 1]
+    vmax = float(np.abs(msg_val_heat).max()) + 1e-8
+    im3 = ax_mv.imshow(msg_val_heat, aspect="auto", cmap="RdBu_r",
+                        vmin=-vmax, vmax=vmax,
+                        interpolation="nearest", origin="lower")
+    fig.colorbar(im3, ax=ax_mv, fraction=0.046, pad=0.04)
+    ax_mv.set_yticks(range(N))
+    ax_mv.set_yticklabels([f"a{i}" for i in range(N)], fontsize=label_fs)
+    ch_label = "m[0]" if language_dim > 1 else "m"
+    ax_mv.set_title(f"Message {ch_label} over time", fontsize=10)
+    ax_mv.set_xlabel("step")
+    ax_mv.set_ylabel("agent")
 
-    axes[-1, 0].set_xlabel("step")
-    axes[-1, 1].set_xlabel("step")
+    # --- Row 3 left: message norm lines overlaid ---
+    ax_nl = axes[3, 0]
+    if message_norm.ndim == 2:
+        for i in range(N):
+            ax_nl.plot(steps, message_norm[:, i], linewidth=config.plot_aux_linewidth,
+                       color=agent_colors[i], label=f"a{i}")
+    ax_nl.set_title("Message norm (overlaid)", fontsize=10)
+    ax_nl.set_ylabel("‖m_i‖")
+    ax_nl.set_xlabel("step")
+    ax_nl.grid(alpha=config.plot_grid_alpha)
+    _maybe_add_legend(ax_nl, ncol=min(N, 7))
+
+    # --- Row 3 right: contribution heatmap (N × T) ---
+    ax_ch = axes[3, 1]
+    if contrib_heat is not None:
+        cmax = float(np.abs(contrib_heat).max()) + 1e-8
+        im4 = ax_ch.imshow(contrib_heat, aspect="auto", cmap="RdBu_r",
+                            vmin=-cmax, vmax=cmax,
+                            interpolation="nearest", origin="lower")
+        fig.colorbar(im4, ax=ax_ch, fraction=0.046, pad=0.04)
+        ax_ch.set_yticks(range(N))
+        ax_ch.set_yticklabels([f"a{i}" for i in range(N)], fontsize=label_fs)
+    ax_ch.set_title("Readout contribution heatmap", fontsize=10)
+    ax_ch.set_xlabel("step")
+    ax_ch.set_ylabel("agent")
 
     fig.suptitle("exp0522 agent analysis", fontsize=config.plot_title_fontsize)
     fig.savefig(output_path, dpi=config.plot_dpi)
