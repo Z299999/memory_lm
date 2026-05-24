@@ -58,8 +58,31 @@ def build_rollout_targets(
     start_step: int = 0,
     target_kind: str = "sine",
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5)),
+    target_split: str = "train",
+    ticker: str = "IBM",
+    price_column: str = "Close",
+    normalize: str = "train_zscore",
+    test_days: int = 252,
+    market_cache_dir: str = "data/yfinance",
 ) -> dict[str, torch.Tensor]:
     """Return true y targets for one rollout."""
+    if target_kind == "yfinance_price":
+        try:
+            from .market_data import build_market_rollout_targets
+        except ImportError:  # pragma: no cover - script mode
+            from market_data import build_market_rollout_targets
+        return build_market_rollout_targets(
+            num_steps=num_steps,
+            device=device,
+            start_step=start_step,
+            split=target_split,
+            ticker=ticker,
+            price_column=price_column,
+            normalize=normalize,
+            test_days=test_days,
+            market_cache_dir=market_cache_dir,
+        )
+
     phase, target_y = build_rollout_waveform(
         num_steps,
         cycle_steps,

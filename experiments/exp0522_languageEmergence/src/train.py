@@ -21,6 +21,7 @@ try:
         write_resolved_config,
     )
     from .eval import _evaluate_rollout
+    from .market_data import load_market_series
     from .model import AgentPool, ExternalClockMLP
     from .plots import plot_training_curves, plot_training_timeline
 except ImportError:  # pragma: no cover - script mode
@@ -32,6 +33,7 @@ except ImportError:  # pragma: no cover - script mode
         write_resolved_config,
     )
     from eval import _evaluate_rollout
+    from market_data import load_market_series
     from model import AgentPool, ExternalClockMLP
     from plots import plot_training_curves, plot_training_timeline
 
@@ -66,25 +68,29 @@ def _to_serializable_history(history: list[dict[str, float]]) -> list[dict[str, 
 def _build_train_target(
     *,
     num_steps: int,
-    cycle_steps: int,
     device: torch.device,
-    train_phase_mode: str,
     start_step: int,
-    target_kind: str,
-    mixed_sin_components: tuple[tuple[float, float], ...],
+    config: ExperimentConfig,
+    target_split: str = "train",
 ) -> dict[str, torch.Tensor]:
     try:
         from .task import build_rollout_targets
     except ImportError:
         from task import build_rollout_targets
-    offset = start_step if train_phase_mode == "continuous" else 0
+    offset = start_step if config.train_phase_mode == "continuous" else 0
     return build_rollout_targets(
         num_steps,
-        cycle_steps,
+        config.cycle_steps,
         device,
         start_step=offset,
-        target_kind=target_kind,
-        mixed_sin_components=mixed_sin_components,
+        target_kind=config.target_kind,
+        mixed_sin_components=config.mixed_sin_components,
+        target_split=target_split,
+        ticker=config.ticker,
+        price_column=config.price_column,
+        normalize=config.normalize,
+        test_days=config.test_days,
+        market_cache_dir=config.market_cache_dir,
     )
 
 
@@ -102,7 +108,17 @@ def _sample_train_steps(config: ExperimentConfig) -> int:
 
 
 def _build_training_timeline_panels(config: ExperimentConfig) -> list[dict[str, Any]]:
-    total_steps = int(round(int(config.epochs) * float(train_window_reference_steps(config.train_window_schedule))))
+    if config.target_kind == "yfinance_price":
+        series = load_market_series(
+            ticker=config.ticker,
+            price_column=config.price_column,
+            normalize=config.normalize,
+            test_days=config.test_days,
+            market_cache_dir=config.market_cache_dir,
+        )
+        total_steps = int(config.market_passes * series.train_length)
+    else:
+        total_steps = int(round(int(config.epochs) * float(train_window_reference_steps(config.train_window_schedule))))
     if total_steps <= 0:
         return []
     window_steps = min(int(config.plot_training_timeline_window_steps), total_steps)
@@ -196,12 +212,9 @@ def _train_single_model(
         for steps in cache_steps:
             bundle = _build_train_target(
                 num_steps=steps,
-                cycle_steps=config.cycle_steps,
                 device=device,
-                train_phase_mode="reset",
                 start_step=0,
-                target_kind=config.target_kind,
-                mixed_sin_components=config.mixed_sin_components,
+                config=config,
             )
             target_cache[(int(steps), 0)] = bundle
 
@@ -222,12 +235,9 @@ def _train_single_model(
         else:
             train_bundle = _build_train_target(
                 num_steps=effective_steps,
-                cycle_steps=config.cycle_steps,
                 device=device,
-                train_phase_mode=config.train_phase_mode,
                 start_step=train_window_start,
-                target_kind=config.target_kind,
-                mixed_sin_components=config.mixed_sin_components,
+                config=config,
             )
         train_target = train_bundle["train_target"]
         train_target_y = train_bundle["target_y"]
@@ -256,12 +266,9 @@ def _train_single_model(
         if use_aux:
             aux_bundle = _build_train_target(
                 num_steps=1,
-                cycle_steps=config.cycle_steps,
                 device=device,
-                train_phase_mode="continuous",
                 start_step=train_window_start + effective_steps,
-                target_kind=config.target_kind,
-                mixed_sin_components=config.mixed_sin_components,
+                config=config,
             )
             _aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
                 num_steps=1,
@@ -315,6 +322,12 @@ def _train_single_model(
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            target_split="train",
+            ticker=config.ticker,
+            price_column=config.price_column,
+            normalize=config.normalize,
+            test_days=config.test_days,
+            market_cache_dir=config.market_cache_dir,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
@@ -323,7 +336,7 @@ def _train_single_model(
             "epoch": float(epoch),
             "train_steps": float(effective_steps),
             "train_loss": float(train_loss.item()),
-            "val_loss": float(val_result["raw_target_mse"]),
+            "heldout_loss": float(val_result["raw_target_mse"]),
         }
         if use_aux:
             row["aux_loss"] = aux_loss_val
@@ -336,7 +349,7 @@ def _train_single_model(
             print(
                 f"[{model_name}] epoch {epoch:4d}/{config.epochs} "
                 f"steps={effective_steps:3d} "
-                f"train={row['train_loss']:.6f} val={row['val_loss']:.6f}"
+                f"train={row['train_loss']:.6f} heldout={row['heldout_loss']:.6f}"
             )
 
         if checkpoint_dir is not None and epoch in checkpoint_epochs:
@@ -361,6 +374,200 @@ def _train_single_model(
             "final_message": train_message_state,
             "final_error": train_error_state,
             "final_step": int(train_time_cursor),
+        },
+    }
+
+
+def _train_market_model(
+    *,
+    model_name: str,
+    model: ExternalClockMLP,
+    config: ExperimentConfig,
+    device: torch.device,
+    checkpoint_dir: Path | None = None,
+    checkpoint_epochs: tuple[int, ...] = (),
+) -> dict[str, Any]:
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config.lr,
+        weight_decay=config.weight_decay,
+    )
+    series = load_market_series(
+        ticker=config.ticker,
+        price_column=config.price_column,
+        normalize=config.normalize,
+        test_days=config.test_days,
+        market_cache_dir=config.market_cache_dir,
+    )
+    history: list[dict[str, float]] = []
+    timeline_panels = (
+        _build_training_timeline_panels(config)
+        if config.sequence_mode == "continuous_window" and config.plot_show_training_timeline
+        else []
+    )
+    checkpoint_epochs = tuple(sorted(set(checkpoint_epochs)))
+    checkpoint_set = set(checkpoint_epochs)
+    update_idx = 0
+    final_message_state: torch.Tensor | None = None
+    final_error_state: torch.Tensor | None = None
+    final_step = 0
+    val_steps = min(config.eval_steps, series.test_length)
+
+    for pass_idx in range(1, config.market_passes + 1):
+        train_cursor = 0
+        train_message_state: torch.Tensor | None = None
+        train_error_state: torch.Tensor | None = None
+        while train_cursor < series.train_length:
+            remaining = series.train_length - train_cursor
+            effective_steps = min(_sample_train_steps(config), remaining)
+            train_bundle = _build_train_target(
+                num_steps=effective_steps,
+                device=device,
+                start_step=train_cursor,
+                config=config,
+                target_split="train",
+            )
+            train_target = train_bundle["train_target"]
+            train_target_y = train_bundle["target_y"]
+            model.train()
+            optimizer.zero_grad(set_to_none=True)
+            prediction, raw_prediction, _messages, _hidden, final_message, final_error = model.rollout(
+                num_steps=effective_steps,
+                pulse_value=config.pulse_value,
+                target_sequence=train_target,
+                y_target_sequence=train_target_y,
+                initial_message=train_message_state,
+                initial_error=train_error_state,
+                detach_error_input=config.detach_error_input,
+                force_zero_error_input=config.force_zero_error_input,
+                disable_language=False,
+                return_hidden=False,
+            )
+            train_loss = torch.mean((raw_prediction - train_target) ** 2)
+
+            use_aux = (
+                train_cursor + effective_steps < series.train_length
+                and model.use_language
+                and config.message_aux_loss_weight > 0.0
+            )
+            aux_loss_val = 0.0
+            if use_aux:
+                aux_bundle = _build_train_target(
+                    num_steps=1,
+                    device=device,
+                    start_step=train_cursor + effective_steps,
+                    config=config,
+                    target_split="train",
+                )
+                _aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
+                    num_steps=1,
+                    pulse_value=config.pulse_value,
+                    target_sequence=aux_bundle["train_target"],
+                    y_target_sequence=aux_bundle["target_y"],
+                    initial_message=final_message,
+                    initial_error=final_error,
+                    detach_error_input=config.detach_error_input,
+                    force_zero_error_input=config.force_zero_error_input,
+                    disable_language=False,
+                    return_hidden=False,
+                )
+                aux_loss = torch.mean((aux_raw_prediction - aux_bundle["train_target"]) ** 2)
+                total_loss = train_loss + config.message_aux_loss_weight * aux_loss
+                aux_loss_val = float(aux_loss.item())
+            else:
+                total_loss = train_loss
+
+            total_loss.backward()
+            if config.grad_clip > 0.0:
+                nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+            optimizer.step()
+
+            global_window_start = (pass_idx - 1) * series.train_length + train_cursor
+            _record_training_timeline_overlap(
+                panels=timeline_panels,
+                train_window_start=int(global_window_start),
+                train_window_end=int(global_window_start + effective_steps - 1),
+                target=train_target_y,
+                prediction=prediction,
+            )
+
+            if model.use_language:
+                train_message_state = final_message.detach()
+            else:
+                train_message_state = None
+            if model.use_error_input and config.carry_error_between_windows:
+                train_error_state = final_error.detach()
+            else:
+                train_error_state = None
+
+            update_idx += 1
+            train_cursor += effective_steps
+            final_message_state = train_message_state
+            final_error_state = train_error_state
+            final_step = series.train_length
+
+            val_result = _evaluate_rollout(
+                model,
+                num_steps=val_steps,
+                cycle_steps=config.cycle_steps,
+                pulse_value=config.pulse_value,
+                target_kind=config.target_kind,
+                mixed_sin_components=config.mixed_sin_components,
+                target_split="test",
+                ticker=config.ticker,
+                price_column=config.price_column,
+                normalize=config.normalize,
+                test_days=config.test_days,
+                market_cache_dir=config.market_cache_dir,
+                detach_error_input=config.detach_error_input,
+                force_zero_error_input=config.force_zero_error_input,
+                disable_language=False,
+            )
+            row = {
+                "epoch": float(update_idx),
+                "market_pass": float(pass_idx),
+                "train_steps": float(effective_steps),
+                "train_loss": float(train_loss.item()),
+                "heldout_loss": float(val_result["raw_target_mse"]),
+                "train_window_start": float(global_window_start),
+                "train_window_end": float(global_window_start + effective_steps - 1),
+                "market_train_start": float(train_cursor - effective_steps),
+                "market_train_end": float(train_cursor - 1),
+            }
+            if use_aux:
+                row["aux_loss"] = aux_loss_val
+            history.append(row)
+
+            if update_idx == 1 or update_idx % config.log_every == 0:
+                print(
+                    f"[{model_name}] update {update_idx:5d} "
+                    f"pass={pass_idx:3d}/{config.market_passes} "
+                    f"steps={effective_steps:3d} "
+                    f"train={row['train_loss']:.6f} heldout={row['heldout_loss']:.6f}"
+                )
+
+            if checkpoint_dir is not None and update_idx in checkpoint_set:
+                _save_checkpoint(
+                    model,
+                    checkpoint_dir / f"{model_name}_epoch_{update_idx:04d}.pt",
+                    metadata={
+                        "config": config.to_resolved_dict(),
+                        "model_name": model_name,
+                        "epoch": int(update_idx),
+                        "checkpoint_kind": "milestone",
+                    },
+                )
+
+    return {
+        "model": model,
+        "history": history,
+        "training_timeline": {
+            "panels": timeline_panels,
+        } if timeline_panels else None,
+        "final_train_state": {
+            "final_message": final_message_state,
+            "final_error": final_error_state,
+            "final_step": int(final_step),
         },
     }
 
@@ -415,14 +622,24 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
         ).to(device)
 
     full_checkpoint_epochs = _analysis_checkpoint_epochs(config)
-    full_result = _train_single_model(
-        model_name="full_language",
-        model=full_model,
-        config=config,
-        device=device,
-        checkpoint_dir=ckpt_dir,
-        checkpoint_epochs=full_checkpoint_epochs,
-    )
+    if config.target_kind == "yfinance_price":
+        full_result = _train_market_model(
+            model_name="full_language",
+            model=full_model,
+            config=config,
+            device=device,
+            checkpoint_dir=ckpt_dir,
+            checkpoint_epochs=full_checkpoint_epochs,
+        )
+    else:
+        full_result = _train_single_model(
+            model_name="full_language",
+            model=full_model,
+            config=config,
+            device=device,
+            checkpoint_dir=ckpt_dir,
+            checkpoint_epochs=full_checkpoint_epochs,
+        )
 
     _write_json(
         metrics_dir / "history_full_language.json",
@@ -434,7 +651,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
     final_metadata = {
         "config": config.to_resolved_dict(),
         "model_name": "full_language",
-        "epoch": int(config.epochs),
+        "epoch": int(full_result["history"][-1]["epoch"]) if full_result["history"] else int(config.epochs),
         "checkpoint_kind": "final",
     }
     _save_checkpoint(full_result["model"], ckpt_dir / "full_language_final.pt", metadata=final_metadata)

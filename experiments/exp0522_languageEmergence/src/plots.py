@@ -29,9 +29,9 @@ except ImportError:  # pragma: no cover - script mode
 
 _TRAINING_SERIES_SPECS = {
     "full_train": ("full train", "train_loss", "full", "main"),
-    "full_val": ("full val", "val_loss", "full", "aux"),
+    "full_heldout": ("full heldout", "heldout_loss", "full", "aux"),
     "baseline_train": ("baseline train", "train_loss", "baseline", "main"),
-    "baseline_val": ("baseline val", "val_loss", "baseline", "aux"),
+    "baseline_heldout": ("baseline heldout", "heldout_loss", "baseline", "aux"),
 }
 
 
@@ -63,6 +63,14 @@ def _linestyle(config: ExperimentConfig, width_kind: str) -> str:
 def _condition_width_kind(condition_name: str) -> str:
     base, _ = parse_condition(condition_name)
     return "main" if base == "full" else "aux"
+
+
+def _target_display_name(config: ExperimentConfig) -> str:
+    if config.target_kind == "yfinance_price":
+        return f"{config.ticker} {config.price_column} yfinance_price"
+    if config.target_kind == "mixed_sin":
+        return "mixed_sin synthetic stream"
+    return f"{config.target_kind} synthetic stream"
 
 
 _CONDITION_COLORS: dict[str, str] = {
@@ -411,7 +419,10 @@ def plot_rollout_diagnostics(
 
     axes[-1].set_xlabel("step")
 
-    fig.suptitle("exp0522 rollout diagnostics", fontsize=config.plot_title_fontsize)
+    fig.suptitle(
+        f"exp0522 rollout diagnostics - {_target_display_name(config)}",
+        fontsize=config.plot_title_fontsize,
+    )
     fig.tight_layout()
     fig.savefig(output_path, dpi=config.plot_dpi)
     plt.close(fig)

@@ -15,9 +15,10 @@ import yaml
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
     "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers", "message_carry_mode", "num_agents", "readout_mode", "error_intake_mode"),
-    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components"),
+    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "ticker", "price_column", "normalize", "test_days", "market_cache_dir"),
     "train": (
         "epochs",
+        "market_passes",
         "lr",
         "weight_decay",
         "grad_clip",
@@ -157,6 +158,7 @@ class ExperimentConfig:
     run_name: str = "exp0522_clock_v0"
     seed: int = 42
     epochs: int = 400
+    market_passes: int = 1
     lr: float = 3e-3
     weight_decay: float = 0.0
     grad_clip: float = 1.0
@@ -180,6 +182,11 @@ class ExperimentConfig:
     cycle_steps: int = 32
     target_kind: str = "sine"
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5))
+    ticker: str = "IBM"
+    price_column: str = "Close"
+    normalize: str = "train_zscore"
+    test_days: int = 252
+    market_cache_dir: str = "data/yfinance"
     eval_steps: int = 128
     long_steps: int = 512
     continuous_eval_steps: int = 512
@@ -213,7 +220,7 @@ class ExperimentConfig:
     plot_message_legend_ncols: int = 2
     plot_training_series: tuple[str, ...] = (
         "full_train",
-        "full_val",
+        "full_heldout",
     )
     plot_show_message_traces: bool = True
     plot_show_message_norm: bool = True
@@ -240,6 +247,13 @@ class ExperimentConfig:
             "message_init": 0.0,
             "target_kind": self.target_kind,
             "target": _resolved_target_description(self),
+            "market": {
+                "ticker": self.ticker,
+                "price_column": self.price_column,
+                "normalize": self.normalize,
+                "test_days": self.test_days,
+                "market_cache_dir": self.market_cache_dir,
+            } if self.target_kind == "yfinance_price" else None,
             "train_window_schedule": self.train_window_schedule,
             "resolved_train_window_min": train_window_bounds(self.train_window_schedule)[0],
             "resolved_train_window_max": train_window_bounds(self.train_window_schedule)[1],
@@ -259,10 +273,14 @@ def omega_from_cycle_steps(cycle_steps: int) -> float:
 def _resolved_target_description(config: ExperimentConfig) -> str:
     if config.target_kind == "sine":
         waveform = "sin(phi_t)"
-    else:
+    elif config.target_kind == "mixed_sin":
         terms = " + ".join(f"{amp}*sin({freq}*phi_t)" for freq, amp in config.mixed_sin_components)
         scale = sum(abs(amp) for _, amp in config.mixed_sin_components)
         waveform = f"({terms}) / {scale}"
+    elif config.target_kind == "yfinance_price":
+        waveform = f"yfinance {config.ticker} raw {config.price_column} price, {config.normalize}"
+    else:
+        waveform = f"unsupported target_kind={config.target_kind!r}"
     return waveform
 
 
@@ -318,10 +336,12 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     for key in (
         "seed",
         "epochs",
+        "market_passes",
         "language_dim",
         "language_readout_coverage",
         "num_agents",
         "cycle_steps",
+        "test_days",
         "eval_steps",
         "long_steps",
         "continuous_eval_steps",
@@ -380,6 +400,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["train_phase_mode"] = str(payload["train_phase_mode"])
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
+    payload["ticker"] = str(payload["ticker"])
+    payload["price_column"] = str(payload["price_column"])
+    payload["normalize"] = str(payload["normalize"])
+    payload["market_cache_dir"] = str(payload["market_cache_dir"])
     payload["train_window_schedule"] = str(payload["train_window_schedule"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
     payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
@@ -417,6 +441,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
 
     if payload["epochs"] <= 0:
         raise ValueError("epochs must be positive.")
+    if payload["market_passes"] <= 0:
+        raise ValueError("market_passes must be positive.")
     if payload["message_aux_loss_weight"] < 0.0:
         raise ValueError("message_aux_loss_weight must be >= 0.")
     if payload["sequence_mode"] not in {"reset", "continuous_window"}:
@@ -447,8 +473,17 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
             raise ValueError("language_readout_coverage must be <= language_dim.")
     if payload["cycle_steps"] <= 1:
         raise ValueError("cycle_steps must be greater than 1.")
-    if payload["target_kind"] not in {"sine", "mixed_sin"}:
-        raise ValueError("target_kind must be either 'sine' or 'mixed_sin'.")
+    if payload["target_kind"] not in {"sine", "mixed_sin", "yfinance_price"}:
+        raise ValueError("target_kind must be either 'sine', 'mixed_sin', or 'yfinance_price'.")
+    if payload["target_kind"] == "yfinance_price":
+        if not payload["ticker"].strip():
+            raise ValueError("ticker must be a non-empty string for yfinance_price.")
+        if not payload["price_column"].strip():
+            raise ValueError("price_column must be a non-empty string for yfinance_price.")
+        if payload["normalize"] != "train_zscore":
+            raise ValueError("normalize must be 'train_zscore' for yfinance_price.")
+        if payload["test_days"] <= 0:
+            raise ValueError("test_days must be positive for yfinance_price.")
     if str(legacy_prediction_target) != "y":
         raise ValueError("prediction_target has been removed; only the original 'y' mode is still supported.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
@@ -482,24 +517,27 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("eval_conditions must contain 'full'.")
 
     raw_components = payload["mixed_sin_components"]
-    if not isinstance(raw_components, (list, tuple)) or not raw_components:
-        raise ValueError("mixed_sin_components must be a non-empty list of [freq, amplitude] pairs.")
-    parsed = []
-    for item in raw_components:
-        if not isinstance(item, (list, tuple)) or len(item) != 2:
-            raise ValueError("Each mixed_sin_components entry must be a [freq, amplitude] pair.")
-        freq, amp = float(item[0]), float(item[1])
-        if freq <= 0:
-            raise ValueError("mixed_sin_components: each frequency must be positive.")
-        if not math.isfinite(amp):
-            raise ValueError("mixed_sin_components: each amplitude must be finite.")
-        parsed.append((freq, amp))
-    payload["mixed_sin_components"] = tuple(parsed)
+    if payload["target_kind"] in {"sine", "mixed_sin"}:
+        if not isinstance(raw_components, (list, tuple)) or not raw_components:
+            raise ValueError("mixed_sin_components must be a non-empty list of [freq, amplitude] pairs.")
+        parsed = []
+        for item in raw_components:
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                raise ValueError("Each mixed_sin_components entry must be a [freq, amplitude] pair.")
+            freq, amp = float(item[0]), float(item[1])
+            if freq <= 0:
+                raise ValueError("mixed_sin_components: each frequency must be positive.")
+            if not math.isfinite(amp):
+                raise ValueError("mixed_sin_components: each amplitude must be finite.")
+            parsed.append((freq, amp))
+        payload["mixed_sin_components"] = tuple(parsed)
+    else:
+        payload["mixed_sin_components"] = tuple(tuple(item) for item in raw_components)
     if window_max > payload["long_steps"]:
         raise ValueError("train_window_schedule maximum length must be <= long_steps.")
     if window_max > payload["continuous_eval_steps"]:
         raise ValueError("train_window_schedule maximum length must be <= continuous_eval_steps.")
-    if payload["eval_steps"] < payload["cycle_steps"]:
+    if payload["target_kind"] != "yfinance_price" and payload["eval_steps"] < payload["cycle_steps"]:
         raise ValueError("eval_steps must be at least one cycle long.")
     if payload["long_steps"] < payload["eval_steps"]:
         raise ValueError("long_steps must be greater than or equal to eval_steps.")
@@ -507,6 +545,15 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("continuous_window mode requires train_phase_mode='continuous'.")
     if payload["sequence_mode"] == "reset" and payload["train_phase_mode"] != "reset":
         raise ValueError("reset mode requires train_phase_mode='reset'.")
+    if payload["target_kind"] == "yfinance_price":
+        if payload["sequence_mode"] != "continuous_window":
+            raise ValueError("yfinance_price requires sequence_mode='continuous_window'.")
+        if payload["train_phase_mode"] != "continuous":
+            raise ValueError("yfinance_price requires train_phase_mode='continuous'.")
+        if payload["eval_phase_mode"] != "continuous":
+            raise ValueError("yfinance_price requires eval_phase_mode='continuous'.")
+        if payload["continuous_eval_steps"] > payload["test_days"]:
+            raise ValueError("continuous_eval_steps must be <= test_days for yfinance_price.")
     legacy_rollout_schedule = raw.get("rollout_schedule")
     if legacy_rollout_schedule is None and isinstance(raw.get("train"), dict):
         legacy_rollout_schedule = raw["train"].get("rollout_schedule")
@@ -556,9 +603,9 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("plot_training_timeline_window_steps must be positive.")
     allowed_training_series = {
         "full_train",
-        "full_val",
+        "full_heldout",
         "baseline_train",
-        "baseline_val",
+        "baseline_heldout",
     }
     for key, allowed in (("plot_training_series", allowed_training_series),):
         invalid = [item for item in payload[key] if item not in allowed]
