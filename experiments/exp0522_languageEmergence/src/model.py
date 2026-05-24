@@ -237,7 +237,7 @@ class AgentPool(nn.Module):
 
         pulse = torch.full((1, self.pulse_dim), float(pulse_value), device=device)
         outputs: list[torch.Tensor] = []
-        msg0_steps: list[torch.Tensor] = []
+        all_msg_steps: list[torch.Tensor] = []
 
         for step in range(num_steps):
             # Language aggregation: language_input_i = activation(Σ_j D[i,j] @ m_j)
@@ -290,8 +290,8 @@ class AgentPool(nn.Module):
                     new_msgs.append(m_t.squeeze(0))  # (language_dim,)
                 else:
                     new_msgs.append(torch.zeros(self.language_dim, device=device))
-            msg0_steps.append(new_msgs[0].unsqueeze(0))  # (1, language_dim)
             msg_prev = torch.stack(new_msgs, dim=0)  # (N, language_dim)
+            all_msg_steps.append(msg_prev.clone())   # snapshot (N, language_dim)
 
             # Error update (shared scalar)
             if self.use_error_input:
@@ -299,14 +299,15 @@ class AgentPool(nn.Module):
                 err_prev = e_t.detach() if detach_error_input else e_t
 
         outputs_tensor = torch.cat(outputs, dim=0)  # (num_steps, 1)
-        msg0_tensor = torch.cat(msg0_steps, dim=0)  # (num_steps, language_dim)
+        # all_msg_steps: list of (N, d) → stack → (T, N, d) → flatten → (T, N*d)
+        all_msgs_tensor = torch.stack(all_msg_steps, dim=0).flatten(1, 2)  # (num_steps, N*language_dim)
 
         # final_message: (N, language_dim) — differs from single-agent (1, language_dim)
         # final_error: (1, error_dim) — same shape as single-agent
         return (
             outputs_tensor,
             outputs_tensor,  # raw == output (single readout head)
-            msg0_tensor,
+            all_msgs_tensor,
             None,
             msg_prev,   # (N, language_dim)
             err_prev,   # (1, error_dim)

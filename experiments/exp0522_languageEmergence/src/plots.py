@@ -366,14 +366,20 @@ def plot_rollout_diagnostics(
 
     if "messages" in axis_by_panel:
         messages = message_source["messages"].numpy()
+        num_agents = message_source.get("num_agents", 1)
+        language_dim = messages.shape[1] // num_agents if num_agents > 1 else messages.shape[1]
         message_axis = axis_by_panel["messages"]
         if messages.shape[1] > 0:
             for idx in range(messages.shape[1]):
+                if num_agents > 1:
+                    label = f"a{idx // language_dim}:m{idx % language_dim}"
+                else:
+                    label = f"m{idx}"
                 message_axis.plot(
                     message_steps,
                     messages[:, idx],
                     linewidth=config.plot_aux_linewidth,
-                    label=f"m{idx}",
+                    label=label,
                 )
             _maybe_add_legend(message_axis, ncol=config.plot_message_legend_ncols)
         message_axis.set_title("Full model language channel traces")
@@ -382,12 +388,23 @@ def plot_rollout_diagnostics(
 
     if "message_norm" in axis_by_panel:
         norm_axis = axis_by_panel["message_norm"]
-        norm_axis.plot(
-            message_steps,
-            message_source["message_norm"].numpy(),
-            color="black",
-            linewidth=config.plot_series_linewidth,
-        )
+        norm = message_source["message_norm"].numpy()
+        if norm.ndim == 2:  # (T, N) per-agent norms
+            for i in range(norm.shape[1]):
+                norm_axis.plot(
+                    message_steps,
+                    norm[:, i],
+                    linewidth=config.plot_series_linewidth,
+                    label=f"agent {i}",
+                )
+            _maybe_add_legend(norm_axis, ncol=norm.shape[1])
+        else:
+            norm_axis.plot(
+                message_steps,
+                norm,
+                color="black",
+                linewidth=config.plot_series_linewidth,
+            )
         norm_axis.set_title("Message norm")
         norm_axis.set_ylabel("||m_t||")
         norm_axis.grid(True, alpha=config.plot_grid_alpha)
@@ -396,5 +413,100 @@ def plot_rollout_diagnostics(
 
     fig.suptitle("exp0522 rollout diagnostics", fontsize=config.plot_title_fontsize)
     fig.tight_layout()
+    fig.savefig(output_path, dpi=config.plot_dpi)
+    plt.close(fig)
+
+
+def plot_agent_analysis(
+    *,
+    model: Any,
+    rollout: dict[str, Any],
+    output_path: Path,
+    config: ExperimentConfig,
+) -> None:
+    """Multi-agent analysis figure: D heatmap, w_in, per-agent norm, per-agent traces."""
+    import torch
+
+    N = model.num_agents
+    language_dim = model.language_dim
+
+    messages = rollout["messages"].numpy()   # (T, N*language_dim)
+    message_norm = rollout["message_norm"].numpy()  # (T, N)
+    T = messages.shape[0]
+    steps = np.arange(T)
+
+    # D matrix frobenius norms: (N, N)
+    with torch.no_grad():
+        D = model.D.detach().cpu()  # (N, N, d, d)
+        d_norms = torch.linalg.norm(D.reshape(N, N, -1), dim=2).numpy()  # (N, N) Frobenius
+        w_in = model.w_in.detach().cpu().numpy()  # (N,)
+
+    # Layout: row 0 = D heatmap + w_in bar (side by side)
+    #         row 1 = per-agent message norm
+    #         rows 2..N+1 = per-agent message traces
+    nrows = 2 + N
+    height_ratios = [1.2, 0.9] + [1.0] * N
+    fig, axes = plt.subplots(
+        nrows,
+        2,
+        figsize=(12.0, max(3.5 * nrows * 0.6, 6.0)),
+        gridspec_kw={"height_ratios": height_ratios},
+        squeeze=False,
+        constrained_layout=True,
+    )
+
+    # Row 0 left: D heatmap
+    ax_d = axes[0, 0]
+    im = ax_d.imshow(d_norms, aspect="auto", cmap="viridis", interpolation="nearest")
+    fig.colorbar(im, ax=ax_d, fraction=0.046, pad=0.04)
+    ax_d.set_xticks(range(N))
+    ax_d.set_yticks(range(N))
+    ax_d.set_xticklabels([f"from a{j}" for j in range(N)])
+    ax_d.set_yticklabels([f"agent {i}" for i in range(N)])
+    ax_d.set_title("Inter-agent D matrix ‖D[i,j]‖_F")
+    for i in range(N):
+        for j in range(N):
+            ax_d.text(j, i, f"{d_norms[i, j]:.2f}", ha="center", va="center", fontsize=9,
+                      color="white" if d_norms[i, j] < d_norms.max() * 0.6 else "black")
+
+    # Row 0 right: w_in bar chart
+    ax_w = axes[0, 1]
+    ax_w.bar(range(N), w_in, color=[f"C{i}" for i in range(N)])
+    ax_w.set_xticks(range(N))
+    ax_w.set_xticklabels([f"agent {i}" for i in range(N)])
+    ax_w.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.7, label="init=1")
+    ax_w.set_title("Error distribution weights w_in")
+    ax_w.set_ylabel("w_in[i]")
+    ax_w.legend(fontsize=8)
+    ax_w.grid(axis="y", alpha=config.plot_grid_alpha)
+
+    # Row 1 (spans both columns): per-agent message norm over time
+    ax_norm = axes[1, 0]
+    axes[1, 1].axis("off")
+    if message_norm.ndim == 2:
+        for i in range(N):
+            ax_norm.plot(steps, message_norm[:, i], linewidth=config.plot_series_linewidth,
+                         color=f"C{i}", label=f"agent {i}")
+    ax_norm.set_title("Per-agent message norm over time")
+    ax_norm.set_ylabel("‖m_i‖")
+    ax_norm.grid(alpha=config.plot_grid_alpha)
+    ax_norm.legend(ncol=N, fontsize=8)
+
+    # Rows 2..N+1: per-agent message traces
+    for i in range(N):
+        ax_tr = axes[2 + i, 0]
+        axes[2 + i, 1].axis("off")
+        agent_msgs = messages[:, i * language_dim : (i + 1) * language_dim]
+        for ch in range(language_dim):
+            ax_tr.plot(steps, agent_msgs[:, ch], linewidth=config.plot_aux_linewidth,
+                       label=f"m{ch}")
+        ax_tr.set_title(f"Agent {i} message traces")
+        ax_tr.set_ylabel("message")
+        ax_tr.grid(alpha=config.plot_grid_alpha)
+        _maybe_add_legend(ax_tr, ncol=config.plot_message_legend_ncols)
+
+    axes[-1, 0].set_xlabel("step")
+
+    fig.suptitle("exp0522 agent analysis", fontsize=config.plot_title_fontsize)
     fig.savefig(output_path, dpi=config.plot_dpi)
     plt.close(fig)

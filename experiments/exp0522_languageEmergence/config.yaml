@@ -6,12 +6,12 @@ run:
 
 model:
   trunk_dims:
-    - 32                       # hidden width of the MLP trunk
-    - 32
+    - 8                       # hidden width of the MLP trunk
+    # - 32
     # - 32
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 5              # number of language input/output heads
-  language_readout_coverage: 7  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  language_dim: 4              # number of language input/output heads
+  language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims (no-op for single-layer trunk)
   language_readout_all_layers: true  # if true, readout node pool = all hidden layers (concat); false = last layer only
@@ -38,7 +38,7 @@ task:
     
 
 train:
-  epochs: 5000                  # total training epochs
+  epochs: 3000                  # total training epochs
   lr: 0.0001                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
