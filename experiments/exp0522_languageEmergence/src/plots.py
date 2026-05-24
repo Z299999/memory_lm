@@ -480,22 +480,40 @@ def plot_agent_analysis(
     ax_w.legend(fontsize=8)
     ax_w.grid(axis="y", alpha=config.plot_grid_alpha)
 
-    # Row 1 (spans both columns): per-agent message norm over time
+    # Row 1 left: per-agent message norm over time
     ax_norm = axes[1, 0]
-    axes[1, 1].axis("off")
     if message_norm.ndim == 2:
         for i in range(N):
             ax_norm.plot(steps, message_norm[:, i], linewidth=config.plot_series_linewidth,
                          color=f"C{i}", label=f"agent {i}")
-    ax_norm.set_title("Per-agent message norm over time")
+    ax_norm.set_title("Per-agent message norm")
     ax_norm.set_ylabel("‖m_i‖")
     ax_norm.grid(alpha=config.plot_grid_alpha)
     ax_norm.legend(ncol=N, fontsize=8)
 
-    # Rows 2..N+1: per-agent message traces
+    # Row 1 right: prediction vs target
+    ax_pred = axes[1, 1]
+    prediction = rollout["prediction"].numpy()
+    target = rollout["target"].numpy()
+    ax_pred.plot(steps, target, color=config.plot_target_color,
+                 linestyle=config.plot_target_linestyle,
+                 linewidth=config.plot_target_linewidth, label="target")
+    ax_pred.plot(steps, prediction, linewidth=config.plot_series_linewidth,
+                 color="#1f77b4", label="prediction")
+    ax_pred.set_title("Reservoir output vs target")
+    ax_pred.set_ylabel("value")
+    ax_pred.grid(alpha=config.plot_grid_alpha)
+    ax_pred.legend(fontsize=8)
+
+    # Compute per-agent readout contributions if hidden states are available
+    # W_out: (1, N*D_last), agent i's slice: W_out[0, i*D:(i+1)*D]
+    hidden_all = rollout.get("hidden")  # (T, N, D_last) or None
+    D_last = list(model.trunk_Ws[-1].shape)[1]  # trunk_Ws[-1]: (N, D_out, D_in) → D_out
+    W_out = model.readout_head.weight.detach().cpu().numpy()  # (1, N*D_last)
+
+    # Rows 2..N+1: per-agent message traces (left) + readout contribution (right)
     for i in range(N):
         ax_tr = axes[2 + i, 0]
-        axes[2 + i, 1].axis("off")
         agent_msgs = messages[:, i * language_dim : (i + 1) * language_dim]
         for ch in range(language_dim):
             ax_tr.plot(steps, agent_msgs[:, ch], linewidth=config.plot_aux_linewidth,
@@ -505,7 +523,23 @@ def plot_agent_analysis(
         ax_tr.grid(alpha=config.plot_grid_alpha)
         _maybe_add_legend(ax_tr, ncol=config.plot_message_legend_ncols)
 
+        ax_contrib = axes[2 + i, 1]
+        if hidden_all is not None:
+            h_i = hidden_all[:, i, :].numpy()          # (T, D_last)
+            w_i = W_out[0, i * D_last : (i + 1) * D_last]  # (D_last,)
+            contrib_i = h_i @ w_i                       # (T,)
+            ax_contrib.plot(steps, contrib_i, linewidth=config.plot_series_linewidth,
+                            color=f"C{i}", label=f"agent {i} contribution")
+            ax_contrib.plot(steps, target, color=config.plot_target_color,
+                            linestyle=config.plot_target_linestyle,
+                            linewidth=config.plot_target_linewidth, label="target")
+            ax_contrib.legend(fontsize=8)
+        ax_contrib.set_title(f"Agent {i} readout contribution")
+        ax_contrib.set_ylabel("W_out_i · h_i")
+        ax_contrib.grid(alpha=config.plot_grid_alpha)
+
     axes[-1, 0].set_xlabel("step")
+    axes[-1, 1].set_xlabel("step")
 
     fig.suptitle("exp0522 agent analysis", fontsize=config.plot_title_fontsize)
     fig.savefig(output_path, dpi=config.plot_dpi)

@@ -251,6 +251,7 @@ class AgentPool(nn.Module):
         pulse = torch.full((1, self.pulse_dim), float(pulse_value), device=device)
         outputs: list[torch.Tensor] = []
         all_msg_steps: list[torch.Tensor] = []
+        agent_hidden_steps: list[torch.Tensor] = []  # (N, D_last) per step
 
         for step in range(num_steps):
             # Language aggregation: language_input_i = activation(Σ_j D[i,j] @ m_j)
@@ -282,6 +283,8 @@ class AgentPool(nn.Module):
             # Reservoir readout over all agents
             y_t = self.readout_head(hidden_last.reshape(1, -1))  # (1, 1)
             outputs.append(y_t)
+            if return_hidden:
+                agent_hidden_steps.append(hidden_last.detach())
 
             # Language messages via batched readout
             if self.use_language and not disable_language:
@@ -304,8 +307,9 @@ class AgentPool(nn.Module):
                 err_prev = e_t.detach() if detach_error_input else e_t
 
         outputs_tensor = torch.cat(outputs, dim=0)  # (num_steps, 1)
-        # all_msg_steps: list of (N, d) → stack → (T, N, d) → flatten → (T, N*d)
-        all_msgs_tensor = torch.stack(all_msg_steps, dim=0).flatten(1, 2)  # (num_steps, N*language_dim)
+        all_msgs_tensor = torch.stack(all_msg_steps, dim=0).flatten(1, 2)  # (T, N*d)
+        # hidden: (T, N, D_last) when return_hidden=True, else None
+        hidden_tensor = torch.stack(agent_hidden_steps, dim=0) if agent_hidden_steps else None
 
         # final_message: (N, language_dim) — differs from single-agent (1, language_dim)
         # final_error: (1, error_dim) — same shape as single-agent
@@ -313,8 +317,8 @@ class AgentPool(nn.Module):
             outputs_tensor,
             outputs_tensor,  # raw == output (single readout head)
             all_msgs_tensor,
-            None,
-            msg_prev,   # (N, language_dim)
+            hidden_tensor,   # (T, N, D_last) or None
+            msg_prev,        # (N, language_dim)
             err_prev,   # (1, error_dim)
         )
 
