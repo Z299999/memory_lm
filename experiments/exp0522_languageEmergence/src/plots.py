@@ -559,7 +559,7 @@ def plot_agent_analysis(
                             linestyle=config.plot_target_linestyle,
                             linewidth=config.plot_target_linewidth, label="target")
             ax_contrib.legend(fontsize=8)
-        ylabel = "v_i · h_i" if readout_mode == "mean_pool" else "W_out_i · h_i"
+        ylabel = "v_i · h_i (→ sum)" if readout_mode == "mean_pool" else "W_out_i · h_i"
         ax_contrib.set_title(f"Agent {i} readout contribution")
         ax_contrib.set_ylabel(ylabel)
         ax_contrib.grid(alpha=config.plot_grid_alpha)

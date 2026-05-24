@@ -167,8 +167,10 @@ class AgentPool(nn.Module):
                 _init_linear(h, self.activation_name)
                 head_Ws.append(h.weight.data)   # (1, D_last)
                 head_bs.append(h.bias.data)     # (1,)
-            self.agent_head_W = nn.Parameter(torch.stack(head_Ws))  # (N, 1, D_last)
-            self.agent_head_b = nn.Parameter(torch.stack(head_bs))  # (N, 1)
+            # Scale by 1/N so that sum(v_i·h_i) has the same initial magnitude as a
+            # single head (equivalent to mean at init, but gradients are not diluted).
+            self.agent_head_W = nn.Parameter(torch.stack(head_Ws) / self.num_agents)  # (N, 1, D_last)
+            self.agent_head_b = nn.Parameter(torch.stack(head_bs) / self.num_agents)  # (N, 1)
             self.register_parameter("readout_head", None)
         else:
             self.readout_head = nn.Linear(self.num_agents * trunk_dims[-1], 1, bias=True)
@@ -314,7 +316,7 @@ class AgentPool(nn.Module):
             if self.readout_mode == "mean_pool":
                 # (N, 1, D) bmm (N, D, 1) → (N, 1, 1) → (N, 1) → mean → (1, 1)
                 per_agent = torch.bmm(self.agent_head_W, hidden_last.unsqueeze(-1)).squeeze(-1) + self.agent_head_b
-                y_t = per_agent.mean(dim=0, keepdim=True)  # (1, 1)
+                y_t = per_agent.sum(dim=0, keepdim=True)  # (1, 1) — sum keeps full gradient per agent
             else:
                 y_t = self.readout_head(hidden_last.reshape(1, -1))  # (1, 1)
             outputs.append(y_t)
