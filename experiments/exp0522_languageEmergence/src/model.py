@@ -121,6 +121,7 @@ class AgentPool(nn.Module):
         language_readout_all_layers: bool = False,
         message_carry_mode: str = "learnable_matrix",
         readout_mode: str = "shared_linear",
+        error_intake_mode: str = "learnable",
         seed: int = 42,
     ) -> None:
         super().__init__()
@@ -136,6 +137,7 @@ class AgentPool(nn.Module):
         self.language_readout_all_layers = bool(language_readout_all_layers)
         self.message_carry_mode = str(message_carry_mode)
         self.readout_mode = str(readout_mode)
+        self.error_intake_mode = str(error_intake_mode)
 
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
@@ -178,11 +180,13 @@ class AgentPool(nn.Module):
             self.register_parameter("agent_head_W", None)
             self.register_parameter("agent_head_b", None)
 
-        # Error distribution: w_in[i] scales the shared error for agent i
-        if self.use_error_input:
-            self.w_in = nn.Parameter(torch.ones(self.num_agents))
+        # Error distribution: (1 + Δw_in[i]) scales the shared error for agent i.
+        # identity = no parameter (all agents receive error equally with weight 1).
+        # learnable = residual Δw_in init=0, so initial behavior is identical to identity.
+        if self.use_error_input and self.error_intake_mode == "learnable":
+            self.delta_w_in = nn.Parameter(torch.zeros(self.num_agents))
         else:
-            self.register_parameter("w_in", None)
+            self.register_parameter("delta_w_in", None)
 
         # Inter-agent communication: (I + ΔD) @ m residual parameterization.
         # identity: no parameter; diagonal: (N,N,d); matrix: (N,N,d,d). All init=0.
@@ -301,8 +305,10 @@ class AgentPool(nn.Module):
             if self.use_error_input:
                 if force_zero_error_input:
                     e_in = torch.zeros(N, self.error_dim, device=device)
-                else:
-                    e_in = self.w_in.unsqueeze(1) * err_prev  # (N, 1)
+                elif self.error_intake_mode == "learnable":
+                    e_in = (1.0 + self.delta_w_in).unsqueeze(1) * err_prev  # (N, 1)
+                else:  # identity
+                    e_in = err_prev.expand(N, -1)  # (N, 1)
                 parts.append(e_in)
             if self.use_language:
                 parts.append(lang_inputs)  # (N, language_dim)

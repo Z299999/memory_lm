@@ -17,6 +17,7 @@ model:
   language_readout_all_layers: true  # if true, readout node pool = all hidden layers (concat); false = last layer only
   message_carry_mode: learnable_matrix       # identity | learnable_diagonal | learnable_matrix
   readout_mode: mean_pool                    # shared_linear | mean_pool (mean_pool forces equal per-agent contributions)
+  error_intake_mode: learnable               # identity (fixed w=1, no param) | learnable (1+Δw, Δw init=0)
   num_agents: 2                              # 1 = single agent (ExternalClockMLP); >1 = multi-agent reservoir (AgentPool)
 
 task:

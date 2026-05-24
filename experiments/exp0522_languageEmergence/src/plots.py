@@ -445,7 +445,10 @@ def plot_agent_analysis(
             d_norms = torch.linalg.norm(DeltaD.reshape(N, N, -1), dim=2).numpy()  # (N, N)
         else:
             d_norms = np.zeros((N, N))
-        w_in = model.w_in.detach().cpu().numpy()  # (N,)
+        if model.delta_w_in is not None:
+            w_in_eff = (1.0 + model.delta_w_in).detach().cpu().numpy()  # (N,) effective weight
+        else:
+            w_in_eff = np.ones(N)  # identity mode: fixed weight 1
 
     # Layout: row 0 = D heatmap + w_in bar (side by side)
     #         row 1 = per-agent message norm
@@ -491,12 +494,12 @@ def plot_agent_analysis(
     x = np.arange(N)
     width = 0.35
     colors = [f"C{i}" for i in range(N)]
-    ax_w.bar(x - width / 2, w_in, width, color=colors, alpha=0.9, label="w_in (error input)")
+    ax_w.bar(x - width / 2, w_in_eff, width, color=colors, alpha=0.9, label="1+Δw_in (error intake)")
     ax_w.bar(x + width / 2, readout_norms, width, color=colors, alpha=0.45,
              hatch="//", label="readout ‖w_i‖")
     ax_w.set_xticks(x)
     ax_w.set_xticklabels([f"agent {i}" for i in range(N)])
-    ax_w.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.6, label="w_in init=1")
+    ax_w.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.6, label="identity baseline")
     ax_w.set_title("Per-agent input / output weights")
     ax_w.legend(fontsize=8)
     ax_w.grid(axis="y", alpha=config.plot_grid_alpha)

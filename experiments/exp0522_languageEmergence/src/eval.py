@@ -486,6 +486,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
             language_readout_all_layers=config.language_readout_all_layers,
             message_carry_mode=config.message_carry_mode,
             readout_mode=config.readout_mode,
+            error_intake_mode=config.error_intake_mode,
             seed=config.seed,
         ).to(device)
     else:
