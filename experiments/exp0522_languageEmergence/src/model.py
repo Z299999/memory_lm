@@ -195,8 +195,11 @@ class AgentPool(nn.Module):
         else:
             self.register_parameter("delta_w_in", None)
 
-        # Inter-agent communication: (I + ΔD) @ m residual parameterization.
-        # identity: no parameter; diagonal: (N,N,d); matrix: (N,N,d,d). All init=0.
+        # Inter-agent communication:
+        # - identity: self-carry only
+        # - learnable_diagonal: every sender→receiver channel has gain (1 + Δd_ijc)
+        # - learnable_matrix: every sender→receiver map has gain (I + ΔD_ij)
+        # Learnable modes average across senders so the baseline scale does not grow with N.
         if self.use_language and self.message_carry_mode != "identity":
             if self.message_carry_mode == "learnable_diagonal":
                 self.DeltaD = nn.Parameter(
@@ -290,19 +293,24 @@ class AgentPool(nn.Module):
         agent_hidden_steps: list[torch.Tensor] = []  # (N, D_last) per step
 
         for step in range(num_steps):
-            # Language aggregation: language_input_i = activation(Σ_j D[i,j] @ m_j)
-            # msg_prev: (N, d), D: (N_i, N_j, d, d)
-            # lang_agg[i,e] = Σ_j Σ_d msg_prev[j,d] * D[i,j,e,d]
+            # Language aggregation:
+            # - identity: self-carry only
+            # - learnable_diagonal: average_j (1 + Δd_ij) ⊙ m_j
+            # - learnable_matrix: average_j (I + ΔD_ij) m_j
             if self.use_language and not disable_language:
                 if self.message_carry_mode == "learnable_diagonal":
-                    # DeltaD: (N, N, d) — diagonal scaling per agent pair
-                    delta = torch.einsum("jd,ijd->id", msg_prev, self.DeltaD)
+                    effective_D = 1.0 + self.DeltaD  # (N, N, d)
+                    lang_inputs = self.activation(
+                        torch.einsum("jd,ijd->id", msg_prev, effective_D) / float(N)
+                    )
                 elif self.message_carry_mode == "learnable_matrix":
-                    # DeltaD: (N, N, d, d) — full matrix per agent pair
-                    delta = torch.einsum("jd,ijed->ie", msg_prev, self.DeltaD)
+                    eye = torch.eye(self.language_dim, device=device, dtype=msg_prev.dtype)
+                    effective_D = eye.unsqueeze(0).unsqueeze(0) + self.DeltaD  # (N, N, d, d)
+                    lang_inputs = self.activation(
+                        torch.einsum("jd,ijed->ie", msg_prev, effective_D) / float(N)
+                    )
                 else:  # identity
-                    delta = torch.zeros_like(msg_prev)
-                lang_inputs = self.activation(msg_prev + delta)  # (N, language_dim)
+                    lang_inputs = self.activation(msg_prev)
             else:
                 lang_inputs = torch.zeros(N, self.language_dim, device=device)
 

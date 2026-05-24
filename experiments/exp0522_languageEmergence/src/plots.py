@@ -438,13 +438,19 @@ def plot_agent_analysis(
     readout_mode = getattr(model, "readout_mode", "shared_linear")
     D_last = list(model.trunk_Ws[-1].shape)[1]  # (N, D_out, D_in) → D_out
 
-    # D matrix frobenius norms: (N, N)
+    # Effective inter-agent coupling summary: (N, N), baseline = 1 for learnable modes.
     with torch.no_grad():
         if model.DeltaD is not None:
             DeltaD = model.DeltaD.detach().cpu()
-            d_norms = torch.linalg.norm(DeltaD.reshape(N, N, -1), dim=2).numpy()  # (N, N)
+            if getattr(model, "message_carry_mode", "identity") == "learnable_diagonal":
+                coupling_values = (1.0 + DeltaD).mean(dim=2).numpy()  # (N, N)
+            else:
+                d = DeltaD.shape[-1]
+                eye = torch.eye(d, dtype=DeltaD.dtype).unsqueeze(0).unsqueeze(0)
+                effective_D = eye + DeltaD
+                coupling_values = (effective_D.diagonal(dim1=-2, dim2=-1).sum(dim=-1) / float(d)).numpy()
         else:
-            d_norms = np.zeros((N, N))
+            coupling_values = np.eye(N, dtype=float)
         if model.delta_w_in is not None:
             w_in_eff = (1.0 + model.delta_w_in).detach().cpu().numpy()  # (N,) effective weight
         else:
@@ -464,19 +470,28 @@ def plot_agent_analysis(
         constrained_layout=True,
     )
 
-    # Row 0 left: D heatmap
+    # Row 0 left: effective coupling heatmap
     ax_d = axes[0, 0]
-    im = ax_d.imshow(d_norms, aspect="auto", cmap="viridis", interpolation="nearest")
+    im = ax_d.imshow(coupling_values, aspect="auto", cmap="viridis", interpolation="nearest")
     fig.colorbar(im, ax=ax_d, fraction=0.046, pad=0.04)
     ax_d.set_xticks(range(N))
     ax_d.set_yticks(range(N))
     ax_d.set_xticklabels([f"from a{j}" for j in range(N)])
     ax_d.set_yticklabels([f"agent {i}" for i in range(N)])
-    ax_d.set_title("Inter-agent D matrix ‖D[i,j]‖_F")
+    ax_d.set_title("Effective inter-agent coupling (1+Δ)")
+    d_max = float(np.max(coupling_values)) if coupling_values.size else 0.0
     for i in range(N):
         for j in range(N):
-            ax_d.text(j, i, f"{d_norms[i, j]:.2f}", ha="center", va="center", fontsize=9,
-                      color="white" if d_norms[i, j] < d_norms.max() * 0.6 else "black")
+            value = float(coupling_values[i, j])
+            ax_d.text(
+                j,
+                i,
+                f"{value:.2f}",
+                ha="center",
+                va="center",
+                fontsize=9,
+                color="white" if value < d_max * 0.6 else "black",
+            )
 
     # Row 0 right: grouped bar — w_in (input) + readout gain (output) per agent
     ax_w = axes[0, 1]
