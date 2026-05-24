@@ -14,7 +14,8 @@ exp0408_memory_backprop/models/student/
 exp0408_memory_backprop/plots/
 
 # Ignore all runs/ and models/ directories across all experiments
-**/runs/
+# Use /* (not /) so local .gitignore negation patterns can un-ignore specific entries
+**/runs/*
 **/models/
 **/.runtime_cache/
 
