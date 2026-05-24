@@ -437,8 +437,8 @@ def plot_agent_analysis(
 
     # D matrix frobenius norms: (N, N)
     with torch.no_grad():
-        D = model.D.detach().cpu()  # (N, N, d, d)
-        d_norms = torch.linalg.norm(D.reshape(N, N, -1), dim=2).numpy()  # (N, N) Frobenius
+        DeltaD = model.DeltaD.detach().cpu()  # (N, N, d, d)
+        d_norms = torch.linalg.norm(DeltaD.reshape(N, N, -1), dim=2).numpy()  # (N, N) Frobenius
         w_in = model.w_in.detach().cpu().numpy()  # (N,)
 
     # Layout: row 0 = D heatmap + w_in bar (side by side)

@@ -166,12 +166,13 @@ class AgentPool(nn.Module):
         # Inter-agent communication D[i,j]: how agent i reads from agent j
         # D[i,i] = I at init (self-carry), D[i,j≠i] = 0 (no initial inter-agent signal)
         if self.use_language:
-            d_init = torch.zeros(self.num_agents, self.num_agents, self.language_dim, self.language_dim)
-            for k in range(self.num_agents):
-                d_init[k, k] = torch.eye(self.language_dim)
-            self.D = nn.Parameter(d_init)
+            # Residual parameterization: lang_input_i = activation(m_i + Σ_j DeltaD[i,j] @ m_j)
+            # DeltaD initialized to 0 so training starts with pure identity self-carry
+            self.DeltaD = nn.Parameter(
+                torch.zeros(self.num_agents, self.num_agents, self.language_dim, self.language_dim)
+            )
         else:
-            self.register_parameter("D", None)
+            self.register_parameter("DeltaD", None)
 
         # Fixed sparse readout per agent for language messages
         readout_input_dim = sum(trunk_dims) if self.language_readout_all_layers else trunk_dims[-1]
@@ -258,7 +259,8 @@ class AgentPool(nn.Module):
             # msg_prev: (N, d), D: (N_i, N_j, d, d)
             # lang_agg[i,e] = Σ_j Σ_d msg_prev[j,d] * D[i,j,e,d]
             if self.use_language and not disable_language:
-                lang_agg = torch.einsum("jd,ijed->ie", msg_prev, self.D)
+                # (I + ΔD) @ m: identity self-carry + learned residual from all agents
+                lang_agg = msg_prev + torch.einsum("jd,ijed->ie", msg_prev, self.DeltaD)
                 lang_inputs = self.activation(lang_agg)  # (N, language_dim)
             else:
                 lang_inputs = torch.zeros(N, self.language_dim, device=device)
