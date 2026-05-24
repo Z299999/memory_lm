@@ -435,6 +435,9 @@ def plot_agent_analysis(
     T = messages.shape[0]
     steps = np.arange(T)
 
+    readout_mode = getattr(model, "readout_mode", "shared_linear")
+    D_last = list(model.trunk_Ws[-1].shape)[1]  # (N, D_out, D_in) → D_out
+
     # D matrix frobenius norms: (N, N)
     with torch.no_grad():
         if model.DeltaD is not None:
@@ -472,14 +475,29 @@ def plot_agent_analysis(
             ax_d.text(j, i, f"{d_norms[i, j]:.2f}", ha="center", va="center", fontsize=9,
                       color="white" if d_norms[i, j] < d_norms.max() * 0.6 else "black")
 
-    # Row 0 right: w_in bar chart
+    # Row 0 right: grouped bar — w_in (input) + readout weight norm (output) per agent
     ax_w = axes[0, 1]
-    ax_w.bar(range(N), w_in, color=[f"C{i}" for i in range(N)])
-    ax_w.set_xticks(range(N))
+    if readout_mode == "mean_pool":
+        readout_norms = np.linalg.norm(
+            model.agent_head_W.detach().cpu().squeeze(1).numpy(), axis=1
+        )  # (N,)
+    else:
+        W_out_np = model.readout_head.weight.detach().cpu().numpy()  # (1, N*D_last)
+        readout_norms = np.array([
+            np.linalg.norm(W_out_np[0, i * D_last : (i + 1) * D_last])
+            for i in range(N)
+        ])
+
+    x = np.arange(N)
+    width = 0.35
+    colors = [f"C{i}" for i in range(N)]
+    ax_w.bar(x - width / 2, w_in, width, color=colors, alpha=0.9, label="w_in (error input)")
+    ax_w.bar(x + width / 2, readout_norms, width, color=colors, alpha=0.45,
+             hatch="//", label="readout ‖w_i‖")
+    ax_w.set_xticks(x)
     ax_w.set_xticklabels([f"agent {i}" for i in range(N)])
-    ax_w.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.7, label="init=1")
-    ax_w.set_title("Error distribution weights w_in")
-    ax_w.set_ylabel("w_in[i]")
+    ax_w.axhline(1.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.6, label="w_in init=1")
+    ax_w.set_title("Per-agent input / output weights")
     ax_w.legend(fontsize=8)
     ax_w.grid(axis="y", alpha=config.plot_grid_alpha)
 
@@ -510,8 +528,6 @@ def plot_agent_analysis(
 
     # Compute per-agent readout contributions if hidden states are available
     hidden_all = rollout.get("hidden")  # (T, N, D_last) or None
-    D_last = list(model.trunk_Ws[-1].shape)[1]  # trunk_Ws[-1]: (N, D_out, D_in) → D_out
-    readout_mode = getattr(model, "readout_mode", "shared_linear")
     if readout_mode == "mean_pool":
         W_agents = model.agent_head_W.detach().cpu().squeeze(1).numpy()  # (N, D_last)
     else:
