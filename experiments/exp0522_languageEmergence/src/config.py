@@ -419,8 +419,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
     if payload["activation"] not in {"tanh", "relu", "leaky_relu"}:
         raise ValueError("activation must be 'tanh', 'relu', or 'leaky_relu'.")
-    if payload["message_carry_mode"] not in {"identity", "learnable_diagonal"}:
-        raise ValueError("message_carry_mode must be 'identity' or 'learnable_diagonal'.")
+    if payload["message_carry_mode"] not in {"identity", "learnable_diagonal", "learnable_matrix"}:
+        raise ValueError("message_carry_mode must be 'identity', 'learnable_diagonal', or 'learnable_matrix'.")
     _window_mode, window_min, window_max = parse_train_window_schedule(payload["train_window_schedule"])
     if payload["train_phase_mode"] not in {"reset", "continuous"}:
         raise ValueError("train_phase_mode must be either 'reset' or 'continuous'.")

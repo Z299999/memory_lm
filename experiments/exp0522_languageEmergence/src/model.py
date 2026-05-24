@@ -150,6 +150,10 @@ class ExternalClockMLP(nn.Module):
             self.message_carry_d = nn.Parameter(torch.zeros(self.language_dim))
         else:
             self.message_carry_d = None
+        if self.use_language and self.message_carry_mode == "learnable_matrix":
+            self.message_carry_D = nn.Parameter(torch.zeros(self.language_dim, self.language_dim))
+        else:
+            self.message_carry_D = None
 
         readout_input_dim = sum(trunk_dims) if self.language_readout_all_layers else trunk_dims[-1]
         if self.use_language:
@@ -247,6 +251,8 @@ class ExternalClockMLP(nn.Module):
                     language_input = torch.zeros_like(message_prev)
                 elif self.message_carry_mode == "learnable_diagonal":
                     language_input = (1.0 + self.message_carry_d) * message_prev
+                elif self.message_carry_mode == "learnable_matrix":
+                    language_input = message_prev + message_prev @ self.message_carry_D
                 else:
                     language_input = message_prev
                 input_parts.append(language_input)
