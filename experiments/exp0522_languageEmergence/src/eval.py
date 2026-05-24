@@ -485,6 +485,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
             use_residual=config.use_residual,
             language_readout_all_layers=config.language_readout_all_layers,
             message_carry_mode=config.message_carry_mode,
+            readout_mode=config.readout_mode,
             seed=config.seed,
         ).to(device)
     else:
@@ -498,6 +499,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
             use_residual=config.use_residual,
             language_readout_all_layers=config.language_readout_all_layers,
             message_carry_mode=config.message_carry_mode,
+            readout_mode=config.readout_mode,
             seed=config.seed,
         ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])

@@ -395,6 +395,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
             use_residual=config.use_residual,
             language_readout_all_layers=config.language_readout_all_layers,
             message_carry_mode=config.message_carry_mode,
+            readout_mode=config.readout_mode,
             seed=config.seed,
         ).to(device)
     else:
@@ -408,6 +409,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
             use_residual=config.use_residual,
             language_readout_all_layers=config.language_readout_all_layers,
             message_carry_mode=config.message_carry_mode,
+            readout_mode=config.readout_mode,
             seed=config.seed,
         ).to(device)
 

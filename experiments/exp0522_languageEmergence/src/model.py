@@ -120,6 +120,7 @@ class AgentPool(nn.Module):
         use_residual: bool = True,
         language_readout_all_layers: bool = False,
         message_carry_mode: str = "learnable_matrix",
+        readout_mode: str = "shared_linear",
         seed: int = 42,
     ) -> None:
         super().__init__()
@@ -134,6 +135,7 @@ class AgentPool(nn.Module):
         self.use_residual = bool(use_residual)
         self.language_readout_all_layers = bool(language_readout_all_layers)
         self.message_carry_mode = str(message_carry_mode)
+        self.readout_mode = str(readout_mode)
 
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
@@ -155,9 +157,24 @@ class AgentPool(nn.Module):
         self.trunk_Ws = nn.ParameterList(trunk_Ws)
         self.trunk_bs = nn.ParameterList(trunk_bs)
 
-        # Shared reservoir readout: all agents' last hidden → scalar
-        self.readout_head = nn.Linear(self.num_agents * trunk_dims[-1], 1, bias=True)
-        _init_linear(self.readout_head, self.activation_name)
+        # Reservoir readout: shared_linear = one big linear over all agents;
+        # mean_pool = N independent projections (D→1) then average
+        if self.readout_mode == "mean_pool":
+            # agent_head_W: (N, 1, D_last), agent_head_b: (N, 1) — stacked for bmm
+            head_Ws, head_bs = [], []
+            for _ in range(self.num_agents):
+                h = nn.Linear(trunk_dims[-1], 1, bias=True)
+                _init_linear(h, self.activation_name)
+                head_Ws.append(h.weight.data)   # (1, D_last)
+                head_bs.append(h.bias.data)     # (1,)
+            self.agent_head_W = nn.Parameter(torch.stack(head_Ws))  # (N, 1, D_last)
+            self.agent_head_b = nn.Parameter(torch.stack(head_bs))  # (N, 1)
+            self.register_parameter("readout_head", None)
+        else:
+            self.readout_head = nn.Linear(self.num_agents * trunk_dims[-1], 1, bias=True)
+            _init_linear(self.readout_head, self.activation_name)
+            self.register_parameter("agent_head_W", None)
+            self.register_parameter("agent_head_b", None)
 
         # Error distribution: w_in[i] scales the shared error for agent i
         if self.use_error_input:
@@ -224,7 +241,7 @@ class AgentPool(nn.Module):
         disable_language: bool = False,
         return_hidden: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
-        device = self.readout_head.weight.device
+        device = self.trunk_Ws[0].device
         N = self.num_agents
 
         # Message state: (N, language_dim)
@@ -294,7 +311,12 @@ class AgentPool(nn.Module):
             # hidden_last: (N, trunk_dims[-1])
 
             # Reservoir readout over all agents
-            y_t = self.readout_head(hidden_last.reshape(1, -1))  # (1, 1)
+            if self.readout_mode == "mean_pool":
+                # (N, 1, D) bmm (N, D, 1) → (N, 1, 1) → (N, 1) → mean → (1, 1)
+                per_agent = torch.bmm(self.agent_head_W, hidden_last.unsqueeze(-1)).squeeze(-1) + self.agent_head_b
+                y_t = per_agent.mean(dim=0, keepdim=True)  # (1, 1)
+            else:
+                y_t = self.readout_head(hidden_last.reshape(1, -1))  # (1, 1)
             outputs.append(y_t)
             if return_hidden:
                 agent_hidden_steps.append(hidden_last.detach())

@@ -6,17 +6,18 @@ run:
 
 model:
   trunk_dims:
-    - 8                       # hidden width of the MLP trunk
+    - 2                       # hidden width of the MLP trunk
     # - 32
     # - 32
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 4              # number of language input/output heads
-  language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  language_dim: 1              # number of language input/output heads
+  language_readout_coverage: 1  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims (no-op for single-layer trunk)
   language_readout_all_layers: true  # if true, readout node pool = all hidden layers (concat); false = last layer only
-  message_carry_mode: learnable_matrix       # identity | learnable_diagonal | learnable_matrix (single-agent only)
-  num_agents: 1                              # 1 = single agent (ExternalClockMLP); >1 = multi-agent reservoir (AgentPool)
+  message_carry_mode: learnable_matrix       # identity | learnable_diagonal | learnable_matrix
+  readout_mode: mean_pool                    # shared_linear | mean_pool (mean_pool forces equal per-agent contributions)
+  num_agents: 2                              # 1 = single agent (ExternalClockMLP); >1 = multi-agent reservoir (AgentPool)
 
 task:
   cycle_steps: 32               # number of steps in one full target cycle

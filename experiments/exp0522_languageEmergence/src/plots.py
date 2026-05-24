@@ -509,10 +509,13 @@ def plot_agent_analysis(
     ax_pred.legend(fontsize=8)
 
     # Compute per-agent readout contributions if hidden states are available
-    # W_out: (1, N*D_last), agent i's slice: W_out[0, i*D:(i+1)*D]
     hidden_all = rollout.get("hidden")  # (T, N, D_last) or None
     D_last = list(model.trunk_Ws[-1].shape)[1]  # trunk_Ws[-1]: (N, D_out, D_in) → D_out
-    W_out = model.readout_head.weight.detach().cpu().numpy()  # (1, N*D_last)
+    readout_mode = getattr(model, "readout_mode", "shared_linear")
+    if readout_mode == "mean_pool":
+        W_agents = model.agent_head_W.detach().cpu().squeeze(1).numpy()  # (N, D_last)
+    else:
+        W_out = model.readout_head.weight.detach().cpu().numpy()  # (1, N*D_last)
 
     # Rows 2..N+1: per-agent message traces (left) + readout contribution (right)
     for i in range(N):
@@ -528,17 +531,21 @@ def plot_agent_analysis(
 
         ax_contrib = axes[2 + i, 1]
         if hidden_all is not None:
-            h_i = hidden_all[:, i, :].numpy()          # (T, D_last)
-            w_i = W_out[0, i * D_last : (i + 1) * D_last]  # (D_last,)
-            contrib_i = h_i @ w_i                       # (T,)
+            h_i = hidden_all[:, i, :].numpy()  # (T, D_last)
+            if readout_mode == "mean_pool":
+                contrib_i = h_i @ W_agents[i]  # (T,) — each agent's own head
+            else:
+                w_i = W_out[0, i * D_last : (i + 1) * D_last]
+                contrib_i = h_i @ w_i           # (T,)
             ax_contrib.plot(steps, contrib_i, linewidth=config.plot_series_linewidth,
                             color=f"C{i}", label=f"agent {i} contribution")
             ax_contrib.plot(steps, target, color=config.plot_target_color,
                             linestyle=config.plot_target_linestyle,
                             linewidth=config.plot_target_linewidth, label="target")
             ax_contrib.legend(fontsize=8)
+        ylabel = "v_i · h_i" if readout_mode == "mean_pool" else "W_out_i · h_i"
         ax_contrib.set_title(f"Agent {i} readout contribution")
-        ax_contrib.set_ylabel("W_out_i · h_i")
+        ax_contrib.set_ylabel(ylabel)
         ax_contrib.grid(alpha=config.plot_grid_alpha)
 
     axes[-1, 0].set_xlabel("step")
