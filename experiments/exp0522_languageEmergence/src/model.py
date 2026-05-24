@@ -104,6 +104,215 @@ def build_fixed_sparse_signed_readout(
     return readout
 
 
+class AgentPool(nn.Module):
+    """N-agent reservoir: independent trunks, shared readout head, inter-agent message matrix."""
+
+    def __init__(
+        self,
+        *,
+        num_agents: int,
+        trunk_dims: tuple[int, ...],
+        activation: str = "tanh",
+        language_dim: int,
+        language_readout_coverage: int = 1,
+        pulse_dim: int = 1,
+        use_error_input: bool = False,
+        use_residual: bool = True,
+        language_readout_all_layers: bool = False,
+        seed: int = 42,
+    ) -> None:
+        super().__init__()
+        self.num_agents = int(num_agents)
+        self.activation_name = str(activation)
+        self.activation = _activation_fn(self.activation_name)
+        self.pulse_dim = int(pulse_dim)
+        self.error_dim = 1 if use_error_input else 0
+        self.use_error_input = bool(use_error_input)
+        self.language_dim = int(language_dim)
+        self.use_language = self.language_dim > 0
+        self.use_residual = bool(use_residual)
+        self.language_readout_all_layers = bool(language_readout_all_layers)
+
+        input_dim = self.pulse_dim + self.error_dim + self.language_dim
+        dims = [input_dim, *trunk_dims]
+
+        self.trunks: nn.ModuleList = nn.ModuleList([
+            nn.ModuleList([nn.Linear(dims[k], dims[k + 1], bias=True) for k in range(len(dims) - 1)])
+            for _ in range(self.num_agents)
+        ])
+        for trunk in self.trunks:
+            for layer in trunk:
+                _init_linear(layer, self.activation_name)
+
+        # Shared reservoir readout: all agents' last hidden → scalar
+        self.readout_head = nn.Linear(self.num_agents * trunk_dims[-1], 1, bias=True)
+        _init_linear(self.readout_head, self.activation_name)
+
+        # Error distribution: w_in[i] scales the shared error for agent i
+        if self.use_error_input:
+            self.w_in = nn.Parameter(torch.ones(self.num_agents))
+        else:
+            self.register_parameter("w_in", None)
+
+        # Inter-agent communication D[i,j]: how agent i reads from agent j
+        # D[i,i] = I at init (self-carry), D[i,j≠i] = 0 (no initial inter-agent signal)
+        if self.use_language:
+            d_init = torch.zeros(self.num_agents, self.num_agents, self.language_dim, self.language_dim)
+            for k in range(self.num_agents):
+                d_init[k, k] = torch.eye(self.language_dim)
+            self.D = nn.Parameter(d_init)
+        else:
+            self.register_parameter("D", None)
+
+        # Fixed sparse readout per agent for language messages
+        readout_input_dim = sum(trunk_dims) if self.language_readout_all_layers else trunk_dims[-1]
+        if self.use_language:
+            readouts = torch.stack([
+                build_fixed_sparse_signed_readout(
+                    hidden_dim=readout_input_dim,
+                    language_dim=self.language_dim,
+                    coverage=language_readout_coverage,
+                    seed=seed + k,
+                )
+                for k in range(self.num_agents)
+            ])
+        else:
+            readouts = torch.zeros(self.num_agents, readout_input_dim, 0)
+        self.register_buffer("language_readouts", readouts)
+
+    def _step_hidden_agent(self, agent_idx: int, step_input: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        hidden = step_input
+        all_hiddens: list[torch.Tensor] = []
+        for layer in self.trunks[agent_idx]:
+            new_hidden = self.activation(layer(hidden))
+            if self.use_residual and hidden.shape[-1] == new_hidden.shape[-1]:
+                new_hidden = new_hidden + hidden
+            hidden = new_hidden
+            all_hiddens.append(hidden)
+        return hidden, all_hiddens
+
+    def rollout(
+        self,
+        *,
+        num_steps: int,
+        pulse_value: float,
+        target_sequence: torch.Tensor | None = None,
+        y_target_sequence: torch.Tensor | None = None,
+        initial_message: torch.Tensor | None = None,
+        initial_error: torch.Tensor | None = None,
+        detach_error_input: bool = True,
+        force_zero_error_input: bool = False,
+        disable_language: bool = False,
+        return_hidden: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+        device = self.readout_head.weight.device
+        N = self.num_agents
+
+        # Message state: (N, language_dim)
+        if self.use_language:
+            if initial_message is None:
+                msg_prev = torch.zeros(N, self.language_dim, device=device)
+            else:
+                msg_prev = initial_message.to(device=device).reshape(N, self.language_dim)
+        else:
+            msg_prev = torch.zeros(N, 0, device=device)
+
+        # Shared error state: (1, error_dim)
+        if self.use_error_input:
+            if initial_error is None:
+                err_prev = torch.zeros(1, self.error_dim, device=device)
+            else:
+                err_prev = initial_error.to(device=device).reshape(1, self.error_dim)
+        else:
+            err_prev = torch.zeros(1, 0, device=device)
+
+        if y_target_sequence is None:
+            y_target_sequence = target_sequence
+        if target_sequence is not None and tuple(target_sequence.shape) != (num_steps, 1):
+            raise ValueError(f"target_sequence must have shape {(num_steps, 1)}, got {tuple(target_sequence.shape)}.")
+        if self.use_error_input:
+            if y_target_sequence is None:
+                raise ValueError("y_target_sequence is required when use_error_input=True.")
+            y_target_sequence = y_target_sequence.to(device=device)
+
+        pulse = torch.full((1, self.pulse_dim), float(pulse_value), device=device)
+        outputs: list[torch.Tensor] = []
+        msg0_steps: list[torch.Tensor] = []
+
+        for step in range(num_steps):
+            # Language aggregation: language_input_i = activation(Σ_j D[i,j] @ m_j)
+            # msg_prev: (N, d), D: (N_i, N_j, d, d)
+            # lang_agg[i,e] = Σ_j Σ_d msg_prev[j,d] * D[i,j,e,d]
+            if self.use_language and not disable_language:
+                lang_agg = torch.einsum("jd,ijed->ie", msg_prev, self.D)
+                lang_inputs = self.activation(lang_agg)  # (N, language_dim)
+            else:
+                lang_inputs = torch.zeros(N, self.language_dim, device=device)
+
+            hidden_last: list[torch.Tensor] = []
+            all_hiddens_per_agent: list[list[torch.Tensor]] = []
+
+            for i in range(N):
+                if self.use_error_input:
+                    if force_zero_error_input:
+                        e_in = torch.zeros(1, self.error_dim, device=device)
+                    else:
+                        e_in = self.w_in[i] * err_prev  # (1, 1)
+                else:
+                    e_in = torch.zeros(1, 0, device=device)
+
+                parts = [pulse]
+                if self.use_error_input:
+                    parts.append(e_in)
+                if self.use_language:
+                    parts.append(lang_inputs[i : i + 1])  # (1, language_dim)
+                step_input = torch.cat(parts, dim=1)
+
+                h, all_h = self._step_hidden_agent(i, step_input)
+                hidden_last.append(h)
+                all_hiddens_per_agent.append(all_h)
+
+            # Reservoir readout over all agents
+            combined = torch.cat(hidden_last, dim=1)  # (1, N*trunk_dim[-1])
+            y_t = self.readout_head(combined)  # (1, 1)
+            outputs.append(y_t)
+
+            # Update message states
+            new_msgs: list[torch.Tensor] = []
+            for i in range(N):
+                if self.use_language and not disable_language:
+                    readout_input = (
+                        torch.cat(all_hiddens_per_agent[i], dim=-1)
+                        if self.language_readout_all_layers
+                        else hidden_last[i]
+                    )
+                    m_t = readout_input @ self.language_readouts[i]  # (1, language_dim)
+                    new_msgs.append(m_t.squeeze(0))  # (language_dim,)
+                else:
+                    new_msgs.append(torch.zeros(self.language_dim, device=device))
+            msg0_steps.append(new_msgs[0].unsqueeze(0))  # (1, language_dim)
+            msg_prev = torch.stack(new_msgs, dim=0)  # (N, language_dim)
+
+            # Error update (shared scalar)
+            if self.use_error_input:
+                e_t = y_target_sequence[step : step + 1] - y_t  # (1, 1)
+                err_prev = e_t.detach() if detach_error_input else e_t
+
+        outputs_tensor = torch.cat(outputs, dim=0)  # (num_steps, 1)
+        msg0_tensor = torch.cat(msg0_steps, dim=0)  # (num_steps, language_dim)
+
+        # final_message: (N, language_dim) — differs from single-agent (1, language_dim)
+        # final_error: (1, error_dim) — same shape as single-agent
+        return (
+            outputs_tensor,
+            outputs_tensor,  # raw == output (single readout head)
+            msg0_tensor,
+            None,
+            msg_prev,   # (N, language_dim)
+            err_prev,   # (1, error_dim)
+        )
+
+
 class ExternalClockMLP(nn.Module):
     """Feed-forward agent with an optional fixed language channel."""
 

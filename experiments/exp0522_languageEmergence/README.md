@@ -144,24 +144,7 @@ task:
   target_kind: sine
 ```
 
-To choose what the model is directly supervised to predict:
-
-```yaml
-task:
-  prediction_target: y
-```
-
-Supported values:
-
-- `y`
-  - direct waveform prediction
-- `velocity`
-  - predict `y_t - y_{t-1}` and reconstruct `y`
-- `acceleration`
-  - predict second difference and reconstruct `y`
-
-For `velocity` and `acceleration`, the rollout uses true initial anchors when
-reconstructing `y`, and the V1 error input still uses `y_true - y_hat`.
+The model is directly supervised on the waveform value `y`.
 
 ## Model Variants
 
@@ -187,6 +170,100 @@ model:
 ```
 
 When enabled, the primary model input becomes `[1, e_{t-1}, m_{t-1}]`.
+
+## ResNet Skip Connections
+
+When `use_residual: true` (default), each trunk layer applies a skip connection
+when the input and output dimensions match:
+
+```
+new_hidden = activation(W @ hidden) + hidden
+```
+
+This is a no-op on the first layer (input_dim ≠ trunk_dim) and on dimension-mismatched
+transitions between layers.
+
+## Multi-Layer Language Readout
+
+When `language_readout_all_layers: true`, the fixed sparse readout for language
+messages samples from the concatenation of all hidden layers rather than just the
+last layer. The readout matrix shape becomes `(sum(trunk_dims), language_dim)`.
+
+```yaml
+model:
+  language_readout_all_layers: true
+```
+
+## Message Carry Mode
+
+Controls how the previous message is transformed before entering the next step's
+input head. Only applies to single-agent runs (`num_agents: 1`).
+
+| mode | formula | parameters |
+|---|---|---|
+| `identity` | `m_in = m_prev` | none |
+| `learnable_diagonal` | `m_in = (1 + d) ⊙ m_prev` | `(language_dim,)` |
+| `learnable_matrix` | `m_in = m_prev + m_prev @ D` | `(language_dim, language_dim)` |
+
+All modes initialize to `m_in = m_prev` at the start of training.
+
+```yaml
+model:
+  message_carry_mode: learnable_matrix   # identity | learnable_diagonal | learnable_matrix
+```
+
+## Multi-Agent Reservoir
+
+Setting `num_agents > 1` switches from `ExternalClockMLP` to `AgentPool`, a
+reservoir-style architecture where N independent agents produce hidden states
+that are read out by a single shared linear head.
+
+### Architecture
+
+At each time step:
+
+1. **Error distribution** — the shared scalar error `e_prev` is distributed to
+   each agent via a learnable weight vector `w_in ∈ R^N` (`w_in[i]` initialized
+   to `1.0`). Agent `i` receives `w_in[i] * e_prev`.
+
+2. **Language aggregation** — each agent `i` computes its language input from
+   all agents' previous messages via a learnable matrix `D ∈ R^(N×N×d×d)`:
+
+   ```
+   language_input_i = activation( Σ_j  D[i,j] @ m_j_prev )
+   ```
+
+   `D[i,i]` is initialized to `I` (self-carry), `D[i,j≠i]` to `0` (no initial
+   inter-agent signal). Gradients flow into every element of `D`.
+
+3. **Independent trunks** — each agent runs its own MLP on
+   `[pulse, w_in[i]*e, language_input_i]`.
+
+4. **Reservoir readout** — a single learned linear head reads from the
+   concatenation of all agents' last hidden states:
+
+   ```
+   y_t = W_out @ concat(h_1, ..., h_N)
+   ```
+
+5. **Language messages** — each agent generates its broadcast message via its
+   own fixed sparse readout matrix (different seed per agent).
+
+### Config
+
+```yaml
+model:
+  num_agents: 2   # 1 = single agent; >1 = multi-agent reservoir
+```
+
+`message_carry_mode` is ignored when `num_agents > 1` (the D matrix handles
+all carries).
+
+### Outputs
+
+`plots/` and `metrics/` use agent 0's messages for message-trace and message-norm
+panels. The prediction is the reservoir output `y_t` (single scalar shared by all
+agents).
 
 ## Sequence Modes
 

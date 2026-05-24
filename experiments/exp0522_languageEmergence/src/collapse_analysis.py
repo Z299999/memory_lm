@@ -13,11 +13,11 @@ import torch
 try:
     from .config import ExperimentConfig, config_from_user_dict, train_window_reference_steps
     from .eval import _evaluate_continuous_stream
-    from .model import ExternalClockMLP
+    from .model import AgentPool, ExternalClockMLP
 except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig, config_from_user_dict, train_window_reference_steps
     from eval import _evaluate_continuous_stream
-    from model import ExternalClockMLP
+    from model import AgentPool, ExternalClockMLP
 
 
 def _write_json(output_path: Path, payload: dict[str, Any] | list[dict[str, Any]]) -> None:
@@ -30,8 +30,20 @@ def _load_resolved_config(run_dir: Path) -> ExperimentConfig:
     return config_from_user_dict(payload)
 
 
-def _build_model(config: ExperimentConfig, model_name: str) -> ExternalClockMLP:
+def _build_model(config: ExperimentConfig, model_name: str) -> ExternalClockMLP | AgentPool:
     use_error_input = config.use_error_input if model_name != "v0_open_loop" else False
+    if config.num_agents > 1:
+        return AgentPool(
+            num_agents=config.num_agents,
+            trunk_dims=config.trunk_dims,
+            activation=config.activation,
+            language_dim=config.language_dim,
+            language_readout_coverage=config.language_readout_coverage,
+            use_error_input=use_error_input,
+            use_residual=config.use_residual,
+            language_readout_all_layers=config.language_readout_all_layers,
+            seed=config.seed,
+        )
     return ExternalClockMLP(
         trunk_dims=config.trunk_dims,
         activation=config.activation,

@@ -21,7 +21,7 @@ try:
         write_resolved_config,
     )
     from .eval import _evaluate_rollout
-    from .model import ExternalClockMLP
+    from .model import AgentPool, ExternalClockMLP
     from .plots import plot_training_curves, plot_training_timeline
 except ImportError:  # pragma: no cover - script mode
     from config import (
@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - script mode
         write_resolved_config,
     )
     from eval import _evaluate_rollout
-    from model import ExternalClockMLP
+    from model import AgentPool, ExternalClockMLP
     from plots import plot_training_curves, plot_training_timeline
 
 
@@ -384,18 +384,31 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
 
     device = torch.device("cpu")
 
-    full_model = ExternalClockMLP(
-        trunk_dims=config.trunk_dims,
-        activation=config.activation,
-        language_dim=config.language_dim,
-        language_readout_coverage=config.language_readout_coverage,
-        use_error_input=config.use_error_input,
-        use_language=True,
-        use_residual=config.use_residual,
-        language_readout_all_layers=config.language_readout_all_layers,
-        message_carry_mode=config.message_carry_mode,
-        seed=config.seed,
-    ).to(device)
+    if config.num_agents > 1:
+        full_model = AgentPool(
+            num_agents=config.num_agents,
+            trunk_dims=config.trunk_dims,
+            activation=config.activation,
+            language_dim=config.language_dim,
+            language_readout_coverage=config.language_readout_coverage,
+            use_error_input=config.use_error_input,
+            use_residual=config.use_residual,
+            language_readout_all_layers=config.language_readout_all_layers,
+            seed=config.seed,
+        ).to(device)
+    else:
+        full_model = ExternalClockMLP(
+            trunk_dims=config.trunk_dims,
+            activation=config.activation,
+            language_dim=config.language_dim,
+            language_readout_coverage=config.language_readout_coverage,
+            use_error_input=config.use_error_input,
+            use_language=True,
+            use_residual=config.use_residual,
+            language_readout_all_layers=config.language_readout_all_layers,
+            message_carry_mode=config.message_carry_mode,
+            seed=config.seed,
+        ).to(device)
 
     full_checkpoint_epochs = _analysis_checkpoint_epochs(config)
     full_result = _train_single_model(

@@ -11,12 +11,12 @@ import torch
 
 try:
     from .config import ExperimentConfig, parse_condition, train_window_bounds, train_window_reference_steps
-    from .model import ExternalClockMLP
+    from .model import AgentPool, ExternalClockMLP
     from .plots import plot_rollout_diagnostics
     from .task import build_rollout_targets
 except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig, parse_condition, train_window_bounds, train_window_reference_steps
-    from model import ExternalClockMLP
+    from model import AgentPool, ExternalClockMLP
     from plots import plot_rollout_diagnostics
     from task import build_rollout_targets
 
@@ -449,18 +449,31 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
 
     device = torch.device("cpu")
     checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
-    model = ExternalClockMLP(
-        trunk_dims=config.trunk_dims,
-        activation=config.activation,
-        language_dim=config.language_dim,
-        language_readout_coverage=config.language_readout_coverage,
-        use_error_input=config.use_error_input,
-        use_language=True,
-        use_residual=config.use_residual,
-        language_readout_all_layers=config.language_readout_all_layers,
-        message_carry_mode=config.message_carry_mode,
-        seed=config.seed,
-    ).to(device)
+    if config.num_agents > 1:
+        model = AgentPool(
+            num_agents=config.num_agents,
+            trunk_dims=config.trunk_dims,
+            activation=config.activation,
+            language_dim=config.language_dim,
+            language_readout_coverage=config.language_readout_coverage,
+            use_error_input=config.use_error_input,
+            use_residual=config.use_residual,
+            language_readout_all_layers=config.language_readout_all_layers,
+            seed=config.seed,
+        ).to(device)
+    else:
+        model = ExternalClockMLP(
+            trunk_dims=config.trunk_dims,
+            activation=config.activation,
+            language_dim=config.language_dim,
+            language_readout_coverage=config.language_readout_coverage,
+            use_error_input=config.use_error_input,
+            use_language=True,
+            use_residual=config.use_residual,
+            language_readout_all_layers=config.language_readout_all_layers,
+            message_carry_mode=config.message_carry_mode,
+            seed=config.seed,
+        ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     metrics_dir = run_dir / "metrics"
