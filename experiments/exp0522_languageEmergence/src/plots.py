@@ -66,8 +66,8 @@ def _condition_width_kind(condition_name: str) -> str:
 
 
 def _target_display_name(config: ExperimentConfig) -> str:
-    if config.target_kind == "yfinance_price":
-        return f"{config.ticker} {config.price_column} yfinance_price"
+    if config.target_kind == "yfinance_series":
+        return f"{config.ticker} {config.price_column} {config.series_kind}"
     if config.target_kind == "mixed_sin":
         return "mixed_sin synthetic stream"
     return f"{config.target_kind} synthetic stream"

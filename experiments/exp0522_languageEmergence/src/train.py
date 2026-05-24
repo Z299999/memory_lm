@@ -88,6 +88,7 @@ def _build_train_target(
         target_split=target_split,
         ticker=config.ticker,
         price_column=config.price_column,
+        series_kind=config.series_kind,
         normalize=config.normalize,
         test_days=config.test_days,
         market_cache_dir=config.market_cache_dir,
@@ -108,10 +109,11 @@ def _sample_train_steps(config: ExperimentConfig) -> int:
 
 
 def _build_training_timeline_panels(config: ExperimentConfig) -> list[dict[str, Any]]:
-    if config.target_kind == "yfinance_price":
+    if config.target_kind == "yfinance_series":
         series = load_market_series(
             ticker=config.ticker,
             price_column=config.price_column,
+            series_kind=config.series_kind,
             normalize=config.normalize,
             test_days=config.test_days,
             market_cache_dir=config.market_cache_dir,
@@ -325,6 +327,7 @@ def _train_single_model(
             target_split="train",
             ticker=config.ticker,
             price_column=config.price_column,
+            series_kind=config.series_kind,
             normalize=config.normalize,
             test_days=config.test_days,
             market_cache_dir=config.market_cache_dir,
@@ -395,6 +398,7 @@ def _train_market_model(
     series = load_market_series(
         ticker=config.ticker,
         price_column=config.price_column,
+        series_kind=config.series_kind,
         normalize=config.normalize,
         test_days=config.test_days,
         market_cache_dir=config.market_cache_dir,
@@ -516,6 +520,7 @@ def _train_market_model(
                 target_split="test",
                 ticker=config.ticker,
                 price_column=config.price_column,
+                series_kind=config.series_kind,
                 normalize=config.normalize,
                 test_days=config.test_days,
                 market_cache_dir=config.market_cache_dir,
@@ -622,7 +627,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
         ).to(device)
 
     full_checkpoint_epochs = _analysis_checkpoint_epochs(config)
-    if config.target_kind == "yfinance_price":
+    if config.target_kind == "yfinance_series":
         full_result = _train_market_model(
             model_name="full_language",
             model=full_model,

@@ -61,12 +61,13 @@ def build_rollout_targets(
     target_split: str = "train",
     ticker: str = "IBM",
     price_column: str = "Close",
+    series_kind: str = "log_return",
     normalize: str = "train_zscore",
     test_days: int = 252,
     market_cache_dir: str = "data/yfinance",
 ) -> dict[str, torch.Tensor]:
     """Return true y targets for one rollout."""
-    if target_kind == "yfinance_price":
+    if target_kind == "yfinance_series":
         try:
             from .market_data import build_market_rollout_targets
         except ImportError:  # pragma: no cover - script mode
@@ -78,6 +79,7 @@ def build_rollout_targets(
             split=target_split,
             ticker=ticker,
             price_column=price_column,
+            series_kind=series_kind,
             normalize=normalize,
             test_days=test_days,
             market_cache_dir=market_cache_dir,

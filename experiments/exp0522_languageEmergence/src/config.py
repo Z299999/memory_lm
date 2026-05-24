@@ -15,7 +15,7 @@ import yaml
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
     "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers", "message_carry_mode", "num_agents", "readout_mode", "error_intake_mode"),
-    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "ticker", "price_column", "normalize", "test_days", "market_cache_dir"),
+    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "ticker", "price_column", "series_kind", "normalize", "test_days", "market_cache_dir"),
     "train": (
         "epochs",
         "market_passes",
@@ -184,6 +184,7 @@ class ExperimentConfig:
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5))
     ticker: str = "IBM"
     price_column: str = "Close"
+    series_kind: str = "cumulative_log_return"
     normalize: str = "train_zscore"
     test_days: int = 252
     market_cache_dir: str = "data/yfinance"
@@ -250,10 +251,11 @@ class ExperimentConfig:
             "market": {
                 "ticker": self.ticker,
                 "price_column": self.price_column,
+                "series_kind": self.series_kind,
                 "normalize": self.normalize,
                 "test_days": self.test_days,
                 "market_cache_dir": self.market_cache_dir,
-            } if self.target_kind == "yfinance_price" else None,
+            } if self.target_kind == "yfinance_series" else None,
             "train_window_schedule": self.train_window_schedule,
             "resolved_train_window_min": train_window_bounds(self.train_window_schedule)[0],
             "resolved_train_window_max": train_window_bounds(self.train_window_schedule)[1],
@@ -277,8 +279,8 @@ def _resolved_target_description(config: ExperimentConfig) -> str:
         terms = " + ".join(f"{amp}*sin({freq}*phi_t)" for freq, amp in config.mixed_sin_components)
         scale = sum(abs(amp) for _, amp in config.mixed_sin_components)
         waveform = f"({terms}) / {scale}"
-    elif config.target_kind == "yfinance_price":
-        waveform = f"yfinance {config.ticker} raw {config.price_column} price, {config.normalize}"
+    elif config.target_kind == "yfinance_series":
+        waveform = f"yfinance {config.ticker} {config.price_column} {config.series_kind}, {config.normalize}"
     else:
         waveform = f"unsupported target_kind={config.target_kind!r}"
     return waveform
@@ -402,6 +404,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["target_kind"] = str(payload["target_kind"])
     payload["ticker"] = str(payload["ticker"])
     payload["price_column"] = str(payload["price_column"])
+    payload["series_kind"] = str(payload["series_kind"])
     payload["normalize"] = str(payload["normalize"])
     payload["market_cache_dir"] = str(payload["market_cache_dir"])
     payload["train_window_schedule"] = str(payload["train_window_schedule"])
@@ -473,17 +476,22 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
             raise ValueError("language_readout_coverage must be <= language_dim.")
     if payload["cycle_steps"] <= 1:
         raise ValueError("cycle_steps must be greater than 1.")
-    if payload["target_kind"] not in {"sine", "mixed_sin", "yfinance_price"}:
-        raise ValueError("target_kind must be either 'sine', 'mixed_sin', or 'yfinance_price'.")
-    if payload["target_kind"] == "yfinance_price":
+    if payload["target_kind"] not in {"sine", "mixed_sin", "yfinance_series"}:
+        raise ValueError("target_kind must be either 'sine', 'mixed_sin', or 'yfinance_series'.")
+    if payload["target_kind"] == "yfinance_series":
         if not payload["ticker"].strip():
-            raise ValueError("ticker must be a non-empty string for yfinance_price.")
+            raise ValueError("ticker must be a non-empty string for yfinance_series.")
         if not payload["price_column"].strip():
-            raise ValueError("price_column must be a non-empty string for yfinance_price.")
+            raise ValueError("price_column must be a non-empty string for yfinance_series.")
+        if payload["series_kind"] not in {"price", "log_return", "simple_return", "cumulative_log_return"}:
+            raise ValueError(
+                "series_kind must be 'price', 'log_return', 'simple_return', "
+                "or 'cumulative_log_return' for yfinance_series."
+            )
         if payload["normalize"] != "train_zscore":
-            raise ValueError("normalize must be 'train_zscore' for yfinance_price.")
+            raise ValueError("normalize must be 'train_zscore' for yfinance_series.")
         if payload["test_days"] <= 0:
-            raise ValueError("test_days must be positive for yfinance_price.")
+            raise ValueError("test_days must be positive for yfinance_series.")
     if str(legacy_prediction_target) != "y":
         raise ValueError("prediction_target has been removed; only the original 'y' mode is still supported.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
@@ -537,7 +545,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("train_window_schedule maximum length must be <= long_steps.")
     if window_max > payload["continuous_eval_steps"]:
         raise ValueError("train_window_schedule maximum length must be <= continuous_eval_steps.")
-    if payload["target_kind"] != "yfinance_price" and payload["eval_steps"] < payload["cycle_steps"]:
+    if payload["target_kind"] != "yfinance_series" and payload["eval_steps"] < payload["cycle_steps"]:
         raise ValueError("eval_steps must be at least one cycle long.")
     if payload["long_steps"] < payload["eval_steps"]:
         raise ValueError("long_steps must be greater than or equal to eval_steps.")
@@ -545,15 +553,15 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("continuous_window mode requires train_phase_mode='continuous'.")
     if payload["sequence_mode"] == "reset" and payload["train_phase_mode"] != "reset":
         raise ValueError("reset mode requires train_phase_mode='reset'.")
-    if payload["target_kind"] == "yfinance_price":
+    if payload["target_kind"] == "yfinance_series":
         if payload["sequence_mode"] != "continuous_window":
-            raise ValueError("yfinance_price requires sequence_mode='continuous_window'.")
+            raise ValueError("yfinance_series requires sequence_mode='continuous_window'.")
         if payload["train_phase_mode"] != "continuous":
-            raise ValueError("yfinance_price requires train_phase_mode='continuous'.")
+            raise ValueError("yfinance_series requires train_phase_mode='continuous'.")
         if payload["eval_phase_mode"] != "continuous":
-            raise ValueError("yfinance_price requires eval_phase_mode='continuous'.")
+            raise ValueError("yfinance_series requires eval_phase_mode='continuous'.")
         if payload["continuous_eval_steps"] > payload["test_days"]:
-            raise ValueError("continuous_eval_steps must be <= test_days for yfinance_price.")
+            raise ValueError("continuous_eval_steps must be <= test_days for yfinance_series.")
     legacy_rollout_schedule = raw.get("rollout_schedule")
     if legacy_rollout_schedule is None and isinstance(raw.get("train"), dict):
         legacy_rollout_schedule = raw["train"].get("rollout_schedule")

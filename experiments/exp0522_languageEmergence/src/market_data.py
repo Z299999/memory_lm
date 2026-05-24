@@ -1,4 +1,4 @@
-"""yfinance-backed price streams for exp0522."""
+"""yfinance-backed market streams for exp0522."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import torch
 class MarketSeries:
     ticker: str
     price_column: str
+    series_kind: str
     normalize: str
     train_values: np.ndarray
     test_values: np.ndarray
@@ -65,7 +66,7 @@ def ensure_yfinance_csv(*, ticker: str, market_cache_dir: str) -> Path:
         import yfinance as yf
     except ImportError as exc:  # pragma: no cover - depends on user env
         raise ImportError(
-            "yfinance is required for target_kind='yfinance_price'. "
+            "yfinance is required for target_kind='yfinance_series'. "
             "Install it with: python3 -m pip install yfinance pandas"
         ) from exc
 
@@ -92,22 +93,27 @@ def load_market_series(
     *,
     ticker: str,
     price_column: str,
+    series_kind: str,
     normalize: str,
     test_days: int,
     market_cache_dir: str,
 ) -> MarketSeries:
-    """Load a cached/downloaded market price stream and split train/test."""
+    """Load a cached/downloaded market stream and split train/test."""
     if test_days <= 0:
         raise ValueError("test_days must be positive.")
+    if series_kind not in {"price", "log_return", "simple_return", "cumulative_log_return"}:
+        raise ValueError(
+            "series_kind must be 'price', 'log_return', 'simple_return', or 'cumulative_log_return'."
+        )
     if normalize != "train_zscore":
-        raise ValueError("Only normalize='train_zscore' is supported for yfinance_price.")
+        raise ValueError("Only normalize='train_zscore' is supported for yfinance_series.")
 
     csv_path = ensure_yfinance_csv(ticker=ticker, market_cache_dir=market_cache_dir)
     try:
         import pandas as pd
     except ImportError as exc:  # pragma: no cover - depends on user env
         raise ImportError(
-            "pandas is required for target_kind='yfinance_price'. "
+            "pandas is required for target_kind='yfinance_series'. "
             "Install it with: python3 -m pip install pandas"
         ) from exc
 
@@ -121,33 +127,50 @@ def load_market_series(
         )
 
     date_col = "Date" if "Date" in frame.columns else frame.columns[0]
-    values = frame[price_column].to_numpy(dtype=np.float64)
+    prices = frame[price_column].to_numpy(dtype=np.float64)
     dates = tuple(str(value) for value in frame[date_col].tolist())
-    finite_mask = np.isfinite(values)
-    values = values[finite_mask]
+    finite_mask = np.isfinite(prices)
+    prices = prices[finite_mask]
     dates = tuple(date for date, keep in zip(dates, finite_mask) if bool(keep))
+    if series_kind == "price":
+        values = prices
+        value_dates = dates
+    elif series_kind == "cumulative_log_return":
+        if np.any(prices <= 0.0):
+            raise ValueError(f"{series_kind} requires strictly positive {price_column!r} values.")
+        values = np.log(prices / prices[0])
+        value_dates = dates
+    else:
+        if np.any(prices <= 0.0):
+            raise ValueError(f"{series_kind} requires strictly positive {price_column!r} values.")
+        if series_kind == "log_return":
+            values = np.diff(np.log(prices))
+        else:
+            values = prices[1:] / prices[:-1] - 1.0
+        value_dates = dates[1:]
 
     min_rows = test_days + 2
     if values.shape[0] < min_rows:
         raise ValueError(
-            f"Not enough finite {price_column!r} rows for {ticker!r}: "
+            f"Not enough finite {series_kind} rows from {price_column!r} for {ticker!r}: "
             f"got {values.shape[0]}, need at least {min_rows}."
         )
 
     train_raw = values[:-test_days]
     test_raw = values[-test_days:]
-    train_dates = dates[:-test_days]
-    test_dates = dates[-test_days:]
+    train_dates = value_dates[:-test_days]
+    test_dates = value_dates[-test_days:]
     train_mean = float(np.mean(train_raw))
     train_std = float(np.std(train_raw))
     if not np.isfinite(train_std) or train_std <= 0.0:
-        raise ValueError("Training price standard deviation must be finite and positive.")
+        raise ValueError("Training market series standard deviation must be finite and positive.")
 
     train_values = ((train_raw - train_mean) / train_std).astype(np.float32)
     test_values = ((test_raw - train_mean) / train_std).astype(np.float32)
     return MarketSeries(
         ticker=_safe_ticker_name(ticker),
         price_column=str(price_column),
+        series_kind=str(series_kind),
         normalize=str(normalize),
         train_values=train_values,
         test_values=test_values,
@@ -167,6 +190,7 @@ def build_market_rollout_targets(
     split: str,
     ticker: str,
     price_column: str,
+    series_kind: str,
     normalize: str,
     test_days: int,
     market_cache_dir: str,
@@ -175,6 +199,7 @@ def build_market_rollout_targets(
     series = load_market_series(
         ticker=ticker,
         price_column=price_column,
+        series_kind=series_kind,
         normalize=normalize,
         test_days=test_days,
         market_cache_dir=market_cache_dir,

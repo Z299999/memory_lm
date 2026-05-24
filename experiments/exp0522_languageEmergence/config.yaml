@@ -7,11 +7,13 @@ run:
 model:
   trunk_dims:
     - 32                       # hidden width of the MLP trunk
-    # - 32
-    # - 32
+    - 256
+    - 256
+    - 256
+    - 32
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 7              # number of language input/output heads
-  language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  language_dim: 137              # number of language input/output heads
+  language_readout_coverage: 5  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims (no-op for single-layer trunk)
   language_readout_all_layers: true  # if true, readout node pool = all hidden layers (concat); false = last layer only
@@ -23,7 +25,7 @@ model:
 task:
   cycle_steps: 32               # number of steps in one full target cycle
   pulse_value: 1.0              # constant ordinary input x_t at every step
-  target_kind: yfinance_price       # sine | mixed_sin | yfinance_price
+  target_kind: yfinance_series      # sine | mixed_sin | yfinance_series
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
     - [0.004, 2.1]
     - [0.01, 1]
@@ -38,9 +40,15 @@ task:
     - [7, 0.1]
     - [31, 0.5]
 
-  # yfinance_price target settings; used only when target_kind: yfinance_price
+  # yfinance_series target settings; used only when target_kind: yfinance_series
   ticker: IBM
   price_column: Close
+  # Choose the market stream:
+  # - log_return = daily log return, log(C_t / C_{t-1})
+  # - cumulative_log_return = cumulative return from the first cached price, log(C_t / C_0)
+  # - simple_return = daily simple return, C_t / C_{t-1} - 1
+  # - price = raw price level
+  series_kind: cumulative_log_return
   normalize: train_zscore
   test_days: 252
   market_cache_dir: data/yfinance
@@ -48,13 +56,13 @@ task:
 
 train:
   epochs: 5000                  # synthetic targets use this many training epochs
-  market_passes: 50             # yfinance_price repeats train history this many chronological passes
+  market_passes: 1000             # yfinance_series repeats train history this many chronological passes
   lr: 0.0001                    # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
   # sequence_mode: reset         # reset or continuous_window message handling between training windows
-  train_window_schedule: random_uniform(10, 30) # rollout length rule: fixed(L) or random_uniform(a,b)
+  train_window_schedule: random_uniform(1, 101) # rollout length rule: fixed(L) or random_uniform(a,b)
   train_phase_mode: continuous      # reset or continuous phase progression during training
   # train_phase_mode: reset      # reset or continuous phase progression during training
   message_aux_loss_weight: 1.0  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
