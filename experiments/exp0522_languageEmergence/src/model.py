@@ -136,13 +136,22 @@ class AgentPool(nn.Module):
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
 
-        self.trunks: nn.ModuleList = nn.ModuleList([
-            nn.ModuleList([nn.Linear(dims[k], dims[k + 1], bias=True) for k in range(len(dims) - 1)])
-            for _ in range(self.num_agents)
-        ])
-        for trunk in self.trunks:
-            for layer in trunk:
+        # Stacked weights: trunk_Ws[k] is (N, D_out, D_in) for layer k
+        # Each agent's weights are initialized independently then stacked.
+        trunk_Ws: list[nn.Parameter] = []
+        trunk_bs: list[nn.Parameter] = []
+        for k in range(len(dims) - 1):
+            in_dim, out_dim = dims[k], dims[k + 1]
+            Ws, bs = [], []
+            for _ in range(self.num_agents):
+                layer = nn.Linear(in_dim, out_dim, bias=True)
                 _init_linear(layer, self.activation_name)
+                Ws.append(layer.weight.data)   # (out_dim, in_dim)
+                bs.append(layer.bias.data)     # (out_dim,)
+            trunk_Ws.append(nn.Parameter(torch.stack(Ws)))  # (N, out_dim, in_dim)
+            trunk_bs.append(nn.Parameter(torch.stack(bs)))  # (N, out_dim)
+        self.trunk_Ws = nn.ParameterList(trunk_Ws)
+        self.trunk_bs = nn.ParameterList(trunk_bs)
 
         # Shared reservoir readout: all agents' last hidden → scalar
         self.readout_head = nn.Linear(self.num_agents * trunk_dims[-1], 1, bias=True)
@@ -180,11 +189,15 @@ class AgentPool(nn.Module):
             readouts = torch.zeros(self.num_agents, readout_input_dim, 0)
         self.register_buffer("language_readouts", readouts)
 
-    def _step_hidden_agent(self, agent_idx: int, step_input: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
-        hidden = step_input
+    def _step_hidden_all(self, step_inputs: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """Batched trunk forward for all agents. step_inputs: (N, D_in) → last_hidden: (N, D_last)."""
+        hidden = step_inputs
         all_hiddens: list[torch.Tensor] = []
-        for layer in self.trunks[agent_idx]:
-            new_hidden = self.activation(layer(hidden))
+        for W, b in zip(self.trunk_Ws, self.trunk_bs):
+            # W: (N, D_out, D_in), b: (N, D_out), hidden: (N, D_in)
+            new_hidden = self.activation(
+                torch.bmm(W, hidden.unsqueeze(-1)).squeeze(-1) + b
+            )
             if self.use_residual and hidden.shape[-1] == new_hidden.shape[-1]:
                 new_hidden = new_hidden + hidden
             hidden = new_hidden
@@ -249,49 +262,41 @@ class AgentPool(nn.Module):
             else:
                 lang_inputs = torch.zeros(N, self.language_dim, device=device)
 
-            hidden_last: list[torch.Tensor] = []
-            all_hiddens_per_agent: list[list[torch.Tensor]] = []
-
-            for i in range(N):
-                if self.use_error_input:
-                    if force_zero_error_input:
-                        e_in = torch.zeros(1, self.error_dim, device=device)
-                    else:
-                        e_in = self.w_in[i] * err_prev  # (1, 1)
+            # Build all agents' inputs in one tensor (N, D_in) — no Python loop
+            pulse_batch = pulse.expand(N, -1)  # (N, pulse_dim)
+            parts = [pulse_batch]
+            if self.use_error_input:
+                if force_zero_error_input:
+                    e_in = torch.zeros(N, self.error_dim, device=device)
                 else:
-                    e_in = torch.zeros(1, 0, device=device)
+                    e_in = self.w_in.unsqueeze(1) * err_prev  # (N, 1)
+                parts.append(e_in)
+            if self.use_language:
+                parts.append(lang_inputs)  # (N, language_dim)
+            step_inputs = torch.cat(parts, dim=1)  # (N, D_in)
 
-                parts = [pulse]
-                if self.use_error_input:
-                    parts.append(e_in)
-                if self.use_language:
-                    parts.append(lang_inputs[i : i + 1])  # (1, language_dim)
-                step_input = torch.cat(parts, dim=1)
-
-                h, all_h = self._step_hidden_agent(i, step_input)
-                hidden_last.append(h)
-                all_hiddens_per_agent.append(all_h)
+            # Single batched trunk forward
+            hidden_last, all_hiddens_per_layer = self._step_hidden_all(step_inputs)
+            # hidden_last: (N, trunk_dims[-1])
 
             # Reservoir readout over all agents
-            combined = torch.cat(hidden_last, dim=1)  # (1, N*trunk_dim[-1])
-            y_t = self.readout_head(combined)  # (1, 1)
+            y_t = self.readout_head(hidden_last.reshape(1, -1))  # (1, 1)
             outputs.append(y_t)
 
-            # Update message states
-            new_msgs: list[torch.Tensor] = []
-            for i in range(N):
-                if self.use_language and not disable_language:
-                    readout_input = (
-                        torch.cat(all_hiddens_per_agent[i], dim=-1)
-                        if self.language_readout_all_layers
-                        else hidden_last[i]
-                    )
-                    m_t = readout_input @ self.language_readouts[i]  # (1, language_dim)
-                    new_msgs.append(m_t.squeeze(0))  # (language_dim,)
-                else:
-                    new_msgs.append(torch.zeros(self.language_dim, device=device))
-            msg_prev = torch.stack(new_msgs, dim=0)  # (N, language_dim)
-            all_msg_steps.append(msg_prev.clone())   # snapshot (N, language_dim)
+            # Language messages via batched readout
+            if self.use_language and not disable_language:
+                readout_input = (
+                    torch.cat(all_hiddens_per_layer, dim=-1)  # (N, sum(trunk_dims))
+                    if self.language_readout_all_layers
+                    else hidden_last  # (N, trunk_dims[-1])
+                )
+                # language_readouts: (N, readout_input_dim, d)
+                msg_prev = torch.bmm(
+                    readout_input.unsqueeze(1), self.language_readouts
+                ).squeeze(1)  # (N, d)
+            else:
+                msg_prev = torch.zeros(N, self.language_dim, device=device)
+            all_msg_steps.append(msg_prev.clone())
 
             # Error update (shared scalar)
             if self.use_error_input:
