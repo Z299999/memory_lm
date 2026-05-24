@@ -119,6 +119,7 @@ class AgentPool(nn.Module):
         use_error_input: bool = False,
         use_residual: bool = True,
         language_readout_all_layers: bool = False,
+        message_carry_mode: str = "learnable_matrix",
         seed: int = 42,
     ) -> None:
         super().__init__()
@@ -132,6 +133,7 @@ class AgentPool(nn.Module):
         self.use_language = self.language_dim > 0
         self.use_residual = bool(use_residual)
         self.language_readout_all_layers = bool(language_readout_all_layers)
+        self.message_carry_mode = str(message_carry_mode)
 
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
@@ -163,14 +165,17 @@ class AgentPool(nn.Module):
         else:
             self.register_parameter("w_in", None)
 
-        # Inter-agent communication D[i,j]: how agent i reads from agent j
-        # D[i,i] = I at init (self-carry), D[i,j≠i] = 0 (no initial inter-agent signal)
-        if self.use_language:
-            # Residual parameterization: lang_input_i = activation(m_i + Σ_j DeltaD[i,j] @ m_j)
-            # DeltaD initialized to 0 so training starts with pure identity self-carry
-            self.DeltaD = nn.Parameter(
-                torch.zeros(self.num_agents, self.num_agents, self.language_dim, self.language_dim)
-            )
+        # Inter-agent communication: (I + ΔD) @ m residual parameterization.
+        # identity: no parameter; diagonal: (N,N,d); matrix: (N,N,d,d). All init=0.
+        if self.use_language and self.message_carry_mode != "identity":
+            if self.message_carry_mode == "learnable_diagonal":
+                self.DeltaD = nn.Parameter(
+                    torch.zeros(self.num_agents, self.num_agents, self.language_dim)
+                )
+            else:  # learnable_matrix
+                self.DeltaD = nn.Parameter(
+                    torch.zeros(self.num_agents, self.num_agents, self.language_dim, self.language_dim)
+                )
         else:
             self.register_parameter("DeltaD", None)
 
@@ -259,9 +264,15 @@ class AgentPool(nn.Module):
             # msg_prev: (N, d), D: (N_i, N_j, d, d)
             # lang_agg[i,e] = Σ_j Σ_d msg_prev[j,d] * D[i,j,e,d]
             if self.use_language and not disable_language:
-                # (I + ΔD) @ m: identity self-carry + learned residual from all agents
-                lang_agg = msg_prev + torch.einsum("jd,ijed->ie", msg_prev, self.DeltaD)
-                lang_inputs = self.activation(lang_agg)  # (N, language_dim)
+                if self.message_carry_mode == "learnable_diagonal":
+                    # DeltaD: (N, N, d) — diagonal scaling per agent pair
+                    delta = torch.einsum("jd,ijd->id", msg_prev, self.DeltaD)
+                elif self.message_carry_mode == "learnable_matrix":
+                    # DeltaD: (N, N, d, d) — full matrix per agent pair
+                    delta = torch.einsum("jd,ijed->ie", msg_prev, self.DeltaD)
+                else:  # identity
+                    delta = torch.zeros_like(msg_prev)
+                lang_inputs = self.activation(msg_prev + delta)  # (N, language_dim)
             else:
                 lang_inputs = torch.zeros(N, self.language_dim, device=device)
 
