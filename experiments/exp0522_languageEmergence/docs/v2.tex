@@ -1,0 +1,446 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm, mathtools}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\title{V1 Modification Proposal: Error-Corrected Self-Talk for Language Emergence}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Motivation}
+
+The current V0 experiment shows that a feed-forward MLP with an external language channel can learn a self-generated internal trajectory. In reset-mode training, every episode starts from the same initial message state, usually
+\[
+m_0 = 0,
+\]
+and the model learns a stable rollout
+\[
+m_0 \mapsto m_1 \mapsto m_2 \mapsto \cdots
+\]
+which allows it to predict periodic targets such as sine or mixed sine waves.
+
+For example, for a mixed sine target
+\[
+y_t = \sin(2t) + 0.5\sin(3t),
+\]
+the language state can learn to behave like a hidden collection of rotors, implicitly encoding phase information such as
+\[
+m_t \sim
+\bigl(\sin(2t), \cos(2t), \sin(3t), \cos(3t)\bigr).
+\]
+This is a successful V0 result: the fixed language channel acts as an external state register for a feed-forward MLP.
+
+However, this success depends strongly on reset-mode training. If each training episode starts from a nonzero or random phase, or if training proceeds continuously without resetting the hidden message state, the system often collapses. The prediction converges toward zero and the message converges to a fixed point
+\[
+m_t \to m^*.
+\]
+This is expected, because the message state is not an absolute code. Its meaning depends on the current network parameters. If the network parameters change during training, an old message state may be interpreted incorrectly by the new network. This creates a state-parameter mismatch:
+\[
+m_t \in \mathcal M_{\theta_{\mathrm{old}}},
+\qquad
+m_t \notin \mathcal M_{\theta_{\mathrm{new}}}.
+\]
+Therefore, after updating the parameters, the same carried message may no longer represent the correct phase. The model then propagates an incorrect message, receives a large prediction error, updates parameters in a destructive direction, and may eventually fall into the trivial fixed-point solution.
+
+The purpose of V1 is to make the self-talk system closed-loop rather than purely open-loop. The model should not only generate an internal clock, but also correct its internal state using the previous prediction error.
+
+\section{Main V1 Idea}
+
+In V0, the model interface is
+\[
+(\hat y_t, m_t) = N_\theta(1, m_{t-1}),
+\]
+where $1$ is a constant pulse input and $m_{t-1}$ is the previous language message.
+
+In V1, we add the previous prediction error as a separate input node:
+\[
+(\hat y_t, m_t) = N_\theta(1, e_{t-1}, m_{t-1}),
+\]
+where
+\[
+e_{t-1} = y_{t-1} - \hat y_{t-1}.
+\]
+
+The error should be a separate input node. We should not merge it with the constant pulse as $1+e_{t-1}$. The constant pulse and the error have different meanings:
+\[
+1
+\quad\text{is a constant drive / clock drive,}
+\]
+\[
+m_{t-1}
+\quad\text{is the internal language state / phase memory,}
+\]
+\[
+e_{t-1}
+\quad\text{is the external correction signal / phase error signal.}
+\]
+Therefore, the recommended V1 input is
+\[
+u_t = [1,\ e_{t-1},\ m_{t-1}].
+\]
+
+Intuitively, the model should learn dynamics of the form
+\[
+m_t = F_\theta(m_{t-1}) + K_\theta(m_{t-1}) e_{t-1}.
+\]
+The first term is the natural language-state evolution. The second term is an error-correction term. This turns the self-talk system from an open-loop generator into a closed-loop phase tracker.
+
+\section{Training Semantics}
+
+At each step, the model receives the previous message and the previous error:
+\[
+u_t = [1,\ e_{t-1},\ m_{t-1}].
+\]
+It outputs a task prediction and a new message:
+\[
+(\hat y_t, m_t) = N_\theta(u_t).
+\]
+The task loss is
+\[
+L_t = (\hat y_t - y_t)^2.
+\]
+After observing the true target $y_t$, the prediction error is computed as
+\[
+e_t = y_t - \hat y_t.
+\]
+
+For the first implementation, $e_t$ should be detached before being passed into the next step:
+\[
+e_t^{\mathrm{in}} = \mathrm{detach}(y_t - \hat y_t).
+\]
+Then the next input is
+\[
+u_{t+1} = [1,\ e_t^{\mathrm{in}},\ m_t].
+\]
+
+This is important. The error should be treated as an environment feedback signal. We want the model to learn how to use the error to correct its internal state, but we do not want future losses to backpropagate through the error signal into previous predictions in an unintended way.
+
+Therefore, the recommended first implementation is:
+\[
+(\hat y_t, m_t) = N_\theta(1, \mathrm{detach}(e_{t-1}), m_{t-1}),
+\]
+\[
+e_t = \mathrm{detach}(y_t - \hat y_t).
+\]
+
+The language message $m_t$ itself should still be allowed to carry differentiable state within a rollout window, unless the existing training mode explicitly detaches it at window boundaries.
+
+\section{Why This Should Help}
+
+The previous continuous training collapse happens because once $m_t$ is off the correct phase manifold, the model has no way to know that it is off phase. It continues to evolve according to the wrong internal state:
+\[
+m_{t+1} = F_\theta(m_t),
+\]
+and the prediction eventually collapses.
+
+With error feedback, the model can learn correction rules:
+\[
+e_t > 0
+\quad\Rightarrow\quad
+\text{increase output or correct phase in one direction,}
+\]
+\[
+e_t < 0
+\quad\Rightarrow\quad
+\text{decrease output or correct phase in the opposite direction.}
+\]
+For a single sine wave, this resembles a phase-locked loop. For mixed sine waves, the message may encode multiple hidden oscillatory modes, and the error signal helps correct the combined hidden state.
+
+The goal is not merely to update parameters using the prediction error. The error should also help update the internal message state:
+\[
+\text{prediction error}
+\quad\longrightarrow\quad
+\text{state correction}
+\quad\longrightarrow\quad
+\text{better future prediction}.
+\]
+
+\section{Implementation Request}
+
+Please implement a V1 option called, for example,
+\[
+\texttt{use\_error\_input: true}.
+\]
+When enabled, the model input dimension should increase by one scalar error input.
+
+If the current V0 input is
+\[
+[1, m_{t-1}],
+\]
+then the V1 input should be
+\[
+[1, e_{t-1}, m_{t-1}].
+\]
+
+The initial error at the beginning of a rollout should be
+\[
+e_{-1} = 0.
+\]
+Thus, the first input of a reset rollout is
+\[
+[1, 0, m_0].
+\]
+Usually $m_0 = 0$ unless a special initialization is specified.
+
+At each step:
+\[
+(\hat y_t, m_t) = N_\theta([1, e_{t-1}, m_{t-1}]),
+\]
+\[
+e_t = y_t - \hat y_t.
+\]
+Then pass $\mathrm{detach}(e_t)$ into the next step.
+
+A minimal pseudocode version is:
+
+\begin{verbatim}
+message = zeros(batch_size, k)
+prev_error = zeros(batch_size, 1)
+
+for t in range(T):
+    pulse = ones(batch_size, 1)
+    model_input = concat([pulse, prev_error.detach(), message], dim=-1)
+
+    y_pred, message = model(model_input)
+
+    loss_t = mse(y_pred, y_target[:, t])
+    total_loss += loss_t
+
+    prev_error = (y_target[:, t] - y_pred).detach()
+\end{verbatim}
+
+If the training mode is continuous-window, the message may be carried from one window to the next, as in the current implementation. The carried message can still be detached at the window boundary. The previous error should also be carried or reset according to the chosen mode:
+
+\[
+\text{reset mode:}
+\qquad
+m_0=0,\quad e_{-1}=0.
+\]
+\[
+\text{continuous mode:}
+\qquad
+m_{\mathrm{next\ window},0}
+=
+\mathrm{detach}(m_{\mathrm{prev\ window},T}),
+\]
+\[
+e_{\mathrm{next\ window},-1}
+=
+\mathrm{detach}(e_{\mathrm{prev\ window},T-1}).
+\]
+
+For the first version, please support both options:
+\[
+\texttt{carry\_error\_between\_windows: true/false}.
+\]
+The default can be \texttt{true} for continuous-window training and \texttt{false} for reset-mode training.
+
+\section{Recommended Config Additions}
+
+Please add config fields similar to the following:
+
+\begin{verbatim}
+model:
+  use_error_input: true
+
+train:
+  detach_error_input: true
+  carry_error_between_windows: true
+
+eval:
+  use_error_input: true
+  carry_error_between_windows: true
+\end{verbatim}
+
+The field \texttt{detach\_error\_input} should default to \texttt{true}. Later we can test the non-detached version as an ablation, but the detached version is conceptually cleaner for V1.
+
+\section{Ablation Experiments}
+
+Please implement or prepare the following comparison groups.
+
+\subsection{Ablation A: V0 Open-Loop Self-Talk}
+
+This is the current model:
+\[
+(\hat y_t, m_t) = N_\theta(1, m_{t-1}).
+\]
+This tests whether the original self-talk model works without error correction.
+
+\subsection{Ablation B: V1 Error-Corrected Self-Talk}
+
+This is the main proposed model:
+\[
+(\hat y_t, m_t) = N_\theta(1, e_{t-1}, m_{t-1}).
+\]
+This tests whether error feedback stabilizes continuous training and prevents collapse.
+
+\subsection{Ablation C: Error Input Without Constant Pulse}
+
+This variant removes the constant pulse:
+\[
+(\hat y_t, m_t) = N_\theta(e_{t-1}, m_{t-1}).
+\]
+This tests whether the constant pulse is still useful once error feedback is present.
+
+I expect the constant pulse to help, especially early in training, because when prediction is already good,
+\[
+e_t \approx 0,
+\]
+and the model still needs a stable drive to keep its internal dynamics moving.
+
+\subsection{Ablation D: Merged Pulse and Error}
+
+This variant uses
+\[
+(\hat y_t, m_t) = N_\theta(1+e_{t-1}, m_{t-1}).
+\]
+This is not recommended as the main model, but it is useful as an ablation. The expected result is that it should perform worse or be less stable than using separate input nodes, because it mixes clock drive and correction signal into one scalar.
+
+\subsection{Ablation E: Detached vs Non-Detached Error}
+
+Compare
+\[
+e_t = \mathrm{detach}(y_t - \hat y_t)
+\]
+against
+\[
+e_t = y_t - \hat y_t.
+\]
+The detached version should be the default. The non-detached version may introduce difficult-to-interpret cross-step gradient paths.
+
+\section{Evaluation Metrics}
+
+In addition to the existing training loss and rollout plots, please log the following quantities.
+
+\subsection{Prediction Metrics}
+
+\begin{itemize}[leftmargin=2em]
+    \item Short rollout MSE.
+    \item Long rollout MSE.
+    \item Long rollout phase drift, if a phase-alignment diagnostic already exists or can be added.
+    \item Final-window MSE in continuous-window training.
+\end{itemize}
+
+\subsection{Collapse Diagnostics}
+
+Track whether the model collapses to the zero-output solution:
+\[
+\hat y_t \approx 0.
+\]
+Useful metrics:
+\[
+\mathrm{mean}(|\hat y_t|),
+\qquad
+\mathrm{var}(\hat y_t),
+\qquad
+\mathrm{mean}(\|m_t\|),
+\qquad
+\mathrm{var}(m_t).
+\]
+If
+\[
+\mathrm{var}(m_t) \to 0,
+\]
+then the language state has collapsed to a fixed point.
+
+\subsection{Message Geometry}
+
+Plot message traces and phase portraits. For example, if $k\geq 2$, plot
+\[
+m_1(t) \quad\text{vs}\quad m_2(t).
+\]
+For mixed sine with $k\geq 4$, also plot other pairs:
+\[
+(m_1,m_2),\quad (m_3,m_4).
+\]
+A successful oscillator-like message should form a nontrivial closed or quasi-closed trajectory, rather than collapsing to a point.
+
+\subsection{Message Ablation}
+
+At evaluation time, compare:
+
+\[
+\text{full model:}
+\qquad
+[1,e_{t-1},m_{t-1}],
+\]
+against
+\[
+\text{mute-deaf model:}
+\qquad
+[1,0,0].
+\]
+This checks whether the model actually uses the language state and error feedback causally.
+
+Also test:
+\[
+[1,0,m_{t-1}],
+\]
+which disables error feedback but keeps language memory. This isolates the contribution of the error-correction input.
+
+\section{Expected Results}
+
+For reset-mode training, both V0 and V1 may perform well. V1 should not hurt reset-mode performance.
+
+For continuous-window training, V0 may collapse:
+\[
+m_t \to m^*,
+\qquad
+\hat y_t \to 0.
+\]
+V1 is expected to be more stable because the previous prediction error provides a correction signal:
+\[
+(\text{message state}) + (\text{prediction error})
+\quad\longrightarrow\quad
+\text{corrected message state}.
+\]
+
+The main success criterion is:
+
+\[
+\boxed{
+\text{V1 should prevent or delay fixed-point collapse in continuous training.}
+}
+\]
+
+A stronger success criterion is:
+
+\[
+\boxed{
+\text{V1 should maintain accurate mixed-sine prediction in long continuous rollouts.}
+}
+\]
+
+\section{Conceptual Summary}
+
+V0 proves that a fixed language channel can act as an external state register. In reset mode, the model learns to launch a stable self-talk trajectory from a fixed initial condition.
+
+V1 asks a stronger question:
+
+\[
+\textit{Can emergent self-talk remain meaningful during continuous life?}
+\]
+
+The proposed answer is to add error-corrected self-talk:
+\[
+(\hat y_t,m_t)=N_\theta(1,e_{t-1},m_{t-1}).
+\]
+The message $m_t$ stores phase-like internal state. The error $e_{t-1}$ acts as a correction signal. The pulse $1$ acts as a constant drive.
+
+Therefore, the recommended implementation is:
+
+\[
+\boxed{
+\text{Use }[1,\ e_{t-1},\ m_{t-1}]
+\text{ as the input, with }e_{t-1}\text{ as a separate detached node.}
+}
+\]
+
+\end{document}
