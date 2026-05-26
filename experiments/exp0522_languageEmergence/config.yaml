@@ -9,8 +9,8 @@ model:
     - 64                      # hidden width of the MLP trunk
     - 64
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 8              # number of language input/output heads; set to 0 for the no-language control
-  language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  language_dim: 7              # number of language input/output heads; set to 0 for the no-language control
+  language_readout_coverage: 2  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims
   language_readout_all_layers: true  # if true, readout node pool = all hidden layers (concat); false = last layer only
@@ -69,8 +69,8 @@ plot:
   plot_diag_fig_height: 15.0   # height of eval_rollout_diagnostics.png
   plot_short_steps: 128        # number of short-rollout steps shown in the diagnostics figure
   plot_long_steps: 512         # number of long-rollout steps shown in the diagnostics figure
-  plot_error_steps: 128        # number of steps shown in the short-rollout error panel
-  plot_message_steps: 128      # number of steps shown for message traces and message norm
+  plot_error_steps: 128        # number of steps shown in the short-horizon error panel
+  plot_message_steps: 128      # number of steps shown in short-horizon message panels
   plot_grid_alpha: 0.25        # grid transparency used in plots
   plot_title_fontsize: 14      # title fontsize for the combined diagnostics figure
   plot_target_color: "#8a8a8a" # target trajectory color
@@ -85,6 +85,8 @@ plot:
   plot_training_series: [full_train, full_val]
   plot_show_message_traces: true # whether to show the per-channel message traces panel
   plot_show_message_norm: true  # whether to show the message-norm panel
+  plot_rollout_top_mode: match_train # top rollout panels: match_train | match_eval | all_available
+  plot_aux_horizon: long        # auxiliary rollout panels: short | long | both
   plot_show_training_timeline: true # whether to generate training_timeline.png for continuous_window runs
   plot_training_timeline_num_panels: 30 # number of evenly sampled local windows shown in the training timeline figure
   plot_training_timeline_ncols: 5      # number of columns in the training timeline grid

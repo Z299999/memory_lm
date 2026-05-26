@@ -46,6 +46,9 @@ def _slice_rollout(rollout: dict[str, Any] | None, num_steps: int) -> dict[str, 
     return sliced
 
 
+_ROLLOUT_DIAG_BASE_HEIGHT_UNITS = (4 * 1.35) + 1.0 + 1.0 + 0.85
+
+
 def _linewidth(config: ExperimentConfig, width_kind: str) -> float:
     if width_kind == "target":
         return config.plot_target_linewidth
@@ -76,24 +79,54 @@ _CONDITION_COLORS: dict[str, str] = {
     "stutter":     "#e377c2",  # pink
 }
 
-def _build_rollout_panels(
+def _resolve_top_rollout_panels(
     config: ExperimentConfig,
     *,
     has_reset: bool,
     has_continuous: bool,
+) -> list[str]:
+    reset_panels = ["reset_short", "reset_long"] if has_reset else []
+    continuous_panels = ["continuous_short", "continuous_long"] if has_continuous else []
+
+    if config.plot_rollout_top_mode == "all_available":
+        return reset_panels + continuous_panels
+
+    if config.plot_rollout_top_mode == "match_eval":
+        if config.eval_phase_mode == "reset":
+            return reset_panels
+        if config.eval_phase_mode == "continuous":
+            return continuous_panels
+        return reset_panels + continuous_panels
+
+    if config.train_phase_mode == "continuous" and continuous_panels:
+        return continuous_panels
+    if config.train_phase_mode == "reset" and reset_panels:
+        return reset_panels
+    return reset_panels + continuous_panels
+
+
+def _resolve_aux_horizons(config: ExperimentConfig) -> list[str]:
+    if config.plot_aux_horizon == "both":
+        return ["short", "long"]
+    return [config.plot_aux_horizon]
+
+
+def _build_rollout_panels(
+    config: ExperimentConfig,
+    *,
+    top_panels: list[str],
+    aux_horizons: list[str],
     has_language_panels: bool,
+    has_eval_conditions: bool,
 ) -> list[tuple[str, float]]:
     panels: list[tuple[str, float]] = []
-    if has_reset:
-        panels.extend([("short", 1.35), ("long", 1.35)])
-    if has_continuous:
-        panels.extend([("continuous_short", 1.35), ("continuous_long", 1.35)])
-    if config.eval_conditions:
-        panels.append(("error", 1.0))
+    panels.extend((panel_name, 1.35) for panel_name in top_panels)
+    if has_eval_conditions:
+        panels.extend((f"error_{horizon}", 1.0) for horizon in aux_horizons)
     if has_language_panels and config.plot_show_message_traces:
-        panels.append(("messages", 1.0))
+        panels.extend((f"messages_{horizon}", 1.0) for horizon in aux_horizons)
     if has_language_panels and config.plot_show_message_norm:
-        panels.append(("message_norm", 0.85))
+        panels.extend((f"message_norm_{horizon}", 0.85) for horizon in aux_horizons)
     return panels
 
 
@@ -223,37 +256,68 @@ def plot_rollout_diagnostics(
     has_reset = reset_evals is not None and "full" in reset_evals
     has_continuous = continuous_evals is not None and "full" in continuous_evals
 
-    # Determine the primary reference rollout (for messages / norm panels)
-    if has_reset:
-        primary_short = _slice_rollout(reset_evals["full"], config.plot_short_steps)
-        primary_long = _slice_rollout(reset_long_evals["full"] if reset_long_evals else None, config.plot_long_steps)
-    else:
-        primary_short = _slice_rollout(continuous_evals["full"] if has_continuous else None, config.plot_short_steps)
-        primary_long = primary_short
-
-    if primary_short is None:
-        return
-
-    message_source = (
-        _slice_rollout(continuous_evals["full"], config.plot_message_steps)
-        if has_continuous
-        else _slice_rollout(primary_short, config.plot_message_steps)
-    )
-    has_language_panels = bool(message_source is not None and message_source["messages"].shape[1] > 0)
-
-    error_rollout = _slice_rollout(primary_short, config.plot_error_steps)
-    message_steps = np.arange(len(message_source["target"])) + int(message_source.get("start_step", 0))
-
-    panels = _build_rollout_panels(
+    top_panels = _resolve_top_rollout_panels(
         config,
         has_reset=has_reset,
         has_continuous=has_continuous,
+    )
+    if not top_panels:
+        return
+
+    def _panel_rollout(panel_name: str) -> tuple[dict[str, dict] | None, int, str]:
+        if panel_name == "reset_short":
+            return reset_evals, config.plot_short_steps, "Reset short eval"
+        if panel_name == "reset_long":
+            return reset_long_evals, config.plot_long_steps, "Reset long eval"
+        if panel_name == "continuous_short":
+            return continuous_evals, config.plot_short_steps, "Continuous short eval"
+        if panel_name == "continuous_long":
+            return continuous_evals, config.plot_long_steps, "Continuous long eval"
+        raise ValueError(f"Unknown rollout panel name: {panel_name}")
+
+    def _aux_source(horizon: str, kind: str) -> tuple[dict[str, dict] | None, int, str]:
+        if horizon == "short":
+            if has_continuous:
+                evals = continuous_evals
+                phase_label = "Continuous"
+            else:
+                evals = reset_evals
+                phase_label = "Reset"
+            num_steps = config.plot_error_steps if kind == "error" else config.plot_message_steps
+            return evals, num_steps, phase_label
+        if has_continuous:
+            return continuous_evals, config.plot_long_steps, "Continuous"
+        return reset_long_evals, config.plot_long_steps, "Reset"
+
+    has_language_panels = False
+    if config.plot_show_message_traces or config.plot_show_message_norm:
+        long_message_source, long_message_steps, _ = _aux_source("long", "messages")
+        short_message_source, short_message_steps, _ = _aux_source("short", "messages")
+        probe = _slice_rollout(
+            (long_message_source or short_message_source)["full"]
+            if (long_message_source or short_message_source) is not None
+            else None,
+            long_message_steps if long_message_source is not None else short_message_steps,
+        )
+        has_language_panels = bool(probe is not None and probe["messages"].shape[1] > 0)
+
+    aux_horizons = _resolve_aux_horizons(config)
+    panels = _build_rollout_panels(
+        config,
+        top_panels=top_panels,
+        aux_horizons=aux_horizons,
         has_language_panels=has_language_panels,
+        has_eval_conditions=bool(config.eval_conditions),
+    )
+    total_height_units = sum(height for _, height in panels)
+    fig_height = max(
+        8.0,
+        config.plot_diag_fig_height * (total_height_units / _ROLLOUT_DIAG_BASE_HEIGHT_UNITS),
     )
     fig, axes = plt.subplots(
         len(panels),
         1,
-        figsize=(config.plot_diag_fig_width, config.plot_diag_fig_height),
+        figsize=(config.plot_diag_fig_width, fig_height),
         gridspec_kw={"height_ratios": [height for _, height in panels]},
     )
     if not isinstance(axes, np.ndarray):
@@ -328,46 +392,27 @@ def plot_rollout_diagnostics(
         ax.margins(x=0)
         _maybe_add_legend(ax, ncol=config.plot_prediction_legend_ncols)
 
-    if "short" in axis_by_panel:
-        _plot_rollout_panel(
-            axis_by_panel["short"],
-            reset_evals,
-            config.plot_short_steps,
-            "Reset short eval" if has_continuous else "Short rollout",
-        )
-    if "long" in axis_by_panel:
-        _plot_rollout_panel(
-            axis_by_panel["long"],
-            reset_long_evals,
-            config.plot_long_steps,
-            "Reset long eval" if has_continuous else "Long rollout",
-        )
-    if "continuous_short" in axis_by_panel:
-        _plot_rollout_panel(
-            axis_by_panel["continuous_short"],
-            continuous_evals,
-            config.plot_short_steps,
-            "Continuous short eval",
-        )
-    if "continuous_long" in axis_by_panel:
-        _plot_rollout_panel(
-            axis_by_panel["continuous_long"],
-            continuous_evals,
-            config.plot_long_steps,
-            "Continuous long eval",
-        )
+    for panel_name in top_panels:
+        panel_axis = axis_by_panel.get(panel_name)
+        if panel_axis is None:
+            continue
+        evals, num_steps, title = _panel_rollout(panel_name)
+        _plot_rollout_panel(panel_axis, evals, num_steps, title)
 
-    if "error" in axis_by_panel:
-        error_axis = axis_by_panel["error"]
-        ref_evals = continuous_evals if has_continuous else reset_evals
+    for horizon in aux_horizons:
+        error_axis = axis_by_panel.get(f"error_{horizon}")
+        if error_axis is None:
+            continue
+        ref_evals, error_steps_count, phase_label = _aux_source(horizon, "error")
+        ref = None
         if ref_evals is not None:
-            ref = _slice_rollout(ref_evals.get("full"), config.plot_error_steps)
+            ref = _slice_rollout(ref_evals.get("full"), error_steps_count)
             if ref is not None:
                 start_step = int(ref.get("start_step", 0))
                 error_steps = np.arange(len(ref["target"])) + start_step
                 error_target = ref["target"].numpy()
                 for condition in config.eval_conditions:
-                    rollout = _slice_rollout(ref_evals.get(condition), config.plot_error_steps)
+                    rollout = _slice_rollout(ref_evals.get(condition), error_steps_count)
                     if rollout is None:
                         continue
                     base, _ = parse_condition(condition)
@@ -383,11 +428,11 @@ def plot_rollout_diagnostics(
         error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
         for vline_step, vline_label, vline_color in _build_transition_vlines(
             config.eval_conditions,
-            config.plot_error_steps,
+            error_steps_count,
             start_step=int(ref.get("start_step", 0)) if ref_evals is not None and ref is not None else 0,
         ):
             error_axis.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
-        error_axis.set_title("Short rollout error")
+        error_axis.set_title(f"{phase_label} {horizon} error")
         error_axis.set_ylabel("pred - target")
         error_axis.grid(True, alpha=config.plot_grid_alpha)
         if ref_evals is not None and ref is not None and len(error_steps) > 0:
@@ -395,9 +440,16 @@ def plot_rollout_diagnostics(
         error_axis.margins(x=0)
         _maybe_add_legend(error_axis, ncol=config.plot_error_legend_ncols)
 
-    if "messages" in axis_by_panel:
+    for horizon in aux_horizons:
+        message_axis = axis_by_panel.get(f"messages_{horizon}")
+        if message_axis is None:
+            continue
+        ref_evals, message_steps_count, phase_label = _aux_source(horizon, "messages")
+        message_source = _slice_rollout(ref_evals.get("full") if ref_evals is not None else None, message_steps_count)
+        if message_source is None:
+            continue
         messages = message_source["messages"].numpy()
-        message_axis = axis_by_panel["messages"]
+        message_steps = np.arange(len(message_source["target"])) + int(message_source.get("start_step", 0))
         if messages.shape[1] > 0:
             for idx in range(messages.shape[1]):
                 label = f"m{idx}"
@@ -408,15 +460,22 @@ def plot_rollout_diagnostics(
                     label=label,
                 )
             _maybe_add_legend(message_axis, ncol=config.plot_message_legend_ncols)
-        message_axis.set_title("Full model language channel traces")
+        message_axis.set_title(f"{phase_label} {horizon} language channel traces")
         message_axis.set_ylabel("message")
         message_axis.grid(True, alpha=config.plot_grid_alpha)
         if len(message_steps) > 0:
             message_axis.set_xlim(message_steps[0], message_steps[-1])
         message_axis.margins(x=0)
 
-    if "message_norm" in axis_by_panel:
-        norm_axis = axis_by_panel["message_norm"]
+    for horizon in aux_horizons:
+        norm_axis = axis_by_panel.get(f"message_norm_{horizon}")
+        if norm_axis is None:
+            continue
+        ref_evals, message_steps_count, phase_label = _aux_source(horizon, "messages")
+        message_source = _slice_rollout(ref_evals.get("full") if ref_evals is not None else None, message_steps_count)
+        if message_source is None:
+            continue
+        message_steps = np.arange(len(message_source["target"])) + int(message_source.get("start_step", 0))
         norm = message_source["message_norm"].numpy()
         norm_axis.plot(
             message_steps,
@@ -424,7 +483,7 @@ def plot_rollout_diagnostics(
             color="black",
             linewidth=config.plot_series_linewidth,
         )
-        norm_axis.set_title("Message norm")
+        norm_axis.set_title(f"{phase_label} {horizon} message norm")
         norm_axis.set_ylabel("||m_t||")
         norm_axis.grid(True, alpha=config.plot_grid_alpha)
         if len(message_steps) > 0:

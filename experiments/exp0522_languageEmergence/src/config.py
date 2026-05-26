@@ -64,6 +64,8 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_training_series",
         "plot_show_message_traces",
         "plot_show_message_norm",
+        "plot_rollout_top_mode",
+        "plot_aux_horizon",
         "plot_show_training_timeline",
         "plot_training_timeline_num_panels",
         "plot_training_timeline_ncols",
@@ -214,6 +216,8 @@ class ExperimentConfig:
     )
     plot_show_message_traces: bool = True
     plot_show_message_norm: bool = True
+    plot_rollout_top_mode: str = "match_train"
+    plot_aux_horizon: str = "long"
     plot_show_training_timeline: bool = True
     plot_training_timeline_num_panels: int = 6
     plot_training_timeline_ncols: int = 2
@@ -378,6 +382,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
     payload["train_window_schedule"] = str(payload["train_window_schedule"])
+    payload["plot_rollout_top_mode"] = str(payload["plot_rollout_top_mode"])
+    payload["plot_aux_horizon"] = str(payload["plot_aux_horizon"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
     payload["plot_target_linestyle"] = str(payload["plot_target_linestyle"])
     for key in ("plot_training_series",):
@@ -427,6 +433,10 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("train_phase_mode must be either 'reset' or 'continuous'.")
     if payload["eval_phase_mode"] not in {"reset", "continuous", "both"}:
         raise ValueError("eval_phase_mode must be 'reset', 'continuous', or 'both'.")
+    if payload["plot_rollout_top_mode"] not in {"match_train", "match_eval", "all_available"}:
+        raise ValueError("plot_rollout_top_mode must be 'match_train', 'match_eval', or 'all_available'.")
+    if payload["plot_aux_horizon"] not in {"short", "long", "both"}:
+        raise ValueError("plot_aux_horizon must be 'short', 'long', or 'both'.")
     if payload["language_dim"] < 0:
         raise ValueError("language_dim must be >= 0.")
     if payload["language_dim"] > 0:
