@@ -235,6 +235,7 @@ class ExperimentConfig:
         payload["run"]["output_root"] = str(payload["run"]["output_root"])
         payload["resolved"] = {
             "message_init": 0.0,
+            "use_language_resolved": self.language_dim > 0,
             "target_kind": self.target_kind,
             "target": _resolved_target_description(self),
             "train_window_schedule": self.train_window_schedule,

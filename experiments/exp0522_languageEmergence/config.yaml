@@ -9,7 +9,7 @@ model:
     - 64                      # hidden width of the MLP trunk
     - 64
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 8              # number of language input/output heads
+  language_dim: 8              # number of language input/output heads; set to 0 for the no-language control
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims

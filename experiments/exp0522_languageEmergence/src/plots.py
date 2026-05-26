@@ -76,7 +76,13 @@ _CONDITION_COLORS: dict[str, str] = {
     "stutter":     "#e377c2",  # pink
 }
 
-def _build_rollout_panels(config: ExperimentConfig, *, has_reset: bool, has_continuous: bool) -> list[tuple[str, float]]:
+def _build_rollout_panels(
+    config: ExperimentConfig,
+    *,
+    has_reset: bool,
+    has_continuous: bool,
+    has_language_panels: bool,
+) -> list[tuple[str, float]]:
     panels: list[tuple[str, float]] = []
     if has_reset:
         panels.extend([("short", 1.35), ("long", 1.35)])
@@ -84,9 +90,9 @@ def _build_rollout_panels(config: ExperimentConfig, *, has_reset: bool, has_cont
         panels.extend([("continuous_short", 1.35), ("continuous_long", 1.35)])
     if config.eval_conditions:
         panels.append(("error", 1.0))
-    if config.plot_show_message_traces:
+    if has_language_panels and config.plot_show_message_traces:
         panels.append(("messages", 1.0))
-    if config.plot_show_message_norm:
+    if has_language_panels and config.plot_show_message_norm:
         panels.append(("message_norm", 0.85))
     return panels
 
@@ -233,11 +239,17 @@ def plot_rollout_diagnostics(
         if has_continuous
         else _slice_rollout(primary_short, config.plot_message_steps)
     )
+    has_language_panels = bool(message_source is not None and message_source["messages"].shape[1] > 0)
 
     error_rollout = _slice_rollout(primary_short, config.plot_error_steps)
     message_steps = np.arange(len(message_source["target"])) + int(message_source.get("start_step", 0))
 
-    panels = _build_rollout_panels(config, has_reset=has_reset, has_continuous=has_continuous)
+    panels = _build_rollout_panels(
+        config,
+        has_reset=has_reset,
+        has_continuous=has_continuous,
+        has_language_panels=has_language_panels,
+    )
     fig, axes = plt.subplots(
         len(panels),
         1,

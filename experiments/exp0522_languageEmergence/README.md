@@ -166,6 +166,18 @@ model:
 
 When enabled, the primary model input becomes `[1, e_{t-1}, m_{t-1}]`.
 
+## No-Language Control
+
+Set `language_dim: 0` to run the explicit no-language single-agent control.
+
+- no language messages are generated
+- no language state is carried between steps
+- the model still keeps the constant pulse `1`
+- the model can still use `e_{t-1}` if `use_error_input: true`
+
+This is a single-run control setting, not an automatic paired comparison. If
+you want to compare language vs no-language, run two separate configs.
+
 ## ResNet Skip Connections
 
 When `use_residual: true` (default), each trunk layer applies a skip connection
@@ -192,7 +204,7 @@ model:
 ## Message Carry Mode
 
 Controls how the previous message is transformed before entering the next step's
-input head.
+input head. This is only meaningful when `language_dim > 0`.
 
 | mode | formula | parameters |
 |---|---|---|

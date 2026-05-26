@@ -382,6 +382,7 @@ def _build_summary(
             "run_name": config.run_name,
             "epochs": config.epochs,
             "sequence_mode": config.sequence_mode,
+            "use_language_resolved": config.language_dim > 0,
             "train_window_schedule": config.train_window_schedule,
             "resolved_train_window_min": train_window_min,
             "resolved_train_window_max": train_window_max,
