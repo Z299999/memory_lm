@@ -17,8 +17,8 @@ Supported target kinds:
 - `sine`
   - `sin(phi_t)`
 - `mixed_sin`
-  - `(sin(phi_t) + 0.5 * sin(2 * phi_t)) / 1.5` by default
-  - used to test whether reset-mode training can launch a more complex periodic trajectory without mixing in the harder continuous handoff problem
+  - normalized sum of any configured `[freq_multiplier, amplitude]` components
+  - the current single-agent mainline config uses a richer multi-frequency mixture to stress continuous tracking rather than only the original `1x + 2x` waveform
 
 Config convention:
 
@@ -35,29 +35,31 @@ The repository currently supports two main experiment styles:
 
 ## Comparison Groups
 
+The mainline single-agent workflow now uses one trained model plus evaluation
+conditions and control configs, rather than the old baseline/comparator
+training path.
+
 - `full`
-  - trained and evaluated with the language channel enabled
-  - receives `m_{t-1}` as input and produces `m_t` as output
-  - tests whether a fixed language channel can support a useful external state
+  - normal rollout with the language channel and error correction both live
 
-- `baseline`
-  - trained from scratch without any language input or language output
-  - answers the architecture-level question: how well can the task be solved with only the constant pulse input?
+- `sole_eye`
+  - language channel disabled, error channel kept live
+  - tests how much the model can do with correction alone
 
-- `mute-deaf`
-  - uses the already-trained `full` model
-  - but at evaluation time the language channel is disabled:
-    - language input is forced to zero
-    - language output is also forced to zero
-  - answers the causal question: does the trained full model actually rely on language at rollout time?
+- `sole_speech`
+  - error channel forced to zero, language channel kept live
+  - tests how much the model can do with self-generated message alone
 
-So the two main comparisons mean different things:
+- `neither`
+  - both language and error channels disabled
+  - tests what remains with only the constant pulse input
 
-- `full` vs `baseline`
-  - tests the value of having a language channel in the architecture
+- `blink(start,end)` / `stutter(start,end)`
+  - temporary loss of error or language during rollout
+  - test whether the learned closed loop can recover after a transient interruption
 
-- `full` vs `mute-deaf`
-  - tests whether the trained model is causally using that channel at inference time
+Architecture-level comparison against a model with no language channel is now
+done by running a separate config with `language_dim: 0`.
 
 For `V1`, the main comparison is now done inside one unified interface:
 
@@ -130,7 +132,7 @@ task:
 ```
 
 Any number of components are supported. Frequency multipliers must be positive; amplitudes can
-be any finite value. The default `[[1, 1.0], [2, 0.5]]` reproduces the original 1+2x waveform.
+be any finite value. A simple `[[1, 1.0], [2, 0.5]]` setting reproduces the original 1+2x waveform.
 
 To use the original single-sine target:
 
@@ -311,7 +313,6 @@ for example `runs/20260522/20260522_173059_exp0522_clock_v0/`, containing:
 - `checkpoints/`
   - `full_language_epoch_0001.pt`, etc. when continuous-collapse checkpointing is enabled
   - `full_language_final.pt`
-  - `no_language_final.pt` when `run.train_baseline: true`
 - `plots/`
 - `analysis/continuous_collapse/` after running the offline analyzer
 
@@ -320,35 +321,31 @@ The plots include:
 - training curves
 - training timeline for continuous-window runs
 - one combined rollout diagnostics figure with:
-  - short rollout comparison
-  - long rollout comparison
-  - short-rollout error curves
-  - language channel traces
-  - message norm
+  - top rollout panels chosen by `plot_rollout_top_mode`
+  - auxiliary error/message panels chosen by `plot_aux_horizon`
 
 Most plotting behavior is configurable from `config.yaml`, including:
 
 - figure size
 - dpi
 - how many short / long rollout steps are shown
-- how many steps are shown in the error panel
-- how many steps are shown in the message panels
+- how many steps are shown in short-horizon error panels
+- how many steps are shown in short-horizon message panels
 - line widths, grid alpha, and legend column counts
 - which training curves are shown
 - whether to generate a training timeline figure
 - how many training-timeline panels are shown
 - how many global steps each training-timeline panel covers
-- which rollout curves are shown
+- whether top rollout panels match training mode, match eval mode, or show all available families
+- whether auxiliary panels use short, long, or both horizons
 - whether the message-trace and message-norm panels are shown
 
-For example, if you mostly want the cleanest rollout view, you can set:
+For example, if you want the default continuous mainline view to stay focused, you can set:
 
 ```yaml
 plot:
-  plot_rollout_series: [target, full]
-  plot_error_series: [full]
-  plot_show_message_traces: false
-  plot_show_message_norm: false
+  plot_rollout_top_mode: match_train
+  plot_aux_horizon: long
 ```
 
 For continuous-window runs, you can also generate a training-time local timeline view:
@@ -356,7 +353,7 @@ For continuous-window runs, you can also generate a training-time local timeline
 ```yaml
 plot:
   plot_show_training_timeline: true
-  plot_training_timeline_num_panels: 6
+  plot_training_timeline_num_panels: 30
   plot_training_timeline_window_steps: 200
 ```
 
