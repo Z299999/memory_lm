@@ -130,58 +130,60 @@ def plot_training_timeline(*, records: list[dict[str, Any]], output_path: Path, 
     if not panels:
         return
     ncols = max(1, int(config.plot.plot_training_timeline_ncols))
-    nrows = int(np.ceil(len(panels) / ncols))
+    panel_rows = int(np.ceil(len(panels) / ncols))
+    metric_rows = 3
+    nrows = metric_rows * panel_rows
     fig, axes = plt.subplots(
         nrows,
         ncols,
-        figsize=(config.plot.plot_training_timeline_fig_width, max(3.4 * nrows, 6.8)),
+        figsize=(config.plot.plot_training_timeline_fig_width, max(2.2 * nrows, 8.0)),
         squeeze=False,
     )
-    for ax, panel in zip(axes.flat, panels):
+    metrics = [
+        ("population1", "N1", "#1f77b4"),
+        ("population2", "N2", "#2ca02c"),
+        ("u", "u", "#ff7f0e"),
+    ]
+    for panel_idx, panel in enumerate(panels):
+        block_row = panel_idx // ncols
+        col = panel_idx % ncols
         steps = np.asarray(panel["steps"], dtype=float)
-        ax_control = ax.twinx()
-        if steps.size:
-            if panel["population1"] and panel["population2"]:
+        for metric_idx, (key, label, color) in enumerate(metrics):
+            ax = axes[block_row * metric_rows + metric_idx, col]
+            values = np.asarray(panel.get(key, []), dtype=float)
+            if steps.size and values.size == steps.size:
                 ax.plot(
                     steps,
-                    panel["population1"],
-                    label="N1",
-                    color="#1f77b4",
-                    linewidth=config.plot.plot_series_linewidth,
+                    values,
+                    label=label,
+                    color=color,
+                    linewidth=config.plot.plot_series_linewidth if key != "u" else config.plot.plot_aux_linewidth,
                 )
-                ax.plot(
-                    steps,
-                    panel["population2"],
-                    label="N2",
-                    color="#2ca02c",
-                    linewidth=config.plot.plot_series_linewidth,
-                )
-            else:
+            elif key == "population1" and steps.size:
                 ax.plot(steps, panel["eta_norm_sq"], label="eta norm sq", linewidth=config.plot.plot_series_linewidth)
-            ax_control.plot(
-                steps,
-                panel["u"],
-                label="u",
-                color="#ff7f0e",
-                linewidth=config.plot.plot_aux_linewidth,
-                alpha=0.88,
-            )
-        for update in panel["updates"]:
-            ax.axvline(update, color="#c7c7c7", linestyle="--", linewidth=0.9, alpha=0.9)
-            ax_control.axvline(update, color="#c7c7c7", linestyle="--", linewidth=0.9, alpha=0.0)
-        ax.set_title(f"t={panel['start_step']}..{panel['end_step']}", fontsize=max(config.plot.plot_title_fontsize - 2, 10))
-        ax.set_xlabel("global step")
-        ax.set_ylabel("population")
-        ax_control.set_ylabel("u")
-        ax.grid(True, alpha=config.plot.plot_grid_alpha)
-        handles, labels = ax.get_legend_handles_labels()
-        control_handles, control_labels = ax_control.get_legend_handles_labels()
-        if handles or control_handles:
-            ax.legend(handles + control_handles, labels + control_labels, loc="upper right", ncol=3)
-    for ax in list(axes.flat)[len(panels):]:
-        ax.axis("off")
+            for update in panel["updates"]:
+                ax.axvline(update, color="#c7c7c7", linestyle="--", linewidth=0.9, alpha=0.9)
+            if metric_idx == 0:
+                ax.set_title(
+                    f"t={panel['start_step']}..{panel['end_step']}",
+                    fontsize=max(config.plot.plot_title_fontsize - 2, 10),
+                )
+            if metric_idx == metric_rows - 1:
+                ax.set_xlabel("global step")
+            else:
+                ax.tick_params(labelbottom=False)
+            ax.set_ylabel(label)
+            ax.grid(True, alpha=config.plot.plot_grid_alpha)
+            _maybe_add_legend(ax, ncol=1)
+
+    used_cols_last_block = len(panels) % ncols
+    if used_cols_last_block == 0:
+        used_cols_last_block = ncols
+    for row in range((panel_rows - 1) * metric_rows, panel_rows * metric_rows):
+        for col in range(used_cols_last_block, ncols):
+            axes[row, col].axis("off")
     fig.suptitle("exp0526 training timeline", fontsize=config.plot.plot_title_fontsize)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.975))
     fig.savefig(output_path, dpi=config.plot.plot_dpi)
     plt.close(fig)
 
