@@ -1,0 +1,101 @@
+run:
+  run_name: exp0526_closed_loop_v0  # run folder suffix under output_root/YYYYMMDD/
+  seed: 42                          # random seed for model init and fixed language readout
+  log_every: 25                      # print training/eval status every N epochs
+  output_root: runs                  # where timestamped run folders are created
+
+model:
+  trunk_dims: [64, 64]               # hidden widths of the feed-forward controller trunk
+  activation: tanh                   # hidden activation: tanh, relu, or leaky_relu
+  language_dim: 31                   # number of self-talk language channels; set 0 for no-language architecture
+  language_readout_coverage: 3       # average number of language heads reading each hidden node
+  use_error_view: true               # if true, feed eta=[eta1,eta2] through the 0522-style error-view input
+  use_residual: true                 # skip connections on hidden->hidden layers with matching dims
+  language_readout_all_layers: true  # if true, message readout samples from all hidden layers concatenated
+  message_carry_mode: learnable_matrix # identity | learnable_diagonal | learnable_matrix
+
+env:
+  age_max: 1.0                       # maximum age A; age grid is [0, A]
+  num_age: 64                        # number of age grid points; CPU-friendly v0 default
+  dt: 0.002                          # time step; must satisfy dt / da <= 1 for upwind transport
+  pulse_value: 1.0                   # constant pulse appended to external observation [eta1, eta2, pulse]
+  positivity_eps: 1.0e-8             # lower clamp for population denominators and states
+  root_bisect_iters: 64              # bisection iterations for Lotka-Sharpe zeta solve
+  equilibrium_x1_multiplier: 2.0     # sets x1*(0) safely above the positive-dilution lower bound
+  species:                           # two species profiles using Miroslav-style k, mu, g families
+    - k_base: 0.55                   # fertility baseline
+      k_amp: 2.55                    # fertility Gaussian amplitude; mixed-sin modulated
+      k_center: 0.22                 # fertility Gaussian center in age
+      k_sigma: 0.12                  # fertility Gaussian width
+      mu_base: 0.06                  # mortality baseline; mixed-sin modulated
+      mu_juv_amp: 0.11               # juvenile mortality exponential amplitude
+      mu_juv: 4.4                    # juvenile mortality decay rate
+      mu_sen_amp: 0.08               # senescent mortality amplitude; mixed-sin modulated
+      mu_sen: 2.2                    # senescent mortality power
+      g_base: 0.08                   # interaction-kernel baseline
+      g_amp: 0.34                    # interaction Gaussian amplitude; fixed in v0
+      g_center: 0.48                 # interaction Gaussian center in age
+      g_sigma: 0.16                  # interaction Gaussian width
+      init_scale: 1.35               # initial state multiplier relative to instantaneous equilibrium
+    - k_base: 0.58                   # species 2 fertility baseline
+      k_amp: 2.35                    # species 2 fertility Gaussian amplitude; mixed-sin modulated
+      k_center: 0.25                 # species 2 fertility Gaussian center
+      k_sigma: 0.13                  # species 2 fertility Gaussian width
+      mu_base: 0.07                  # species 2 mortality baseline; mixed-sin modulated
+      mu_juv_amp: 0.10               # species 2 juvenile mortality amplitude
+      mu_juv: 4.8                    # species 2 juvenile mortality decay rate
+      mu_sen_amp: 0.09               # species 2 senescent mortality amplitude; mixed-sin modulated
+      mu_sen: 2.1                    # species 2 senescent mortality power
+      g_base: 0.09                   # species 2 interaction-kernel baseline
+      g_amp: 0.30                    # species 2 interaction Gaussian amplitude; fixed in v0
+      g_center: 0.52                 # species 2 interaction Gaussian center
+      g_sigma: 0.18                  # species 2 interaction Gaussian width
+      init_scale: 0.75               # initial state multiplier relative to instantaneous equilibrium
+
+ecology:
+  mixed_sin_components:              # hidden ecological regime signal: [frequency, amplitude]
+    - [0.003, 1.0]                   # slow component
+    - [0.011, 0.7]                   # medium component
+    - [0.037, 0.35]                  # faster component
+  k_amp_strength: 0.12               # relative modulation strength for k_amp(t)
+  mu_base_strength: 0.10             # relative modulation strength for mu_base(t)
+  mu_sen_amp_strength: 0.10          # relative modulation strength for mu_sen_amp(t)
+
+train:
+  epochs: 1000                        # number of continuous-window optimizer updates
+  lr: 0.0001                         # Adam learning rate
+  weight_decay: 0.0                  # L2 regularization for Adam
+  grad_clip: 1.0                     # gradient clipping threshold; <=0 disables clipping
+  train_window_schedule: random_uniform(10, 30) # rollout length rule: fixed(L) or random_uniform(a,b)
+  control_loss_weight: 0.0001        # small penalty on mean u^2 to discourage excessive control
+  carry_error_between_windows: true  # reserved for parity with 0522; eta error-view is recomputed from state
+
+eval:
+  eval_steps: 64                     # short validation rollout length used during training logs
+  future_steps: 256                  # held-out future rollout length after training stops
+  # ablation conditions: full | sole_eye | sole_speech | neither | blink(start,end) | stutter(start,end)
+  # eval_conditions: [full, sole_eye, sole_speech, neither, "blink(40,80)", "stutter(100,160)"]
+  eval_conditions: [full, "blink(20,40)", "stutter(50,100)"]
+
+plot:
+  plot_dpi: 160                      # dpi for saved figures
+  plot_training_fig_width: 10.0      # width of training_curves.png
+  plot_training_fig_height: 6.0      # height of training_curves.png
+  plot_diag_fig_width: 16.0          # width of eval_rollout_diagnostics.png
+  plot_diag_fig_height: 15.0         # height of eval_rollout_diagnostics.png
+  plot_short_steps: 128              # reserved short horizon for 0522-style plot parity
+  plot_long_steps: 256               # reserved long horizon for 0522-style plot parity
+  plot_message_steps: 128            # number of future steps shown in message panels
+  plot_grid_alpha: 0.25              # grid transparency used in plots
+  plot_title_fontsize: 14            # title fontsize for combined figures
+  plot_series_linewidth: 1.7         # main series line width
+  plot_aux_linewidth: 1.4            # ablation/message auxiliary line width
+  plot_zero_linewidth: 1.0           # zero-reference line width
+  plot_legend_ncols: 4               # legend columns for rollout panels
+  plot_show_message_traces: true     # whether to show per-channel language traces
+  plot_show_message_norm: true       # whether to show ||m_t|| panel
+  plot_show_training_timeline: true  # whether to write training_timeline.json/png
+  plot_training_timeline_num_panels: 20 # number of local windows shown in timeline plot
+  plot_training_timeline_ncols: 5    # number of columns in timeline plot
+  plot_training_timeline_window_steps: 120 # global steps displayed per timeline panel
+  plot_training_timeline_fig_width: 24.0 # width of training_timeline.png
