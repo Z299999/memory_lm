@@ -14,7 +14,7 @@ import yaml
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
-    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers", "message_carry_mode", "num_agents", "readout_mode", "error_intake_mode"),
+    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers", "message_carry_mode"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components"),
     "train": (
         "epochs",
@@ -174,9 +174,6 @@ class ExperimentConfig:
     use_residual: bool = True
     language_readout_all_layers: bool = False
     message_carry_mode: str = "identity"
-    num_agents: int = 1
-    readout_mode: str = "shared_linear"
-    error_intake_mode: str = "learnable"
     cycle_steps: int = 32
     target_kind: str = "sine"
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5))
@@ -320,7 +317,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "epochs",
         "language_dim",
         "language_readout_coverage",
-        "num_agents",
         "cycle_steps",
         "eval_steps",
         "long_steps",
@@ -425,14 +421,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("activation must be 'tanh', 'relu', or 'leaky_relu'.")
     if payload["message_carry_mode"] not in {"identity", "learnable_diagonal", "learnable_matrix"}:
         raise ValueError("message_carry_mode must be 'identity', 'learnable_diagonal', or 'learnable_matrix'.")
-    if payload["num_agents"] < 1:
-        raise ValueError("num_agents must be >= 1.")
-    payload["readout_mode"] = str(payload.get("readout_mode", "shared_linear"))
-    if payload["readout_mode"] not in {"shared_linear", "mean_pool", "learnable"}:
-        raise ValueError("readout_mode must be 'shared_linear', 'mean_pool', or 'learnable'.")
-    payload["error_intake_mode"] = str(payload.get("error_intake_mode", "learnable"))
-    if payload["error_intake_mode"] not in {"identity", "learnable"}:
-        raise ValueError("error_intake_mode must be 'identity' or 'learnable'.")
     _window_mode, window_min, window_max = parse_train_window_schedule(payload["train_window_schedule"])
     if payload["train_phase_mode"] not in {"reset", "continuous"}:
         raise ValueError("train_phase_mode must be either 'reset' or 'continuous'.")

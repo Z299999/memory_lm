@@ -11,13 +11,13 @@ import torch
 
 try:
     from .config import ExperimentConfig, parse_condition, train_window_bounds, train_window_reference_steps
-    from .model import AgentPool, ExternalClockMLP
-    from .plots import plot_agent_analysis, plot_rollout_diagnostics
+    from .model import ExternalClockMLP
+    from .plots import plot_rollout_diagnostics
     from .task import build_rollout_targets
 except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig, parse_condition, train_window_bounds, train_window_reference_steps
-    from model import AgentPool, ExternalClockMLP
-    from plots import plot_agent_analysis, plot_rollout_diagnostics
+    from model import ExternalClockMLP
+    from plots import plot_rollout_diagnostics
     from task import build_rollout_targets
 
 
@@ -84,15 +84,10 @@ def _evaluate_rollout(
         mse = torch.mean((prediction - target_bundle["target_y"]) ** 2).item()
         raw_target_mse = torch.mean((raw_prediction - target_bundle["train_target"]) ** 2).item()
         if messages.numel():
-            if isinstance(model, AgentPool) and model.num_agents > 1:
-                msg_3d = messages.reshape(num_steps, model.num_agents, model.language_dim)
-                message_norm = torch.linalg.norm(msg_3d, dim=2)  # (T, N)
-            else:
-                message_norm = torch.linalg.norm(messages, dim=1)  # (T,)
+            message_norm = torch.linalg.norm(messages, dim=1)  # (T,)
         else:
             message_norm = torch.zeros(num_steps, device=device)
 
-    num_agents = model.num_agents if isinstance(model, AgentPool) else 1
     return {
         "mse": float(mse),
         "raw_target_mse": float(raw_target_mse),
@@ -106,7 +101,6 @@ def _evaluate_rollout(
         "final_message": final_message.cpu(),
         "final_error": final_error.cpu(),
         "start_step": int(start_step),
-        "num_agents": num_agents,
     }
 
 
@@ -175,7 +169,6 @@ def _evaluate_late_transition_rollout(
         "final_message": phase2["final_message"],
         "final_error": phase2["final_error"],
         "start_step": int(start_step),
-        "num_agents": phase2["num_agents"],
     }
 
 
@@ -257,7 +250,6 @@ def _evaluate_temporary_loss_rollout(
         "final_message": parts[-1]["final_message"],
         "final_error": parts[-1]["final_error"],
         "start_step": int(start_step),
-        "num_agents": parts[-1]["num_agents"],
     }
 
 
@@ -342,26 +334,14 @@ def _save_rollout_csv(
 ) -> None:
     ref = evals["full"]
     num_steps = len(ref["target"])
-    num_agents = ref.get("num_agents", 1)
     msg_cols = ref["messages"].shape[1] if ref["messages"].numel() else 0
     norm = ref["message_norm"]
-    norm_is_per_agent = norm.ndim == 2  # (T, N)
 
     header = ["step", "global_step", "phase", "target"]
     for condition in evals:
         header.append(f"{condition}_prediction")
-    if norm_is_per_agent:
-        header.extend([f"message_norm_a{i}" for i in range(num_agents)])
-    else:
-        header.append("message_norm")
-    if num_agents > 1:
-        header.extend(
-            f"message_a{i}_m{j}"
-            for i in range(num_agents)
-            for j in range(language_dim)
-        )
-    else:
-        header.extend([f"message_{idx}" for idx in range(msg_cols)])
+    header.append("message_norm")
+    header.extend([f"message_{idx}" for idx in range(msg_cols)])
 
     rows = [header]
     for step in range(num_steps):
@@ -373,10 +353,7 @@ def _save_rollout_csv(
         ]
         for condition, rollout in evals.items():
             row.append(float(rollout["prediction"][step].item()))
-        if norm_is_per_agent:
-            row.extend(float(norm[step, i].item()) for i in range(num_agents))
-        else:
-            row.append(float(norm[step].item()))
+        row.append(float(norm[step].item()))
         row.extend(float(ref["messages"][step, idx].item()) for idx in range(msg_cols))
         rows.append(row)
     output_path.write_text("\n".join(",".join(str(v) for v in row) for row in rows))
@@ -474,35 +451,18 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
 
     device = torch.device("cpu")
     checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
-    if config.num_agents > 1:
-        model = AgentPool(
-            num_agents=config.num_agents,
-            trunk_dims=config.trunk_dims,
-            activation=config.activation,
-            language_dim=config.language_dim,
-            language_readout_coverage=config.language_readout_coverage,
-            use_error_input=config.use_error_input,
-            use_residual=config.use_residual,
-            language_readout_all_layers=config.language_readout_all_layers,
-            message_carry_mode=config.message_carry_mode,
-            readout_mode=config.readout_mode,
-            error_intake_mode=config.error_intake_mode,
-            seed=config.seed,
-        ).to(device)
-    else:
-        model = ExternalClockMLP(
-            trunk_dims=config.trunk_dims,
-            activation=config.activation,
-            language_dim=config.language_dim,
-            language_readout_coverage=config.language_readout_coverage,
-            use_error_input=config.use_error_input,
-            use_language=True,
-            use_residual=config.use_residual,
-            language_readout_all_layers=config.language_readout_all_layers,
-            message_carry_mode=config.message_carry_mode,
-            readout_mode=config.readout_mode,
-            seed=config.seed,
-        ).to(device)
+    model = ExternalClockMLP(
+        trunk_dims=config.trunk_dims,
+        activation=config.activation,
+        language_dim=config.language_dim,
+        language_readout_coverage=config.language_readout_coverage,
+        use_error_input=config.use_error_input,
+        use_language=True,
+        use_residual=config.use_residual,
+        language_readout_all_layers=config.language_readout_all_layers,
+        message_carry_mode=config.message_carry_mode,
+        seed=config.seed,
+    ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     metrics_dir = run_dir / "metrics"
@@ -667,22 +627,6 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         output_path=plots_dir / "eval_rollout_diagnostics.png",
         config=config,
     )
-
-    if config.num_agents > 1:
-        ref_rollout = (
-            continuous_evals["full"]
-            if continuous_evals and "full" in continuous_evals
-            else reset_evals["full"]
-            if reset_evals and "full" in reset_evals
-            else None
-        )
-        if ref_rollout is not None:
-            plot_agent_analysis(
-                model=model,
-                rollout=ref_rollout,
-                output_path=plots_dir / "eval_agent_analysis.png",
-                config=config,
-            )
 
     full_history_path = metrics_dir / "history_full_language.json"
     full_history: list[dict[str, float]] = (

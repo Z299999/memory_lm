@@ -1,7 +1,7 @@
 # exp0522 Language Emergence
 
-Minimal experiment for testing whether a fixed language channel can act as an
-external state register for a feed-forward MLP.
+Single-agent experiment for testing whether a fixed language channel can act as
+an external state register for a feed-forward MLP under continuous rollout.
 
 ## Task
 
@@ -192,7 +192,7 @@ model:
 ## Message Carry Mode
 
 Controls how the previous message is transformed before entering the next step's
-input head. Only applies to single-agent runs (`num_agents: 1`).
+input head.
 
 | mode | formula | parameters |
 |---|---|---|
@@ -207,84 +207,8 @@ model:
   message_carry_mode: learnable_matrix   # identity | learnable_diagonal | learnable_matrix
 ```
 
-## Multi-Agent Reservoir
-
-Setting `num_agents > 1` switches from `ExternalClockMLP` to `AgentPool`, a
-reservoir-style architecture where N independent agents produce hidden states
-that are read out by a single shared linear head.
-
-### Architecture
-
-At each time step:
-
-1. **Error distribution** — the shared scalar error `e_prev` is distributed to
-   each agent via a learnable weight vector `w_in ∈ R^N` (`w_in[i]` initialized
-   to `1.0`). Agent `i` receives `w_in[i] * e_prev`.
-
-2. **Language aggregation** — each agent `i` computes its language input from
-   all agents' previous messages via a learnable matrix `D ∈ R^(N×N×d×d)`:
-
-   ```
-   language_input_i = activation( Σ_j  D[i,j] @ m_j_prev )
-   ```
-
-   `D[i,i]` is initialized to `I` (self-carry), `D[i,j≠i]` to `0` (no initial
-   inter-agent signal). Gradients flow into every element of `D`.
-
-3. **Independent trunks** — each agent runs its own MLP on
-   `[pulse, w_in[i]*e, language_input_i]`.
-
-4. **Reservoir readout** — controlled by `readout_mode`:
-
-   - `shared_linear`
-     - one learned linear head reads from the concatenation of all agents'
-       last hidden states:
-
-       ```
-       y_t = W_out @ concat(h_1, ..., h_N)
-       ```
-
-   - `mean_pool`
-     - each agent emits a local scalar `s_i = v_i @ h_i + b_i`
-     - the final answer is the equal-weight sum `Σ_i s_i`
-
-   - `learnable`
-     - same local scalars as `mean_pool`
-     - but each agent is combined with a learnable residual gain
-       `(1 + Δr_i)`, initialized at `1.0`:
-
-       ```
-       y_t = Σ_i (1 + Δr_i) * (v_i @ h_i + b_i)
-       ```
-
-5. **Language messages** — each agent generates its broadcast message via its
-   own fixed sparse readout matrix (different seed per agent).
-
-### Config
-
-```yaml
-model:
-  num_agents: 2   # 1 = single agent; >1 = multi-agent reservoir
-```
-
-Relevant multi-agent toggles:
-
-```yaml
-model:
-  message_carry_mode: learnable_diagonal   # identity | learnable_diagonal | learnable_matrix
-  error_intake_mode: learnable             # identity | learnable
-  readout_mode: learnable                  # shared_linear | mean_pool | learnable
-```
-
-Both `error_intake_mode: learnable` and `readout_mode: learnable` use
-residual `1 + Δ` parameterizations, so initialization exactly matches the
-identity / equal-weight baseline.
-
-### Outputs
-
-`plots/` and `metrics/` use agent 0's messages for message-trace and message-norm
-panels. The prediction is the reservoir output `y_t` (single scalar shared by all
-agents).
+Multi-agent reservoir work is preserved on the dedicated `exp0522-multiagent`
+branch and is intentionally not part of the `main` single-agent research line.
 
 ## Sequence Modes
 

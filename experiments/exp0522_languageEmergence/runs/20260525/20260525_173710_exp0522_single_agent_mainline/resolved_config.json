@@ -1,0 +1,158 @@
+{
+  "run": {
+    "run_name": "exp0522_single_agent_mainline",
+    "seed": 42,
+    "log_every": 100,
+    "output_root": "runs"
+  },
+  "model": {
+    "trunk_dims": [
+      32,
+      32
+    ],
+    "activation": "tanh",
+    "language_dim": 8,
+    "language_readout_coverage": 2,
+    "use_error_input": true,
+    "use_residual": true,
+    "language_readout_all_layers": true,
+    "message_carry_mode": "learnable_matrix"
+  },
+  "task": {
+    "cycle_steps": 32,
+    "pulse_value": 1.0,
+    "target_kind": "mixed_sin",
+    "mixed_sin_components": [
+      [
+        0.004,
+        2.1
+      ],
+      [
+        0.01,
+        1.0
+      ],
+      [
+        0.0005,
+        2.0
+      ],
+      [
+        0.029,
+        1.5
+      ],
+      [
+        0.05,
+        3.0
+      ],
+      [
+        0.7,
+        2.0
+      ],
+      [
+        1.0,
+        1.0
+      ],
+      [
+        2.0,
+        0.5
+      ],
+      [
+        3.0,
+        0.25
+      ],
+      [
+        5.0,
+        0.125
+      ],
+      [
+        7.0,
+        0.1
+      ],
+      [
+        31.0,
+        0.5
+      ]
+    ]
+  },
+  "train": {
+    "epochs": 5000,
+    "lr": 0.0001,
+    "weight_decay": 0.0,
+    "grad_clip": 1.0,
+    "sequence_mode": "continuous_window",
+    "train_window_schedule": "random_uniform(5, 50)",
+    "train_phase_mode": "continuous",
+    "message_aux_loss_weight": 1.0,
+    "detach_error_input": true,
+    "carry_error_between_windows": true,
+    "force_zero_error_input": false
+  },
+  "eval": {
+    "eval_steps": 200,
+    "long_steps": 500,
+    "continuous_eval_steps": 512,
+    "eval_phase_mode": "both",
+    "eval_conditions": [
+      "full",
+      "sole_eye",
+      "sole_speech",
+      "neither",
+      "blink(40,100)",
+      "stutter(120,220)"
+    ]
+  },
+  "analysis": {
+    "enable_continuous_collapse": true,
+    "checkpoint_epochs": [
+      1,
+      10,
+      50,
+      100,
+      500,
+      1000
+    ]
+  },
+  "plot": {
+    "plot_dpi": 200,
+    "plot_training_fig_width": 12.0,
+    "plot_training_fig_height": 7.0,
+    "plot_diag_fig_width": 16.0,
+    "plot_diag_fig_height": 15.0,
+    "plot_short_steps": 128,
+    "plot_long_steps": 512,
+    "plot_error_steps": 128,
+    "plot_message_steps": 128,
+    "plot_grid_alpha": 0.25,
+    "plot_title_fontsize": 14,
+    "plot_target_color": "#8a8a8a",
+    "plot_target_linestyle": "--",
+    "plot_target_linewidth": 1.0,
+    "plot_series_linewidth": 1.7,
+    "plot_aux_linewidth": 1.5,
+    "plot_zero_linewidth": 1.0,
+    "plot_prediction_legend_ncols": 4,
+    "plot_error_legend_ncols": 3,
+    "plot_message_legend_ncols": 2,
+    "plot_training_series": [
+      "full_train",
+      "full_val"
+    ],
+    "plot_show_message_traces": true,
+    "plot_show_message_norm": true,
+    "plot_show_training_timeline": true,
+    "plot_training_timeline_num_panels": 30,
+    "plot_training_timeline_ncols": 5,
+    "plot_training_timeline_window_steps": 200,
+    "plot_training_timeline_fig_width": 27.0
+  },
+  "resolved": {
+    "message_init": 0.0,
+    "target_kind": "mixed_sin",
+    "target": "(2.1*sin(0.004*phi_t) + 1.0*sin(0.01*phi_t) + 2.0*sin(0.0005*phi_t) + 1.5*sin(0.029*phi_t) + 3.0*sin(0.05*phi_t) + 2.0*sin(0.7*phi_t) + 1.0*sin(1.0*phi_t) + 0.5*sin(2.0*phi_t) + 0.25*sin(3.0*phi_t) + 0.125*sin(5.0*phi_t) + 0.1*sin(7.0*phi_t) + 0.5*sin(31.0*phi_t)) / 14.075",
+    "train_window_schedule": "random_uniform(5, 50)",
+    "resolved_train_window_min": 5,
+    "resolved_train_window_max": 50,
+    "resolved_train_window_reference_steps": 28,
+    "phase_init": 0.0,
+    "omega": 0.19634954084936207
+  }
+}
