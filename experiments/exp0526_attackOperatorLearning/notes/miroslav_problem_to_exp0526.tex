@@ -1,0 +1,419 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\title{exp0526: Pure 0522-Style Closed-Loop Controller Learning\\
+for Age-Structured Predator--Prey PDEs}
+\author{exp0526 notes}
+\date{\today}
+
+\newtheorem{problem}{Problem}
+\newtheorem{objective}{Objective}
+\newtheorem{remark}{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\dd}{\,\mathrm{d}}
+\newcommand{\inner}[2]{\left\langle #1,#2\right\rangle}
+\newcommand{\softplus}{\operatorname{softplus}}
+
+\begin{document}
+
+\maketitle
+
+\section{Purpose}
+
+This note reformulates the age-structured predator--prey control setting
+from \emph{Lotka--Sharpe Neural Operators for Control of Population PDEs}
+as a pure exp0522-style closed-loop controller learning problem
+\cite{krstic2026lotkasharpe}.
+
+The first exp0526 version should not learn a Lotka--Sharpe neural
+operator and should not approximate the paper's analytic controller.
+Instead, the model directly outputs a scalar control signal \(u(t)\),
+applies it to the population dynamics, and receives loss from the
+resulting distance to the equilibrium state.
+
+The controller interface is
+\[
+  \big(\eta_1(t),\eta_2(t),1;\ \text{internal self-talk}\big)
+  \longmapsto
+  u(t).
+\]
+The ordinary external observation is \((\eta_1,\eta_2)\) together with a
+constant pulse \(1\). The self-talk state is internal to the exp0522
+model: the previous language output is fed into the next step.
+
+\section{Problem From the Miroslav Paper}
+
+The environment is the two-species age-structured predator--prey PDE
+used in the Lotka--Sharpe neural-operator paper and inherited from the
+age-structured predator--prey stabilization literature
+\cite{krstic2026lotkasharpe,veil2026stabilization}. It is a
+McKendrick--von Foerster type age-structured model
+\cite{mckendrick1925applications}:
+\begin{subequations}
+\label{eq:full-pde}
+\begin{align}
+  \partial_t x_1(a,t)+\partial_a x_1(a,t)
+  &=
+  -x_1(a,t)
+  \left[
+    \mu_1(a,t)+u(t)
+    +\int_0^A g_1(\alpha)x_2(\alpha,t)\dd\alpha
+  \right],
+  \\
+  \partial_t x_2(a,t)+\partial_a x_2(a,t)
+  &=
+  -x_2(a,t)
+  \left[
+    \mu_2(a,t)+u(t)
+    +\frac{1}{\int_0^A g_2(\alpha)x_1(\alpha,t)\dd\alpha}
+  \right],
+  \\
+  x_i(0,t)
+  &=
+  \int_0^A k_i(a,t)x_i(a,t)\dd a,
+  \qquad i=1,2.
+\end{align}
+\end{subequations}
+Here \(x_i(a,t)>0\) are the age profiles, \(k_i\) are fertility profiles,
+\(\mu_i\) are mortality profiles, \(g_i\) are interaction kernels, and
+\(u(t)\ge 0\) is the scalar dilution or harvesting input.
+
+The control target is a positive equilibrium profile
+\[
+  x_i(a,t)\to x_i^*(a,t),
+  \qquad i=1,2,
+\]
+or, equivalently for the reduced controller coordinates, the equilibrium
+\[
+  \eta_1(t)\to 0,
+  \qquad
+  \eta_2(t)\to 0.
+\]
+
+\section{Equilibrium Error Coordinates}
+
+For each species, the Lotka--Sharpe scalar is defined implicitly by the
+classical Lotka--Sharpe age-distribution condition
+\cite{sharpe1911problem}:
+\begin{equation}
+  \int_0^A
+  k_i(a,t)
+  \exp\left(
+    -\int_0^a \big(\mu_i(s,t)+\zeta_i(t)\big)\dd s
+  \right)
+  \dd a
+  =
+  1.
+  \label{eq:lotka-sharpe}
+\end{equation}
+The Lotka--Sharpe neural-operator paper uses this quantity to construct
+transformed coordinates \cite{krstic2026lotkasharpe}
+\[
+  \eta(t)=(\eta_1(t),\eta_2(t)).
+\]
+In the paper's notation,
+\begin{equation}
+  \eta_i(t)
+  =
+  \log\left(
+    \frac{\inner{\pi_{0,i}(\cdot,t)}{x_i(\cdot,t)}}{x_i^*(0,t)\kappa_i(t)}
+  \right).
+  \label{eq:eta}
+\end{equation}
+
+The exp0526 controller observes \(\eta_1,\eta_2\), not the full hidden
+ecological parameter state. The full PDE remains the environment, while
+\(\eta\) is the low-dimensional control error exposed to the agent.
+
+\section{What We Change}
+
+The Lotka--Sharpe neural-operator paper keeps the analytic feedback law
+and uses learning only
+to approximate the implicit Lotka--Sharpe map
+\[
+  (k,\mu)\mapsto\zeta.
+\]
+That is not the first exp0526 task.
+
+By contrast, the first exp0526 task is direct closed-loop controller
+learning:
+\[
+  \big(\eta_1(t),\eta_2(t),1;\ m_{t-1}\big)
+  \longmapsto
+  u(t),
+\]
+where \(m_{t-1}\) is the model's own previous language output. The model
+is judged by what its control does to the environment, not by whether it
+matches an analytic control formula.
+
+\begin{problem}[Pure exp0526 closed-loop controller]
+Train an exp0522-style self-talk MLP inside the full two-species
+age-structured PDE environment \eqref{eq:full-pde}. At each time step the
+agent observes \(\eta_1(t)\), \(\eta_2(t)\), and a constant pulse \(1\),
+produces a scalar control \(u(t)\), and is optimized through the resulting
+future equilibrium error.
+\end{problem}
+
+\section{0522 Mechanism Reused}
+
+The exp0522 mechanism is not an external memory module. It is a recurrent
+self-talk loop created by feeding the previous language output into the
+next MLP step.
+
+At step \(t\), the hidden network computes
+\[
+  h_t = F_\theta\big(\eta_1(t),\eta_2(t),1,e_{t-1},m_{t-1}\big),
+\]
+then emits both a control preactivation and a new language state:
+\begin{align}
+  \tilde u_t &= W_u h_t+b_u,\\
+  m_t &= R h_t.
+\end{align}
+Here \(R\) is the fixed sparse signed readout used by exp0522. The next
+step receives \(m_t\). This is the sense in which the model has memory:
+the language output from the previous step becomes part of the next step's
+input.
+
+The ordinary problem statement remains
+\[
+  (\eta_1,\eta_2,1)\mapsto u,
+\]
+because \(m_t\) is an internal model state rather than an externally
+measured ecological variable.
+
+\subsection*{Error Channel}
+
+In exp0522 prediction, the error channel is a scalar prediction error.
+In exp0526 control, the first version should reinterpret the error channel
+as a control-error view:
+\[
+  e_t = \eta_t = (\eta_1(t),\eta_2(t)).
+\]
+This is not a control-label error. It is the current distance direction
+from equilibrium, made available through the same error-feedback interface
+so that the 0522 ablations remain meaningful.
+
+The no-error comparison forces this channel to zero. The no-language
+comparison uses \(m_t\equiv 0\). Blink and stutter tests temporarily
+remove the error or language pathway during rollout.
+
+\section{Closed-Loop Learning Objective}
+
+The network produces an unconstrained scalar \(\tilde u_t\). The actual
+control applied to the environment is
+\[
+  u_t=\softplus(\tilde u_t),
+  \label{eq:softplus-control}
+\]
+which enforces \(u_t\ge 0\) while preserving smooth gradients.
+
+For one differentiable rollout window of length \(T\), the main objective
+is distance to equilibrium:
+\begin{equation}
+  \mathcal L_\eta
+  =
+  \frac{1}{T}
+  \sum_{t=1}^{T}
+  \left(
+    \eta_1(t)^2+\eta_2(t)^2
+  \right).
+  \label{eq:eta-loss}
+\end{equation}
+A small control-energy regularizer can be added:
+\begin{equation}
+  \mathcal L
+  =
+  \mathcal L_\eta
+  +
+  \lambda_u
+  \frac{1}{T}
+  \sum_{t=1}^{T}
+  u_t^2,
+  \qquad
+  0<\lambda_u\ll 1.
+  \label{eq:total-loss}
+\end{equation}
+
+The required gradient path is
+\[
+  \mathcal L
+  \to
+  \eta_{t+1}
+  \to
+  x(\cdot,t+1)
+  \to
+  u_t
+  \to
+  \tilde u_t
+  \to
+  h_t
+  \to
+  \theta.
+\]
+Because \(m_t=Rh_t\) is fed to later steps, gradients inside a training
+window also flow through the self-talk loop. At window boundaries, the
+message and PDE state are carried forward but detached, matching the
+continuous-window protocol from exp0522.
+
+\section{Differentiable PDE Tooling}
+
+The first implementation should use a PyTorch differentiable age-grid
+solver. Let
+\[
+  a_j=j\Delta a,\qquad j=0,\ldots,N_a.
+\]
+Use a first-order upwind update for the transport term:
+\begin{equation}
+  \frac{x_{i,j}^{n+1}-x_{i,j}^{n}}{\Delta t}
+  +
+  \frac{x_{i,j}^{n}-x_{i,j-1}^{n}}{\Delta a}
+  =
+  -x_{i,j}^{n}\,\mathcal R_{i,j}^{n},
+  \qquad j\ge 1,
+  \label{eq:upwind}
+\end{equation}
+where \(\mathcal R_{i,j}^{n}\) contains mortality, control, and
+interaction terms. The boundary is updated by quadrature:
+\begin{equation}
+  x_{i,0}^{n+1}
+  =
+  \sum_{j=0}^{N_a}
+  k_i(a_j,t_n)x_{i,j}^{n}\Delta a.
+  \label{eq:boundary}
+\end{equation}
+
+All state updates, quadratures, \(\eta\) computation, softplus control,
+and losses should remain in PyTorch tensors so that the equilibrium loss
+can backpropagate through the rollout to the controller.
+
+\section{Time-Varying Ecology}
+
+The ecology should not be static. The first version uses the same profile
+families used in the Lotka--Sharpe neural-operator experiments
+\cite{krstic2026lotkasharpe}:
+\begin{align}
+  k(a,t)
+  &=
+  k_{\rm base}
+  +
+  k_{\rm amp}(t)
+  \exp\left(
+    -\frac{(a-k_{\rm center})^2}{2k_\sigma^2}
+  \right),
+  \\
+  \mu(a,t)
+  &=
+  \mu_{\rm base}(t)
+  +
+  \mu_{\rm juv,amp}e^{-\mu_{\rm juv}a}
+  +
+  \mu_{\rm sen,amp}(t)a^{\mu_{\rm sen}},
+  \\
+  g(a)
+  &=
+  g_{\rm base}
+  +
+  g_{\rm amp}
+  \exp\left(
+    -\frac{(a-g_{\rm center})^2}{2g_\sigma^2}
+  \right).
+\end{align}
+The centers, widths, and interaction profile are fixed in the first
+version. The ecological regime changes through mixed-sin modulation of
+amplitude-like parameters:
+\[
+  k_{\rm amp}(t),\qquad
+  \mu_{\rm base}(t),\qquad
+  \mu_{\rm sen,amp}(t).
+\]
+
+A generic mixed-sin modulation is
+\begin{equation}
+  q(t)
+  =
+  q_0
+  \left[
+    1+
+    \rho
+    \frac{\sum_{\ell=1}^{L} A_\ell\sin(\omega_\ell t+\varphi_\ell)}
+         {\sum_{\ell=1}^{L}|A_\ell|}
+  \right],
+  \qquad 0<\rho<1.
+  \label{eq:mixed-sin}
+\end{equation}
+The model does not observe \(q(t)\), \(k(a,t)\), \(\mu(a,t)\), or
+\(\zeta(t)\). It only observes \(\eta_1(t)\), \(\eta_2(t)\), and the
+constant pulse. The language loop is therefore tested as an internal
+state that may help track hidden ecological regime changes.
+
+\section{Continuous Training and Testing}
+
+Training should follow the exp0522 continuous case:
+\begin{itemize}[leftmargin=2em]
+  \item time moves forward in one long ecological stream;
+  \item training windows are consecutive pieces of this stream;
+  \item the PDE state, language state, and error view are carried forward;
+  \item the carried states are detached at window boundaries;
+  \item the stream is not rewound to \(t=0\) after each update.
+\end{itemize}
+
+Evaluation should reserve a future segment of the same ecological stream.
+The model trains on the earlier segment, then rolls into the held-out
+future segment without weight updates. This tests whether the learned
+closed-loop controller continues to stabilize the ecology as the hidden
+birth and mortality parameters keep evolving.
+
+\section{First Experiment Design}
+
+The first experiment should compare:
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{full self-talk controller:}
+  \(\eta\), pulse, error view, and language all live;
+  \item \textbf{no-language controller:}
+  same external observations, but \(m_t\equiv 0\);
+  \item \textbf{no-error-view controller:}
+  language live, but \(e_t\equiv 0\);
+  \item \textbf{minimal controller:}
+  no language and no error view, only \((\eta_1,\eta_2,1)\);
+  \item \textbf{blink/stutter rollouts:}
+  temporary removal of error or language during evaluation.
+\end{enumerate}
+
+The primary metrics are:
+\begin{itemize}[leftmargin=2em]
+  \item mean and final \(\eta_1^2+\eta_2^2\);
+  \item mean control energy \(u^2\);
+  \item positivity of \(x_i(a,t)\) and \(u(t)\);
+  \item future-segment stability after training stops;
+  \item recovery after blink/stutter interruptions.
+\end{itemize}
+
+\section{Working Summary}
+
+The paper supplies a biologically meaningful full PDE environment and
+equilibrium coordinates. Exp0522 supplies the self-talk MLP and continuous
+rollout protocol. Exp0526 combines them by training a controller directly
+from closed-loop equilibrium loss:
+\[
+  \big(\eta_1(t),\eta_2(t),1;\text{self-talk}\big)
+  \mapsto
+  \tilde u_t
+  \mapsto
+  u_t=\softplus(\tilde u_t)
+  \mapsto
+  x(\cdot,t+1)
+  \mapsto
+  \eta(t+1)
+  \mapsto
+  \mathcal L_\eta.
+\]
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
