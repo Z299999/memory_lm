@@ -1,0 +1,129 @@
+{
+  "config": {
+    "run_name": "exp0522_single_agent_mainline",
+    "epochs": 5000,
+    "sequence_mode": "continuous_window",
+    "train_window_schedule": "random_uniform(5, 50)",
+    "resolved_train_window_min": 5,
+    "resolved_train_window_max": 50,
+    "resolved_train_window_reference_steps": 28,
+    "message_aux_loss_weight": 1.0,
+    "detach_error_input": true,
+    "carry_error_between_windows": true,
+    "force_zero_error_input": false,
+    "trunk_dims": [
+      64,
+      64
+    ],
+    "activation": "tanh",
+    "language_dim": 8,
+    "language_readout_coverage": 3,
+    "use_error_input": true,
+    "cycle_steps": 32,
+    "target_kind": "mixed_sin",
+    "mixed_sin_components": [
+      [
+        0.004,
+        2.1
+      ],
+      [
+        0.01,
+        1.0
+      ],
+      [
+        0.0005,
+        2.0
+      ],
+      [
+        0.029,
+        1.5
+      ],
+      [
+        0.05,
+        3.0
+      ],
+      [
+        0.7,
+        2.0
+      ],
+      [
+        1.0,
+        1.0
+      ],
+      [
+        2.0,
+        0.5
+      ],
+      [
+        3.0,
+        0.25
+      ],
+      [
+        5.0,
+        0.125
+      ],
+      [
+        7.0,
+        0.1
+      ],
+      [
+        31.0,
+        0.5
+      ]
+    ],
+    "eval_steps": 200,
+    "long_steps": 500,
+    "continuous_eval_steps": 512,
+    "eval_conditions": [
+      "full",
+      "blink(40,100)",
+      "stutter(120,220)"
+    ],
+    "enable_continuous_collapse": true,
+    "checkpoint_epochs": [
+      1,
+      10,
+      50,
+      100,
+      500,
+      1000
+    ],
+    "pulse_value": 1.0,
+    "train_phase_mode": "continuous",
+    "eval_phase_mode": "both",
+    "seed": 42
+  },
+  "training": {
+    "final_train_mse": 0.0002070928894681856,
+    "final_val_mse": 0.0014617848210036755
+  },
+  "eval_results": {
+    "full": {
+      "reset_eval_mse": 0.0014617848210036755,
+      "reset_long_mse": 0.0007102342206053436,
+      "continuous_eval_mse": 0.0002028619055636227
+    },
+    "blink(40,100)": {
+      "reset_eval_mse": 0.05209176987409592,
+      "reset_long_mse": 0.020962228998541832,
+      "continuous_eval_mse": 0.046912889927625656
+    },
+    "stutter(120,220)": {
+      "reset_eval_mse": 13.233473777770996,
+      "reset_long_mse": 6.823030948638916,
+      "continuous_eval_mse": 6.481428623199463
+    }
+  },
+  "comparisons": {
+    "blink(40,100)_vs_full": {
+      "reset_eval_gap": 0.05062998505309224,
+      "reset_long_gap": 0.02025199477793649,
+      "continuous_eval_gap": 0.04671002802206203
+    },
+    "stutter(120,220)_vs_full": {
+      "reset_eval_gap": 13.232011992949992,
+      "reset_long_gap": 6.822320714418311,
+      "continuous_eval_gap": 6.481225761293899
+    }
+  }
+}
