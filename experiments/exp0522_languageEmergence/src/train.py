@@ -101,8 +101,7 @@ def _sample_train_steps(config: ExperimentConfig) -> int:
     return random.randint(lower, upper)
 
 
-def _build_training_timeline_panels(config: ExperimentConfig) -> list[dict[str, Any]]:
-    total_steps = int(round(int(config.epochs) * float(train_window_reference_steps(config.train_window_schedule))))
+def _build_training_timeline_panels(config: ExperimentConfig, total_steps: int) -> list[dict[str, Any]]:
     if total_steps <= 0:
         return []
     window_steps = min(int(config.plot_training_timeline_window_steps), total_steps)
@@ -158,6 +157,26 @@ def _record_training_timeline_overlap(
             panel["update_steps"].append(int(train_window_end))
 
 
+def _materialize_training_timeline(
+    *,
+    config: ExperimentConfig,
+    total_steps: int,
+    window_records: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    panels = _build_training_timeline_panels(config, total_steps)
+    if not panels:
+        return None
+    for record in window_records:
+        _record_training_timeline_overlap(
+            panels=panels,
+            train_window_start=int(record["train_window_start"]),
+            train_window_end=int(record["train_window_end"]),
+            target=record["target"],
+            prediction=record["prediction"],
+        )
+    return {"panels": panels}
+
+
 def _save_checkpoint(model: ExternalClockMLP, output_path: Path, metadata: dict[str, Any]) -> None:
     torch.save(
         {
@@ -184,12 +203,7 @@ def _train_single_model(
     )
     target_cache: dict[tuple[int, int], dict[str, torch.Tensor]] = {}
     reference_train_steps = train_window_reference_steps(config.train_window_schedule)
-    cache_steps = {
-        reference_train_steps,
-        config.eval_steps,
-        config.long_steps,
-        config.continuous_eval_steps,
-    }
+    cache_steps = {reference_train_steps, config.eval_steps, config.long_steps, config.continuous_eval_steps}
 
     schedule_mode, _, _ = parse_train_window_schedule(config.train_window_schedule)
     if config.train_phase_mode == "reset" and schedule_mode == "fixed":
@@ -206,11 +220,7 @@ def _train_single_model(
             target_cache[(int(steps), 0)] = bundle
 
     history: list[dict[str, float]] = []
-    timeline_panels = (
-        _build_training_timeline_panels(config)
-        if config.sequence_mode == "continuous_window" and config.plot_show_training_timeline
-        else []
-    )
+    timeline_window_records: list[dict[str, Any]] = []
     train_time_cursor = 0
     train_message_state: torch.Tensor | None = None
     train_error_state: torch.Tensor | None = None
@@ -286,13 +296,14 @@ def _train_single_model(
             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
         optimizer.step()
 
-        if config.sequence_mode == "continuous_window":
-            _record_training_timeline_overlap(
-                panels=timeline_panels,
-                train_window_start=int(train_window_start),
-                train_window_end=int(train_window_start + effective_steps - 1),
-                target=train_target_y,
-                prediction=prediction,
+        if config.sequence_mode == "continuous_window" and config.plot_show_training_timeline:
+            timeline_window_records.append(
+                {
+                    "train_window_start": int(train_window_start),
+                    "train_window_end": int(train_window_start + effective_steps - 1),
+                    "target": train_target_y.detach().cpu(),
+                    "prediction": prediction.detach().cpu(),
+                }
             )
 
         if config.sequence_mode == "continuous_window" and model.use_language:
@@ -354,9 +365,13 @@ def _train_single_model(
     return {
         "model": model,
         "history": history,
-        "training_timeline": {
-            "panels": timeline_panels,
-        } if timeline_panels else None,
+        "training_timeline": _materialize_training_timeline(
+            config=config,
+            total_steps=int(train_time_cursor),
+            window_records=timeline_window_records,
+        )
+        if config.sequence_mode == "continuous_window" and config.plot_show_training_timeline
+        else None,
         "final_train_state": {
             "final_message": train_message_state,
             "final_error": train_error_state,

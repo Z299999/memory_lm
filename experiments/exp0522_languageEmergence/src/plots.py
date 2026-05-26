@@ -234,11 +234,8 @@ def plot_rollout_diagnostics(
         else _slice_rollout(primary_short, config.plot_message_steps)
     )
 
-    short_steps = np.arange(len(primary_short["target"]))
-    long_steps = np.arange(len(primary_long["target"])) if primary_long is not None else short_steps
     error_rollout = _slice_rollout(primary_short, config.plot_error_steps)
-    error_steps = np.arange(len(error_rollout["target"]))
-    message_steps = np.arange(len(message_source["target"]))
+    message_steps = np.arange(len(message_source["target"])) + int(message_source.get("start_step", 0))
 
     panels = _build_rollout_panels(config, has_reset=has_reset, has_continuous=has_continuous)
     fig, axes = plt.subplots(
@@ -251,7 +248,12 @@ def plot_rollout_diagnostics(
         axes = np.array([axes])
     axis_by_panel = {panel_name: ax for ax, (panel_name, _) in zip(axes, panels)}
 
-    def _build_transition_vlines(series: tuple[str, ...], num_steps: int) -> list[tuple[int, str, str]]:
+    def _build_transition_vlines(
+        series: tuple[str, ...],
+        num_steps: int,
+        *,
+        start_step: int = 0,
+    ) -> list[tuple[int, str, str]]:
         vlines = []
         for condition_str in series:
             base, params = parse_condition(condition_str)
@@ -261,13 +263,13 @@ def plot_rollout_diagnostics(
             if base in ("late_blind", "late_mute") and len(params) == 1:
                 step = params[0]
                 if step < num_steps:
-                    vlines.append((step - 1, f"↓{base}", color))
+                    vlines.append((start_step + step - 1, f"↓{base}", color))
             elif base in ("blink", "stutter") and len(params) == 2:
                 s, e = params[0], params[1]
                 if s < num_steps:
-                    vlines.append((s - 1, f"↓{base}", color))
+                    vlines.append((start_step + s - 1, f"↓{base}", color))
                 if e < num_steps:
-                    vlines.append((e - 1, f"↑{base}", color))
+                    vlines.append((start_step + e - 1, f"↑{base}", color))
         return vlines
 
     def _plot_rollout_panel(ax: plt.Axes, evals: dict[str, dict] | None, num_steps: int, title: str) -> None:
@@ -276,7 +278,8 @@ def plot_rollout_diagnostics(
         ref = _slice_rollout(evals.get("full"), num_steps)
         if ref is None:
             return
-        steps = np.arange(len(ref["target"]))
+        start_step = int(ref.get("start_step", 0))
+        steps = np.arange(len(ref["target"])) + start_step
         ax.plot(
             steps,
             ref["target"].numpy(),
@@ -299,11 +302,18 @@ def plot_rollout_diagnostics(
                 color=_CONDITION_COLORS.get(base),
                 zorder=3 if base == "full" else 2,
             )
-        for vline_step, vline_label, vline_color in _build_transition_vlines(config.eval_conditions, num_steps):
+        for vline_step, vline_label, vline_color in _build_transition_vlines(
+            config.eval_conditions,
+            num_steps,
+            start_step=start_step,
+        ):
             ax.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
         ax.set_title(title)
         ax.set_ylabel("value")
         ax.grid(True, alpha=config.plot_grid_alpha)
+        if len(steps) > 0:
+            ax.set_xlim(steps[0], steps[-1])
+        ax.margins(x=0)
         _maybe_add_legend(ax, ncol=config.plot_prediction_legend_ncols)
 
     if "short" in axis_by_panel:
@@ -337,10 +347,12 @@ def plot_rollout_diagnostics(
 
     if "error" in axis_by_panel:
         error_axis = axis_by_panel["error"]
-        ref_evals = reset_evals if has_reset else continuous_evals
+        ref_evals = continuous_evals if has_continuous else reset_evals
         if ref_evals is not None:
             ref = _slice_rollout(ref_evals.get("full"), config.plot_error_steps)
             if ref is not None:
+                start_step = int(ref.get("start_step", 0))
+                error_steps = np.arange(len(ref["target"])) + start_step
                 error_target = ref["target"].numpy()
                 for condition in config.eval_conditions:
                     rollout = _slice_rollout(ref_evals.get(condition), config.plot_error_steps)
@@ -357,11 +369,18 @@ def plot_rollout_diagnostics(
                         zorder=3 if base == "full" else 2,
                     )
         error_axis.axhline(0.0, color="black", linewidth=config.plot_zero_linewidth, alpha=0.7)
-        for vline_step, vline_label, vline_color in _build_transition_vlines(config.eval_conditions, config.plot_error_steps):
+        for vline_step, vline_label, vline_color in _build_transition_vlines(
+            config.eval_conditions,
+            config.plot_error_steps,
+            start_step=int(ref.get("start_step", 0)) if ref_evals is not None and ref is not None else 0,
+        ):
             error_axis.axvline(vline_step, color=vline_color, linestyle="--", linewidth=1.0, alpha=0.55, label=vline_label)
         error_axis.set_title("Short rollout error")
         error_axis.set_ylabel("pred - target")
         error_axis.grid(True, alpha=config.plot_grid_alpha)
+        if ref_evals is not None and ref is not None and len(error_steps) > 0:
+            error_axis.set_xlim(error_steps[0], error_steps[-1])
+        error_axis.margins(x=0)
         _maybe_add_legend(error_axis, ncol=config.plot_error_legend_ncols)
 
     if "messages" in axis_by_panel:
@@ -380,6 +399,9 @@ def plot_rollout_diagnostics(
         message_axis.set_title("Full model language channel traces")
         message_axis.set_ylabel("message")
         message_axis.grid(True, alpha=config.plot_grid_alpha)
+        if len(message_steps) > 0:
+            message_axis.set_xlim(message_steps[0], message_steps[-1])
+        message_axis.margins(x=0)
 
     if "message_norm" in axis_by_panel:
         norm_axis = axis_by_panel["message_norm"]
@@ -393,6 +415,9 @@ def plot_rollout_diagnostics(
         norm_axis.set_title("Message norm")
         norm_axis.set_ylabel("||m_t||")
         norm_axis.grid(True, alpha=config.plot_grid_alpha)
+        if len(message_steps) > 0:
+            norm_axis.set_xlim(message_steps[0], message_steps[-1])
+        norm_axis.margins(x=0)
 
     axes[-1].set_xlabel("step")
 
