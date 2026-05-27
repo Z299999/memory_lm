@@ -19,6 +19,7 @@ os.environ.setdefault("XDG_CACHE_HOME", str(_XDG_CACHE))
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import torch
 
 try:
     from .config import ExperimentConfig, parse_condition
@@ -96,26 +97,34 @@ def _build_timeline_panels(config: ExperimentConfig, records: list[dict[str, Any
             "start_step": s,
             "end_step": s + window - 1,
             "steps": [],
-            "x": [],
-            "x_sq": [],
             "u": [],
             "updates": [],
         }
         for s in starts
     ]
+    state_keys = sorted(key for key in records[0].keys() if key.startswith("state_") and key[6:].isdigit())
+    has_state_norm_sq = "state_norm_sq" in records[0]
+    for panel in panels:
+        for key in state_keys:
+            panel[key] = []
+        if has_state_norm_sq:
+            panel["state_norm_sq"] = []
+
     for record in records:
         rec_steps = np.asarray(record["steps"], dtype=int)
-        rec_x = np.asarray(record["x"], dtype=float)
-        rec_x_sq = np.asarray(record["x_sq"], dtype=float)
         rec_u = np.asarray(record["u"], dtype=float)
         for panel in panels:
             mask = (rec_steps >= panel["start_step"]) & (rec_steps <= panel["end_step"])
             if not np.any(mask):
                 continue
             panel["steps"].extend(rec_steps[mask].tolist())
-            panel["x"].extend(rec_x[mask].tolist())
-            panel["x_sq"].extend(rec_x_sq[mask].tolist())
             panel["u"].extend(rec_u[mask].tolist())
+            for key in state_keys:
+                rec_values = np.asarray(record[key], dtype=float)
+                panel[key].extend(rec_values[mask].tolist())
+            if has_state_norm_sq:
+                rec_norm_sq = np.asarray(record["state_norm_sq"], dtype=float)
+                panel["state_norm_sq"].extend(rec_norm_sq[mask].tolist())
             if panel["start_step"] <= record["end_step"] <= panel["end_step"]:
                 panel["updates"].append(int(record["end_step"]))
     return panels
@@ -127,7 +136,20 @@ def plot_training_timeline(*, records: list[dict[str, Any]], output_path: Path, 
         return
     ncols = max(1, int(config.plot.plot_training_timeline_ncols))
     panel_rows = int(np.ceil(len(panels) / ncols))
-    metric_rows = 3
+    state_keys = sorted(key for key in panels[0].keys() if key.startswith("state_") and key[6:].isdigit())
+    if len(state_keys) == 1:
+        metrics = [
+            ("state_0", "x", "#1f77b4"),
+            ("state_norm_sq", "||x||^2", "#2ca02c"),
+            ("u", "u", "#ff7f0e"),
+        ]
+    else:
+        metrics = [
+            ("state_0", "x1", "#1f77b4"),
+            ("state_1", "x2", "#2ca02c"),
+            ("u", "u", "#ff7f0e"),
+        ]
+    metric_rows = len(metrics)
     nrows = metric_rows * panel_rows
     fig, axes = plt.subplots(
         nrows,
@@ -135,11 +157,6 @@ def plot_training_timeline(*, records: list[dict[str, Any]], output_path: Path, 
         figsize=(config.plot.plot_training_timeline_fig_width, max(2.2 * nrows, 8.0)),
         squeeze=False,
     )
-    metrics = [
-        ("x", "x", "#1f77b4"),
-        ("x_sq", "x^2", "#2ca02c"),
-        ("u", "u", "#ff7f0e"),
-    ]
     for panel_idx, panel in enumerate(panels):
         block_row = panel_idx // ncols
         col = panel_idx % ncols
@@ -182,14 +199,84 @@ def plot_training_timeline(*, records: list[dict[str, Any]], output_path: Path, 
     plt.close(fig)
 
 
-def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: Path, config: ExperimentConfig) -> None:
+def _plot_phase_portrait(ax: plt.Axes, *, evals: dict[str, dict[str, Any]], env: Any, config: ExperimentConfig) -> None:
+    ref = evals.get("full")
+    if ref is None:
+        return
+    x1_values: list[float] = []
+    x2_values: list[float] = []
+    for result in evals.values():
+        if "state_0" in result:
+            x1_values.extend(float(v) for v in result["state_0"])
+        if "state_1" in result:
+            x2_values.extend(float(v) for v in result["state_1"])
+    equilibrium_points = env.equilibrium_points()
+    for item in equilibrium_points:
+        point = item["point"]
+        x1_values.append(float(point[0]))
+        x2_values.append(float(point[1]))
+    max_abs = max([1.25] + [abs(v) for v in x1_values] + [abs(v) for v in x2_values]) * 1.15
+    grid = np.linspace(-max_abs, max_abs, 21)
+    gx1, gx2 = np.meshgrid(grid, grid)
+    tx1 = torch.tensor(gx1, dtype=torch.float32)
+    tx2 = torch.tensor(gx2, dtype=torch.float32)
+    dx1, dx2 = env.phase_field(tx1, tx2)
+    dx1_np = dx1.detach().cpu().numpy()
+    dx2_np = dx2.detach().cpu().numpy()
+    norm = np.sqrt(dx1_np ** 2 + dx2_np ** 2) + 1e-8
+    ax.quiver(
+        gx1,
+        gx2,
+        dx1_np / norm,
+        dx2_np / norm,
+        color="#bdbdbd",
+        alpha=0.7,
+        linewidth=0.6,
+        angles="xy",
+        scale_units="xy",
+        scale=0.9 / max_abs,
+    )
+    for condition, result in evals.items():
+        base, _ = parse_condition(condition)
+        if base not in {"full", "blink", "stutter"}:
+            continue
+        color = _CONDITION_COLORS.get(base)
+        ax.plot(
+            result["state_0"],
+            result["state_1"],
+            label=condition,
+            color=color,
+            linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
+        )
+    for item in equilibrium_points:
+        x1, x2 = item["point"]
+        stable = bool(item["stable"])
+        if stable:
+            ax.scatter([x1], [x2], color="black", s=28, zorder=4)
+        else:
+            ax.scatter([x1], [x2], facecolors="none", edgecolors="black", s=40, zorder=4)
+    ax.set_title("Phase portrait")
+    ax.set_xlabel("x1")
+    ax.set_ylabel("x2")
+    ax.set_xlim(-max_abs, max_abs)
+    ax.set_ylim(-max_abs, max_abs)
+    ax.grid(True, alpha=config.plot.plot_grid_alpha)
+    _maybe_add_legend(ax, ncol=3)
+
+
+def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: Path, config: ExperimentConfig, env: Any) -> None:
     ref = evals.get("full")
     if ref is None:
         return
     steps = np.asarray(ref["global_step"], dtype=float)
     num_steps = len(steps)
     start_step = int(ref["start_step"])
-    panels: list[str] = ["state", "state_sq", "control"]
+    state_dim = int(getattr(env, "state_dim", 1))
+    panels: list[str]
+    if state_dim == 1:
+        panels = ["state_0", "state_norm_sq", "control"]
+    else:
+        panels = ["state_0", "state_1", "state_norm_sq", "control", "phase_portrait"]
     has_messages = ref["messages"].numel() and ref["messages"].shape[1] > 0
     if has_messages and config.plot.plot_show_message_traces:
         panels.append("messages")
@@ -201,42 +288,40 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
         len(panels),
         1,
         figsize=(config.plot.plot_diag_fig_width, height),
-        gridspec_kw={"height_ratios": [1.25 if p in {"state", "state_sq", "control"} else 1.0 for p in panels]},
+        gridspec_kw={
+            "height_ratios": [
+                1.35 if p == "phase_portrait" else 1.25 if p in {"state_0", "state_1", "state_norm_sq", "control"} else 1.0
+                for p in panels
+            ]
+        },
     )
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes])
     by_name = {name: ax for name, ax in zip(panels, axes)}
 
+    series_panels = [name for name in panels if name not in {"messages", "message_norm", "phase_portrait"}]
     for condition, result in evals.items():
         base, _ = parse_condition(condition)
         color = _CONDITION_COLORS.get(base)
         x = np.asarray(result["global_step"], dtype=float)
-        by_name["state"].plot(
-            x,
-            result["x"],
-            label=condition,
-            color=color,
-            linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
-        )
-        by_name["state_sq"].plot(
-            x,
-            result["x_sq"],
-            label=condition,
-            color=color,
-            linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
-        )
-        by_name["control"].plot(
-            x,
-            result["u"],
-            label=condition,
-            color=color,
-            linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
-        )
+        for panel_name in series_panels:
+            series = result[panel_name] if panel_name != "control" else result["u"]
+            by_name[panel_name].plot(
+                x,
+                series,
+                label=condition,
+                color=color,
+                linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
+            )
 
-    by_name["state"].axhline(0.0, color="black", linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75)
+    if state_dim == 1:
+        by_name["state_0"].axhline(0.0, color="black", linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75)
+    else:
+        by_name["state_0"].axhline(0.0, color="black", linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75)
+        by_name["state_1"].axhline(0.0, color="black", linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75)
     by_name["control"].axhline(0.0, color="black", linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75)
 
-    for name in ("state", "state_sq", "control"):
+    for name in series_panels:
         ax = by_name[name]
         for xpos, label, color in _transition_vlines(config, start_step, num_steps):
             ax.axvline(xpos, color=color, linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75, label=label)
@@ -245,13 +330,22 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
         ax.set_xlim(float(steps[0]), float(steps[-1]))
         ax.margins(x=0.0)
 
-    by_name["state"].set_title("Future scalar state")
-    by_name["state"].set_ylabel("x")
-    by_name["state_sq"].set_title("Future state energy")
-    by_name["state_sq"].set_ylabel("x^2")
+    if state_dim == 1:
+        by_name["state_0"].set_title("Future scalar state")
+        by_name["state_0"].set_ylabel("x")
+    else:
+        by_name["state_0"].set_title("Future x1")
+        by_name["state_0"].set_ylabel("x1")
+        by_name["state_1"].set_title("Future x2")
+        by_name["state_1"].set_ylabel("x2")
+    by_name["state_norm_sq"].set_title("Future state energy")
+    by_name["state_norm_sq"].set_ylabel("||x||^2")
     by_name["control"].set_title("Control signal")
     by_name["control"].set_ylabel("u")
     by_name["control"].set_xlabel("global step")
+
+    if "phase_portrait" in by_name:
+        _plot_phase_portrait(by_name["phase_portrait"], evals=evals, env=env, config=config)
 
     if "messages" in by_name:
         ax = by_name["messages"]

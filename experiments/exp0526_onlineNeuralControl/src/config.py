@@ -39,6 +39,31 @@ def parse_condition(spec: str) -> tuple[str, tuple[int, ...]]:
     return str(spec).strip(), ()
 
 
+def _normalize_eval_conditions(values: Any) -> tuple[str, ...]:
+    items = [str(v).strip() for v in values]
+    normalized: list[str] = []
+    pending: list[str] = []
+    balance = 0
+    for item in items:
+        if pending:
+            pending.append(item)
+            balance += item.count("(") - item.count(")")
+            if balance <= 0:
+                normalized.append(",".join(part.strip() for part in pending))
+                pending = []
+                balance = 0
+            continue
+        item_balance = item.count("(") - item.count(")")
+        if item_balance > 0 and item.count(")") == 0:
+            pending = [item]
+            balance = item_balance
+            continue
+        normalized.append(item)
+    if pending:
+        normalized.append(",".join(part.strip() for part in pending))
+    return tuple(normalized)
+
+
 @dataclass
 class RunConfig:
     run_name: str = "exp0526_scalar_cubic_v1"
@@ -60,14 +85,19 @@ class ModelConfig:
 
 @dataclass
 class EnvConfig:
-    env_kind: str = "scalar_cubic"
+    env_kind: str = "scalar_control_affine"
     dt: float = 0.005
-    x0: float = 0.5
+    x0: Any = 0.5
     pulse_value: float = 1.0
     u_max: float = 2.0
+    f_expr: str = "-x + x**3"
+    g_expr: str = "1.0"
     linear_coeff: float = 1.0
     cubic_coeff: float = 1.0
     control_gain: float = 1.0
+    alpha: float = 1.0
+    beta: float = 1.0
+    gamma: float = 0.4
     state_limit: float = 4.0
 
 
@@ -138,12 +168,15 @@ def load_config(path: Path) -> ExperimentConfig:
         model_raw["trunk_dims"] = tuple(int(v) for v in model_raw["trunk_dims"])
     model = _dataclass_from(ModelConfig, model_raw)
 
-    env = _dataclass_from(EnvConfig, dict(raw.get("env", {})))
+    env_raw = dict(raw.get("env", {}))
+    if "x0" in env_raw and isinstance(env_raw["x0"], (list, tuple)):
+        env_raw["x0"] = tuple(float(v) for v in env_raw["x0"])
+    env = _dataclass_from(EnvConfig, env_raw)
     train = _dataclass_from(TrainConfig, raw.get("train", {}))
 
     eval_raw = dict(raw.get("eval", {}))
     if "eval_conditions" in eval_raw:
-        eval_raw["eval_conditions"] = tuple(str(v) for v in eval_raw["eval_conditions"])
+        eval_raw["eval_conditions"] = _normalize_eval_conditions(eval_raw["eval_conditions"])
     eval_cfg = _dataclass_from(EvalConfig, eval_raw)
 
     plot = _dataclass_from(PlotConfig, raw.get("plot", {}))
@@ -162,14 +195,28 @@ def validate_config(config: ExperimentConfig) -> None:
             raise ValueError("model.language_readout_coverage must be <= language_dim.")
     if config.model.message_carry_mode not in {"identity", "learnable_diagonal", "learnable_matrix"}:
         raise ValueError("model.message_carry_mode must be identity, learnable_diagonal, or learnable_matrix.")
-    if config.env.env_kind != "scalar_cubic":
-        raise ValueError("env.env_kind must currently be scalar_cubic.")
+    if config.env.env_kind not in {"scalar_cubic", "scalar_control_affine", "planar_double_well"}:
+        raise ValueError("env.env_kind must be scalar_cubic, scalar_control_affine, or planar_double_well.")
     if config.env.dt <= 0.0:
         raise ValueError("env.dt must be positive.")
     if config.env.u_max <= 0.0:
         raise ValueError("env.u_max must be positive.")
     if config.env.state_limit <= 0.0:
         raise ValueError("env.state_limit must be positive.")
+    if config.env.env_kind == "scalar_control_affine":
+        if not str(config.env.f_expr).strip():
+            raise ValueError("env.f_expr must be non-empty for scalar_control_affine.")
+        if not str(config.env.g_expr).strip():
+            raise ValueError("env.g_expr must be non-empty for scalar_control_affine.")
+        if isinstance(config.env.x0, (tuple, list)):
+            raise ValueError("env.x0 must be a scalar for scalar_control_affine.")
+    if config.env.env_kind == "scalar_cubic" and isinstance(config.env.x0, (tuple, list)):
+        raise ValueError("env.x0 must be a scalar for scalar_cubic.")
+    if config.env.env_kind == "planar_double_well":
+        if not isinstance(config.env.x0, (tuple, list)) or len(config.env.x0) != 2:
+            raise ValueError("env.x0 must be a length-2 list or tuple for planar_double_well.")
+        if config.env.beta <= 0.0:
+            raise ValueError("env.beta must be positive for planar_double_well.")
     parse_train_window_schedule(config.train.train_window_schedule)
     if config.train.control_loss_weight < 0.0:
         raise ValueError("train.control_loss_weight must be >= 0.")

@@ -64,14 +64,15 @@ def rollout_condition(
     current_message = message.detach().clone() if message is not None else None
 
     rows: dict[str, list[Any]] = {
-        "x": [],
-        "x_sq": [],
-        "abs_x": [],
+        "state_norm_sq": [],
+        "abs_state_max": [],
         "raw_u": [],
         "u": [],
         "message_norm": [],
         "global_step": [],
     }
+    for state_idx in range(env.state_dim):
+        rows[f"state_{state_idx}"] = []
     messages: list[torch.Tensor] = []
 
     with torch.no_grad():
@@ -88,9 +89,10 @@ def rollout_condition(
             u = _bounded_control(raw_u, config)
             diagnostics = env.diagnostics(current_state, derived)
 
-            rows["x"].append(diagnostics["x"])
-            rows["x_sq"].append(diagnostics["x_sq"])
-            rows["abs_x"].append(diagnostics["abs_x"])
+            for state_idx in range(env.state_dim):
+                rows[f"state_{state_idx}"].append(diagnostics[f"state_{state_idx}"])
+            rows["state_norm_sq"].append(diagnostics["state_norm_sq"])
+            rows["abs_state_max"].append(diagnostics["abs_state_max"])
             rows["raw_u"].append(float(raw_u.item()))
             rows["u"].append(float(u.item()))
             rows["message_norm"].append(float(torch.linalg.norm(next_message).item()) if next_message.numel() else 0.0)
@@ -101,12 +103,12 @@ def rollout_condition(
             current_message = next_message.detach() if model.use_language else None
 
     messages_tensor = torch.stack(messages) if messages else torch.zeros(num_steps, model.language_dim)
-    x_sq = torch.tensor(rows["x_sq"], dtype=torch.float32)
+    state_norm_sq = torch.tensor(rows["state_norm_sq"], dtype=torch.float32)
     return {
         **rows,
         "messages": messages_tensor,
-        "mean_x_sq": float(torch.mean(x_sq).item()) if x_sq.numel() else 0.0,
-        "final_x_sq": float(x_sq[-1].item()) if x_sq.numel() else 0.0,
+        "mean_state_norm_sq": float(torch.mean(state_norm_sq).item()) if state_norm_sq.numel() else 0.0,
+        "final_state_norm_sq": float(state_norm_sq[-1].item()) if state_norm_sq.numel() else 0.0,
         "mean_u": float(torch.tensor(rows["u"]).mean().item()) if rows["u"] else 0.0,
         "final_state": current_state.detach().cpu(),
         "final_message": current_message.detach().cpu() if current_message is not None else torch.zeros(1, 0),
@@ -146,8 +148,8 @@ def write_summary(output_path: Path, evals: dict[str, dict[str, Any]], history: 
         "use_language_resolved": bool(config.model.language_dim > 0),
         "conditions": {
             name: {
-                "mean_x_sq": result["mean_x_sq"],
-                "final_x_sq": result["final_x_sq"],
+                "mean_state_norm_sq": result["mean_state_norm_sq"],
+                "final_state_norm_sq": result["final_state_norm_sq"],
                 "mean_u": result["mean_u"],
             }
             for name, result in evals.items()
@@ -164,30 +166,40 @@ def write_rollout_csv(output_path: Path, evals: dict[str, dict[str, Any]]) -> No
         "condition",
         "step",
         "global_step",
-        "x",
-        "x_sq",
-        "abs_x",
+        "state_norm_sq",
+        "abs_state_max",
         "raw_u",
         "u",
         "message_norm",
     ]
+    state_dim = max(
+        len([key for key in result.keys() if key.startswith("state_") and key[6:].isdigit()])
+        for result in evals.values()
+    )
+    header[3:3] = [f"state_{idx}" for idx in range(state_dim)]
     header.extend(f"message_{idx}" for idx in range(max_msg))
     lines = [",".join(header)]
     for condition, result in evals.items():
-        steps = len(result["x"])
+        steps = len(result["state_norm_sq"])
         messages = result["messages"]
         for step in range(steps):
             row: list[Any] = [
                 condition,
                 step,
                 result["global_step"][step],
-                result["x"][step],
-                result["x_sq"][step],
-                result["abs_x"][step],
-                result["raw_u"][step],
-                result["u"][step],
-                result["message_norm"][step],
             ]
+            for idx in range(state_dim):
+                key = f"state_{idx}"
+                row.append(result[key][step] if key in result else "")
+            row.extend(
+                [
+                    result["state_norm_sq"][step],
+                    result["abs_state_max"][step],
+                    result["raw_u"][step],
+                    result["u"][step],
+                    result["message_norm"][step],
+                ]
+            )
             for idx in range(max_msg):
                 value = float(messages[step, idx].item()) if idx < messages.shape[1] else ""
                 row.append(value)

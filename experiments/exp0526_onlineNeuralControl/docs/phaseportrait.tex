@@ -1,0 +1,70 @@
+\section{Why keep the 1D baseline and add a 2D phase portrait task?}
+
+The scalar control-affine environment remains useful as the minimal benchmark for online neural control with self-talk. It gives a clean setting where the controller gradient path is transparent and the role of the local loss
+\[
+\ell_t = x_t^2 + \rho u_t^2
+\]
+is easy to interpret.
+
+At the same time, the scalar system is too limited to express genuine phase-space geometry. In one dimension the state can only move left or right, so there is no notion of circulation, trajectory bending, or phase portrait structure. To study how a controller can exploit geometry with small control effort, we add a fixed planar environment.
+
+\section{Planar double-well environment}
+
+The first 2D benchmark in \texttt{exp0526\_onlineNeuralControl} is the planar double-well system
+\[
+\dot x_1 = x_2,\qquad
+\dot x_2 = \alpha x_1 - \beta x_1^3 - \gamma x_2 + c u.
+\]
+
+Here:
+\begin{itemize}
+    \item $x_1$ behaves like position,
+    \item $x_2$ behaves like velocity,
+    \item $u$ is a scalar control input,
+    \item $-\gamma x_2$ provides damping,
+    \item $\alpha x_1 - \beta x_1^3$ creates a double-well structure.
+\end{itemize}
+
+With the default choice
+\[
+\alpha = 1,\qquad \beta = 1,\qquad \gamma = 0.4,\qquad c = 1,
+\]
+the uncontrolled system has equilibria at
+\[
+(-1,0),\qquad (0,0),\qquad (1,0).
+\]
+
+The outer points $(-1,0)$ and $(1,0)$ are stable, while the center point $(0,0)$ is unstable. This gives the geometry we want:
+\begin{itemize}
+    \item the origin is not the natural resting point,
+    \item there are stable nonzero operating points,
+    \item small control can influence which basin the trajectory enters.
+\end{itemize}
+
+\section{Observation choice for the first 2D version}
+
+The first 2D version uses full-state observation. The controller input is
+\[
+[x_1,\; x_2,\; 1],
+\]
+namely the full state plus the constant pulse channel already used throughout the project.
+
+This choice is deliberate. The goal of the first 2D version is not partial observation or state estimation. The goal is to expose the controller to a system with richer geometry while keeping the observation path simple enough that rollout behavior and phase-space movement remain easy to read.
+
+\section{Why phase portrait only in eval plots?}
+
+The phase portrait is an analysis tool, not a training diagnostic. Training curves and training timelines are meant to answer:
+\begin{itemize}
+    \item how the loss evolves,
+    \item how controls change after updates,
+    \item how rollout windows are reshaped through optimization.
+\end{itemize}
+
+The phase portrait answers a different question:
+\begin{itemize}
+    \item where trajectories move in state space,
+    \item which basin they approach,
+    \item how blink or stutter perturbations deflect the path.
+\end{itemize}
+
+For that reason the phase portrait is added only to \texttt{eval\_rollout\_diagnostics.png}. It belongs to the evaluation layer, where we compare full, blink, and stutter rollouts against the vector field and equilibrium structure of the environment.

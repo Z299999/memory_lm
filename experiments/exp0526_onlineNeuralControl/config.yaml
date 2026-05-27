@@ -1,7 +1,7 @@
 run:
-  run_name: exp0526_scalar_cubic_v1   # run folder suffix under output_root/YYYYMMDD/
+  run_name: exp0526_scalar_control_affine_v1  # run folder suffix under output_root/YYYYMMDD/
   seed: 42                            # random seed for model init and fixed language readout
-  log_every: 25                       # print training/eval status every N updates
+  log_every: 100                      # print training/eval status every N updates
   output_root: runs                   # where timestamped run folders are created
 
 model:
@@ -14,29 +14,32 @@ model:
   message_carry_mode: learnable_matrix  # identity | learnable_diagonal | learnable_matrix
 
 env:
-  env_kind: scalar_cubic              # first simple control benchmark from docs/idea2.tex
+  env_kind: scalar_control_affine     # scalar control-affine system x_dot = f(x) + g(x) u
   dt: 0.005                           # Euler step size
   x0: 0.5                             # positive initial state; uncontrolled dynamics push it outward
   pulse_value: 1.0                    # constant pulse appended to observation [x, pulse]
   u_max: 2.0                          # bounded symmetric control scale, applied as u_max * tanh(raw_u)
+  f_expr: x - x**3                    # drift term f(x); this default has equilibria at x = -1, 0, 1
+  g_expr: x+2                         # control field g(x)
   linear_coeff: 1.0                   # linear drift coefficient in x_dot = a x + b x^3 + c u
   cubic_coeff: 1.0                    # cubic drift coefficient
   control_gain: 1.0                   # control coupling coefficient
   state_limit: 4.0                    # soft tanh saturation to keep early continuous exploration finite
 
 train:
-  epochs: 1000                        # number of continuous-window optimizer updates
+  epochs: 10000                        # number of continuous-window optimizer updates
   lr: 0.0001                          # Adam learning rate
   weight_decay: 0.0                   # L2 regularization for Adam
   grad_clip: 1.0                      # gradient clipping threshold; <=0 disables clipping
   train_window_schedule: random_uniform(10, 30)  # rollout length rule: fixed(L) or random_uniform(a,b)
-  control_loss_weight: 0.0001         # penalty on mean u^2 to discourage excessive control
+  control_loss_weight: 0.001         # penalty on mean u^2 to discourage excessive control
 
 eval:
   eval_steps: 64                      # short validation rollout length used during training logs
   future_steps: 256                   # held-out future rollout length after training stops
   # ablation conditions: full | sole_eye | sole_speech | neither | blink(start,end) | stutter(start,end)
-  eval_conditions: [full, sole_eye, sole_speech, neither, "blink(20,40)", "stutter(50,100)"]
+  eval_conditions: [full]
+  # eval_conditions: [full, blink(20, 40), stutter(80, 120)]
 
 plot:
   plot_dpi: 160

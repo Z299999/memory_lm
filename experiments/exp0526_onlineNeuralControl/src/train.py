@@ -52,7 +52,7 @@ def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2))
 
 
-def _build_model(config: ExperimentConfig, *, device: torch.device) -> SelfTalkController:
+def _build_model(config: ExperimentConfig, *, device: torch.device, observation_dim: int) -> SelfTalkController:
     return SelfTalkController(
         trunk_dims=config.model.trunk_dims,
         activation=config.model.activation,
@@ -62,7 +62,7 @@ def _build_model(config: ExperimentConfig, *, device: torch.device) -> SelfTalkC
         language_readout_all_layers=config.model.language_readout_all_layers,
         message_carry_mode=config.model.message_carry_mode,
         seed=config.run.seed,
-        observation_dim=2,
+        observation_dim=observation_dim,
     ).to(device)
 
 
@@ -93,7 +93,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
 
     device = torch.device("cpu")
     env = build_env(config, device=device)
-    model = _build_model(config, device=device)
+    model = _build_model(config, device=device, observation_dim=env.state_dim + 1)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
 
     state = env.initial_state().to(device)
@@ -110,16 +110,17 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
 
         state_losses: list[torch.Tensor] = []
         control_losses: list[torch.Tensor] = []
-        record = {
+        record: dict[str, Any] = {
             "start_step": int(global_step),
             "end_step": int(global_step + window_steps - 1),
             "steps": [],
-            "x": [],
-            "x_sq": [],
             "u": [],
         }
-        max_abs_x = 0.0
-        final_x_sq = 0.0
+        for state_idx in range(env.state_dim):
+            record[f"state_{state_idx}"] = []
+        record["state_norm_sq"] = []
+        max_abs_state = 0.0
+        final_state_sq = 0.0
 
         for _local in range(window_steps):
             eta, _derived = env.eta(state, global_step)
@@ -132,16 +133,17 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
             u = _bounded_control(raw_u, config)
             next_state, _ = env.step(state, u, global_step)
             next_eta, next_derived = env.eta(next_state, global_step + 1)
-            x_sq = torch.sum(next_eta ** 2)
+            state_sq = torch.sum(next_eta ** 2)
 
-            state_losses.append(x_sq)
+            state_losses.append(state_sq)
             control_losses.append(torch.mean(u ** 2))
             diagnostics = env.diagnostics(next_state, next_derived)
-            max_abs_x = max(max_abs_x, diagnostics["abs_x"])
-            final_x_sq = float(x_sq.detach().item())
+            max_abs_state = max(max_abs_state, float(diagnostics.get("abs_state_max", 0.0)))
+            final_state_sq = float(state_sq.detach().item())
             record["steps"].append(int(global_step))
-            record["x"].append(diagnostics["x"])
-            record["x_sq"].append(diagnostics["x_sq"])
+            for state_idx in range(env.state_dim):
+                record[f"state_{state_idx}"].append(float(diagnostics[f"state_{state_idx}"]))
+            record["state_norm_sq"].append(float(diagnostics["state_norm_sq"]))
             record["u"].append(float(u.detach().item()))
 
             state = next_state
@@ -173,7 +175,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
                 condition="full",
                 config=config,
             )
-            last_val = float(val["mean_x_sq"])
+            last_val = float(val["mean_state_norm_sq"])
 
         row = {
             "epoch": float(epoch),
@@ -183,8 +185,8 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
             "state_loss": float(state_loss.detach().item()),
             "control_loss": float(control_loss.detach().item()),
             "val_state_loss": float(last_val),
-            "max_abs_x": float(max_abs_x),
-            "final_x_sq": float(final_x_sq),
+            "max_abs_state": float(max_abs_state),
+            "final_state_sq": float(final_state_sq),
         }
         history.append(row)
         if epoch == 1 or epoch % config.run.log_every == 0 or epoch == config.train.epochs:
@@ -227,7 +229,12 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
     plot_training_curves(history=history, output_path=plots_dir / "training_curves.png", config=config)
     if timeline_records:
         plot_training_timeline(records=timeline_records, output_path=plots_dir / "training_timeline.png", config=config)
-    plot_rollout_diagnostics(evals=evals, output_path=plots_dir / "eval_rollout_diagnostics.png", config=config)
+    plot_rollout_diagnostics(
+        evals=evals,
+        output_path=plots_dir / "eval_rollout_diagnostics.png",
+        config=config,
+        env=env,
+    )
 
     latest = run_root / "latest"
     if latest.is_symlink() or latest.exists():

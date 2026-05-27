@@ -5,29 +5,58 @@
 ## Mainline scope
 
 - Controller: feed-forward self-talk controller with carried message state
-- Environment: scalar cubic unstable system
+- Environments:
+  - scalar control-affine baseline
+  - planar 2D double-well benchmark
 - Training: differentiable closed-loop rollouts with one optimizer update per training window
 - Evaluation: `full`, `sole_eye`, `sole_speech`, `neither`, `blink(...)`, `stutter(...)`
 
 The old age-structured PDE version is preserved on the `exp0526-age-structured` branch.
 
-## Environment
+## Environments
 
-The first mainline environment is the scalar system from `docs/idea2.tex`:
+The scalar baseline is a control-affine system from `docs/idea2.tex`:
 
 \[
-\dot x = a x + b x^3 + c u
+\dot x = f(x) + g(x)u
 \]
 
 discretized with Euler as
 
 \[
-x_t = x_{t-1} + dt \left(a x_{t-1} + b x_{t-1}^3 + c u_t \right).
+x_t = x_{t-1} + dt \left(f(x_{t-1}) + g(x_{t-1})u_t \right).
 \]
 
-The controller sees:
+By default the config uses:
+
+\[
+f(x) = -x + x^3,\qquad g(x)=1,
+\]
+
+but both expressions are user-configurable in `config.yaml`.
+
+The scalar controller sees:
 
 - current scalar state `x`
+- a constant pulse channel `1`
+
+The new 2D environment is a fixed planar double-well family:
+
+\[
+\dot x_1 = x_2,\qquad
+\dot x_2 = \alpha x_1 - \beta x_1^3 - \gamma x_2 + c u.
+\]
+
+With the default parameters `alpha = beta = 1`, `gamma = 0.4`, and `control_gain = 1`, the uncontrolled system has three equilibria:
+
+- `(-1, 0)` stable
+- `(0, 0)` unstable
+- `(1, 0)` stable
+
+The 2D controller sees the full state plus pulse:
+
+- `x1`
+- `x2`
 - a constant pulse channel `1`
 
 The control output is bounded symmetrically:
@@ -74,4 +103,7 @@ Each run writes:
 ## Design notes
 
 - `docs/idea2.tex` is the active design document for the simplified control benchmark.
-- Future environments can be added through `src/env.py`, but the first mainline version only ships `scalar_cubic`.
+- `env_kind: scalar_control_affine` lets you specify `f_expr` and `g_expr` directly in the config using a restricted math-expression syntax over `x`.
+- `env_kind: scalar_cubic` is still available as a compatibility wrapper around the older `a x + b x^3 + c u` parameterization.
+- `env_kind: planar_double_well` adds a fixed 2D benchmark with phase-space geometry and a phase portrait panel in `eval_rollout_diagnostics.png`.
+- `docs/phaseportrait.tex` explains why the 2D system is kept alongside the 1D baseline and why the phase portrait is shown only in eval plots.
