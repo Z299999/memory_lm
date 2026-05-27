@@ -90,27 +90,23 @@ class SelfTalkController(nn.Module):
         activation: str,
         language_dim: int,
         language_readout_coverage: int,
-        use_error_view: bool,
         use_residual: bool,
         language_readout_all_layers: bool,
         message_carry_mode: str,
         seed: int,
-        observation_dim: int = 3,
-        error_dim: int = 2,
+        observation_dim: int = 2,
     ) -> None:
         super().__init__()
         self.activation_name = activation
         self.activation = _activation_fn(activation)
         self.observation_dim = int(observation_dim)
-        self.error_dim = int(error_dim) if use_error_view else 0
-        self.use_error_view = bool(use_error_view)
         self.language_dim = int(language_dim)
         self.use_language = self.language_dim > 0
         self.use_residual = bool(use_residual)
         self.language_readout_all_layers = bool(language_readout_all_layers)
         self.message_carry_mode = str(message_carry_mode)
 
-        input_dim = self.observation_dim + self.error_dim + self.language_dim
+        input_dim = self.observation_dim + self.language_dim
         dims = [input_dim, *trunk_dims]
         self.trunk = nn.ModuleList(nn.Linear(dims[idx], dims[idx + 1]) for idx in range(len(dims) - 1))
         for layer in self.trunk:
@@ -157,26 +153,13 @@ class SelfTalkController(nn.Module):
         self,
         observation: torch.Tensor,
         *,
-        error_view: torch.Tensor | None,
         message_prev: torch.Tensor | None,
-        force_zero_error: bool = False,
         disable_language: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if observation.shape != (1, self.observation_dim):
             raise ValueError(f"observation must have shape {(1, self.observation_dim)}, got {tuple(observation.shape)}.")
         device = observation.device
         parts = [observation]
-
-        if self.use_error_view:
-            if error_view is None:
-                error_in = torch.zeros(1, self.error_dim, device=device)
-            else:
-                if error_view.shape != (1, self.error_dim):
-                    raise ValueError(f"error_view must have shape {(1, self.error_dim)}, got {tuple(error_view.shape)}.")
-                error_in = error_view
-            if force_zero_error:
-                error_in = torch.zeros_like(error_in)
-            parts.append(error_in)
 
         if self.use_language:
             if message_prev is None:

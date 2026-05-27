@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run exp0526 closed-loop controller training."""
+"""Run exp0526 online neural control training."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from src.train import train_model
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train exp0526 closed-loop controller.")
+    parser = argparse.ArgumentParser(description="Train exp0526 online neural controller.")
     parser.add_argument("--config", type=Path, default=Path("config.yaml"))
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--run-name", type=str, default=None)

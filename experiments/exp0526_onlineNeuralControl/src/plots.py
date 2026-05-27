@@ -1,4 +1,4 @@
-"""Plotting utilities for exp0526 with exp0522-style layout."""
+"""Plotting utilities for exp0526 online neural control."""
 
 from __future__ import annotations
 
@@ -62,9 +62,9 @@ def plot_training_curves(*, history: list[dict[str, float]], output_path: Path, 
     epochs = [row["epoch"] for row in history]
     for key, label in (
         ("total_loss", "total loss"),
-        ("eta_loss", "eta loss"),
+        ("state_loss", "state loss"),
         ("control_loss", "control energy"),
-        ("val_eta_loss", "future eta loss"),
+        ("val_state_loss", "future state loss"),
     ):
         if key in history[0]:
             ax.plot(epochs, [row[key] for row in history], label=label, linewidth=config.plot.plot_series_linewidth)
@@ -96,30 +96,26 @@ def _build_timeline_panels(config: ExperimentConfig, records: list[dict[str, Any
             "start_step": s,
             "end_step": s + window - 1,
             "steps": [],
-            "eta_norm_sq": [],
+            "x": [],
+            "x_sq": [],
             "u": [],
-            "population1": [],
-            "population2": [],
             "updates": [],
         }
         for s in starts
     ]
     for record in records:
         rec_steps = np.asarray(record["steps"], dtype=int)
-        rec_eta = np.asarray(record["eta_norm_sq"], dtype=float)
+        rec_x = np.asarray(record["x"], dtype=float)
+        rec_x_sq = np.asarray(record["x_sq"], dtype=float)
         rec_u = np.asarray(record["u"], dtype=float)
-        rec_pop1 = np.asarray(record.get("population1", []), dtype=float)
-        rec_pop2 = np.asarray(record.get("population2", []), dtype=float)
         for panel in panels:
             mask = (rec_steps >= panel["start_step"]) & (rec_steps <= panel["end_step"])
             if not np.any(mask):
                 continue
             panel["steps"].extend(rec_steps[mask].tolist())
-            panel["eta_norm_sq"].extend(rec_eta[mask].tolist())
+            panel["x"].extend(rec_x[mask].tolist())
+            panel["x_sq"].extend(rec_x_sq[mask].tolist())
             panel["u"].extend(rec_u[mask].tolist())
-            if rec_pop1.size == rec_steps.size and rec_pop2.size == rec_steps.size:
-                panel["population1"].extend(rec_pop1[mask].tolist())
-                panel["population2"].extend(rec_pop2[mask].tolist())
             if panel["start_step"] <= record["end_step"] <= panel["end_step"]:
                 panel["updates"].append(int(record["end_step"]))
     return panels
@@ -140,8 +136,8 @@ def plot_training_timeline(*, records: list[dict[str, Any]], output_path: Path, 
         squeeze=False,
     )
     metrics = [
-        ("population1", "N1", "#1f77b4"),
-        ("population2", "N2", "#2ca02c"),
+        ("x", "x", "#1f77b4"),
+        ("x_sq", "x^2", "#2ca02c"),
         ("u", "u", "#ff7f0e"),
     ]
     for panel_idx, panel in enumerate(panels):
@@ -159,8 +155,6 @@ def plot_training_timeline(*, records: list[dict[str, Any]], output_path: Path, 
                     color=color,
                     linewidth=config.plot.plot_series_linewidth if key != "u" else config.plot.plot_aux_linewidth,
                 )
-            elif key == "population1" and steps.size:
-                ax.plot(steps, panel["eta_norm_sq"], label="eta norm sq", linewidth=config.plot.plot_series_linewidth)
             for update in panel["updates"]:
                 ax.axvline(update, color="#c7c7c7", linestyle="--", linewidth=0.9, alpha=0.9)
             if metric_idx == 0:
@@ -195,18 +189,19 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
     steps = np.asarray(ref["global_step"], dtype=float)
     num_steps = len(steps)
     start_step = int(ref["start_step"])
-    panels: list[str] = ["population1", "population2", "control"]
+    panels: list[str] = ["state", "state_sq", "control"]
     has_messages = ref["messages"].numel() and ref["messages"].shape[1] > 0
     if has_messages and config.plot.plot_show_message_traces:
         panels.append("messages")
     if has_messages and config.plot.plot_show_message_norm:
         panels.append("message_norm")
 
+    height = config.plot.plot_diag_fig_height + max(0.0, 1.6 * (len(panels) - 3))
     fig, axes = plt.subplots(
         len(panels),
         1,
-        figsize=(config.plot.plot_diag_fig_width, config.plot.plot_diag_fig_height),
-        gridspec_kw={"height_ratios": [1.25 if p in {"population1", "population2", "control"} else 1.0 for p in panels]},
+        figsize=(config.plot.plot_diag_fig_width, height),
+        gridspec_kw={"height_ratios": [1.25 if p in {"state", "state_sq", "control"} else 1.0 for p in panels]},
     )
     if not isinstance(axes, np.ndarray):
         axes = np.array([axes])
@@ -216,16 +211,16 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
         base, _ = parse_condition(condition)
         color = _CONDITION_COLORS.get(base)
         x = np.asarray(result["global_step"], dtype=float)
-        by_name["population1"].plot(
+        by_name["state"].plot(
             x,
-            result["population1"],
+            result["x"],
             label=condition,
             color=color,
             linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
         )
-        by_name["population2"].plot(
+        by_name["state_sq"].plot(
             x,
-            result["population2"],
+            result["x_sq"],
             label=condition,
             color=color,
             linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
@@ -238,71 +233,61 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
             linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
         )
 
-    by_name["population1"].plot(
-        steps,
-        ref["equilibrium_population1"],
-        label="N1*",
-        color="black",
-        linestyle="--",
-        linewidth=config.plot.plot_zero_linewidth,
-        alpha=0.75,
-    )
-    by_name["population2"].plot(
-        steps,
-        ref["equilibrium_population2"],
-        label="N2*",
-        color="black",
-        linestyle="--",
-        linewidth=config.plot.plot_zero_linewidth,
-        alpha=0.75,
-    )
+    by_name["state"].axhline(0.0, color="black", linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75)
+    by_name["control"].axhline(0.0, color="black", linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75)
 
-    for name in ("population1", "population2", "control"):
+    for name in ("state", "state_sq", "control"):
         ax = by_name[name]
-        for xline, label, color in _transition_vlines(config, start_step, num_steps):
-            ax.axvline(xline, color=color, linestyle="--", linewidth=1.0, alpha=0.55, label=label)
+        for xpos, label, color in _transition_vlines(config, start_step, num_steps):
+            ax.axvline(xpos, color=color, linestyle="--", linewidth=config.plot.plot_zero_linewidth, alpha=0.75, label=label)
         ax.grid(True, alpha=config.plot.plot_grid_alpha)
-        ax.set_xlim(steps[0], steps[-1])
         _maybe_add_legend(ax, ncol=config.plot.plot_legend_ncols)
+        ax.set_xlim(float(steps[0]), float(steps[-1]))
+        ax.margins(x=0.0)
 
-    by_name["population1"].set_title("Continuous future species 1 population")
-    by_name["population1"].set_ylabel("N1")
-    by_name["population2"].set_title("Continuous future species 2 population")
-    by_name["population2"].set_ylabel("N2")
-    by_name["control"].set_title("Continuous future control")
+    by_name["state"].set_title("Future scalar state")
+    by_name["state"].set_ylabel("x")
+    by_name["state_sq"].set_title("Future state energy")
+    by_name["state_sq"].set_ylabel("x^2")
+    by_name["control"].set_title("Control signal")
     by_name["control"].set_ylabel("u")
+    by_name["control"].set_xlabel("global step")
 
     if "messages" in by_name:
-        messages = ref["messages"].numpy()
-        message_steps = steps[: min(len(steps), config.plot.plot_message_steps)]
-        for idx in range(messages.shape[1]):
-            by_name["messages"].plot(
-                message_steps,
-                messages[: len(message_steps), idx],
-                linewidth=config.plot.plot_aux_linewidth,
-                label=f"m{idx}",
-            )
-        by_name["messages"].set_title("Continuous language channel traces")
-        by_name["messages"].set_ylabel("message")
-        by_name["messages"].grid(True, alpha=config.plot.plot_grid_alpha)
-        by_name["messages"].set_xlim(message_steps[0], message_steps[-1])
-        _maybe_add_legend(by_name["messages"], ncol=config.plot.plot_legend_ncols)
+        ax = by_name["messages"]
+        messages = np.asarray(ref["messages"], dtype=float)
+        msg_steps = steps[: messages.shape[0]]
+        for channel in range(messages.shape[1]):
+            ax.plot(msg_steps, messages[:, channel], linewidth=1.1, alpha=0.85, label=f"m{channel}")
+        ax.set_title("Language channel traces")
+        ax.set_ylabel("message")
+        ax.set_xlabel("global step")
+        ax.grid(True, alpha=config.plot.plot_grid_alpha)
+        ax.set_xlim(float(msg_steps[0]), float(msg_steps[-1]))
+        ax.margins(x=0.0)
+        _maybe_add_legend(ax, ncol=max(1, min(6, messages.shape[1])))
 
     if "message_norm" in by_name:
-        message_steps = steps[: min(len(steps), config.plot.plot_message_steps)]
-        by_name["message_norm"].plot(
-            message_steps,
-            ref["message_norm"][: len(message_steps)],
-            color="black",
-            linewidth=config.plot.plot_series_linewidth,
-        )
-        by_name["message_norm"].set_title("Continuous message norm")
-        by_name["message_norm"].set_ylabel("||m_t||")
-        by_name["message_norm"].grid(True, alpha=config.plot.plot_grid_alpha)
-        by_name["message_norm"].set_xlim(message_steps[0], message_steps[-1])
+        ax = by_name["message_norm"]
+        for condition, result in evals.items():
+            base, _ = parse_condition(condition)
+            color = _CONDITION_COLORS.get(base)
+            x = np.asarray(result["global_step"], dtype=float)
+            ax.plot(
+                x,
+                result["message_norm"],
+                label=condition,
+                color=color,
+                linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
+            )
+        ax.set_title("Message norm")
+        ax.set_ylabel("||m||")
+        ax.set_xlabel("global step")
+        ax.grid(True, alpha=config.plot.plot_grid_alpha)
+        ax.set_xlim(float(steps[0]), float(steps[-1]))
+        ax.margins(x=0.0)
+        _maybe_add_legend(ax, ncol=config.plot.plot_legend_ncols)
 
-    axes[-1].set_xlabel("global step")
-    fig.suptitle("exp0526 rollout diagnostics", fontsize=config.plot.plot_title_fontsize)
     fig.tight_layout()
     fig.savefig(output_path, dpi=config.plot.plot_dpi)
     plt.close(fig)

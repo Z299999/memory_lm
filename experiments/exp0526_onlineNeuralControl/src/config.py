@@ -1,8 +1,8 @@
-"""Configuration loading for exp0526 closed-loop controller experiments."""
+"""Configuration loading for exp0526 online neural control experiments."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 import re
@@ -40,26 +40,8 @@ def parse_condition(spec: str) -> tuple[str, tuple[int, ...]]:
 
 
 @dataclass
-class SpeciesProfileConfig:
-    k_base: float
-    k_amp: float
-    k_center: float
-    k_sigma: float
-    mu_base: float
-    mu_juv_amp: float
-    mu_juv: float
-    mu_sen_amp: float
-    mu_sen: float
-    g_base: float
-    g_amp: float
-    g_center: float
-    g_sigma: float
-    init_scale: float = 1.0
-
-
-@dataclass
 class RunConfig:
-    run_name: str = "exp0526_closed_loop_v0"
+    run_name: str = "exp0526_scalar_cubic_v1"
     seed: int = 42
     log_every: int = 25
     output_root: str = "runs"
@@ -71,7 +53,6 @@ class ModelConfig:
     activation: str = "tanh"
     language_dim: int = 17
     language_readout_coverage: int = 3
-    use_error_view: bool = True
     use_residual: bool = True
     language_readout_all_layers: bool = True
     message_carry_mode: str = "learnable_matrix"
@@ -79,40 +60,32 @@ class ModelConfig:
 
 @dataclass
 class EnvConfig:
-    age_max: float = 1.0
-    num_age: int = 64
-    dt: float = 0.002
+    env_kind: str = "scalar_cubic"
+    dt: float = 0.005
+    x0: float = 0.5
     pulse_value: float = 1.0
-    positivity_eps: float = 1e-8
-    root_bisect_iters: int = 64
-    equilibrium_x1_multiplier: float = 2.0
-    species: tuple[SpeciesProfileConfig, SpeciesProfileConfig] = field(default_factory=tuple)
-
-
-@dataclass
-class EcologyConfig:
-    mixed_sin_components: tuple[tuple[float, float], ...] = ((0.003, 1.0), (0.011, 0.7), (0.037, 0.35))
-    k_amp_strength: float = 0.12
-    mu_base_strength: float = 0.10
-    mu_sen_amp_strength: float = 0.10
+    u_max: float = 2.0
+    linear_coeff: float = 1.0
+    cubic_coeff: float = 1.0
+    control_gain: float = 1.0
+    state_limit: float = 4.0
 
 
 @dataclass
 class TrainConfig:
-    epochs: int = 300
+    epochs: int = 1000
     lr: float = 1e-4
     weight_decay: float = 0.0
     grad_clip: float = 1.0
     train_window_schedule: str = "random_uniform(10,30)"
     control_loss_weight: float = 1e-4
-    carry_error_between_windows: bool = True
 
 
 @dataclass
 class EvalConfig:
-    eval_steps: int = 128
+    eval_steps: int = 64
     future_steps: int = 256
-    eval_conditions: tuple[str, ...] = ("full", "sole_eye", "sole_speech", "neither", "blink(40,80)", "stutter(100,160)")
+    eval_conditions: tuple[str, ...] = ("full", "sole_eye", "sole_speech", "neither", "blink(20,40)", "stutter(50,100)")
 
 
 @dataclass
@@ -122,9 +95,6 @@ class PlotConfig:
     plot_training_fig_height: float = 6.0
     plot_diag_fig_width: float = 16.0
     plot_diag_fig_height: float = 15.0
-    plot_short_steps: int = 128
-    plot_long_steps: int = 256
-    plot_message_steps: int = 128
     plot_grid_alpha: float = 0.25
     plot_title_fontsize: int = 14
     plot_series_linewidth: float = 1.7
@@ -145,37 +115,14 @@ class ExperimentConfig:
     run: RunConfig
     model: ModelConfig
     env: EnvConfig
-    ecology: EcologyConfig
     train: TrainConfig
     eval: EvalConfig
     plot: PlotConfig
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-def _tuple_of_pairs(value: Any, *, name: str) -> tuple[tuple[float, float], ...]:
-    pairs = tuple((float(row[0]), float(row[1])) for row in value)
-    if not pairs:
-        raise ValueError(f"{name} must contain at least one [frequency, amplitude] pair.")
-    for freq, amp in pairs:
-        if freq <= 0.0:
-            raise ValueError(f"{name} frequencies must be positive.")
-        if not (abs(amp) < float("inf")):
-            raise ValueError(f"{name} amplitudes must be finite.")
-    return pairs
-
-
-def _build_species(raw: list[dict[str, Any]]) -> tuple[SpeciesProfileConfig, SpeciesProfileConfig]:
-    if len(raw) != 2:
-        raise ValueError("env.species must contain exactly two species profiles.")
-    species = tuple(SpeciesProfileConfig(**row) for row in raw)
-    for idx, profile in enumerate(species):
-        values = asdict(profile)
-        for key, value in values.items():
-            if float(value) <= 0.0:
-                raise ValueError(f"env.species[{idx}].{key} must be positive.")
-    return species  # type: ignore[return-value]
+        payload = asdict(self)
+        payload["model"]["use_language_resolved"] = bool(self.model.language_dim > 0)
+        return payload
 
 
 def _dataclass_from(cls, raw: dict[str, Any]) -> Any:
@@ -191,47 +138,38 @@ def load_config(path: Path) -> ExperimentConfig:
         model_raw["trunk_dims"] = tuple(int(v) for v in model_raw["trunk_dims"])
     model = _dataclass_from(ModelConfig, model_raw)
 
-    env_raw = dict(raw.get("env", {}))
-    env_raw["species"] = _build_species(env_raw.get("species", []))
-    env = _dataclass_from(EnvConfig, env_raw)
-
-    ecology_raw = dict(raw.get("ecology", {}))
-    if "mixed_sin_components" in ecology_raw:
-        ecology_raw["mixed_sin_components"] = _tuple_of_pairs(
-            ecology_raw["mixed_sin_components"],
-            name="ecology.mixed_sin_components",
-        )
-    ecology = _dataclass_from(EcologyConfig, ecology_raw)
-
+    env = _dataclass_from(EnvConfig, dict(raw.get("env", {})))
     train = _dataclass_from(TrainConfig, raw.get("train", {}))
+
     eval_raw = dict(raw.get("eval", {}))
     if "eval_conditions" in eval_raw:
         eval_raw["eval_conditions"] = tuple(str(v) for v in eval_raw["eval_conditions"])
     eval_cfg = _dataclass_from(EvalConfig, eval_raw)
-    plot = _dataclass_from(PlotConfig, raw.get("plot", {}))
 
-    config = ExperimentConfig(run=run, model=model, env=env, ecology=ecology, train=train, eval=eval_cfg, plot=plot)
+    plot = _dataclass_from(PlotConfig, raw.get("plot", {}))
+    config = ExperimentConfig(run=run, model=model, env=env, train=train, eval=eval_cfg, plot=plot)
     validate_config(config)
     return config
 
 
 def validate_config(config: ExperimentConfig) -> None:
-    if config.env.num_age < 8:
-        raise ValueError("env.num_age must be >= 8.")
-    if config.env.age_max <= 0.0 or config.env.dt <= 0.0:
-        raise ValueError("env.age_max and env.dt must be positive.")
-    da = config.env.age_max / float(config.env.num_age - 1)
-    if config.env.dt / da > 1.0:
-        raise ValueError("env.dt must satisfy dt / da <= 1 for the upwind transport step.")
     if config.model.language_dim < 0:
         raise ValueError("model.language_dim must be >= 0.")
     if config.model.language_dim > 0:
         if config.model.language_readout_coverage <= 0:
-            raise ValueError("model.language_readout_coverage must be positive.")
+            raise ValueError("model.language_readout_coverage must be positive when language_dim > 0.")
         if config.model.language_readout_coverage > config.model.language_dim:
             raise ValueError("model.language_readout_coverage must be <= language_dim.")
     if config.model.message_carry_mode not in {"identity", "learnable_diagonal", "learnable_matrix"}:
         raise ValueError("model.message_carry_mode must be identity, learnable_diagonal, or learnable_matrix.")
+    if config.env.env_kind != "scalar_cubic":
+        raise ValueError("env.env_kind must currently be scalar_cubic.")
+    if config.env.dt <= 0.0:
+        raise ValueError("env.dt must be positive.")
+    if config.env.u_max <= 0.0:
+        raise ValueError("env.u_max must be positive.")
+    if config.env.state_limit <= 0.0:
+        raise ValueError("env.state_limit must be positive.")
     parse_train_window_schedule(config.train.train_window_schedule)
     if config.train.control_loss_weight < 0.0:
         raise ValueError("train.control_loss_weight must be >= 0.")

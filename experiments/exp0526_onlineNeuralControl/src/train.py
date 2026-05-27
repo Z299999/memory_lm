@@ -1,4 +1,4 @@
-"""Training loop for exp0526 closed-loop PDE control."""
+"""Training loop for exp0526 online neural control."""
 
 from __future__ import annotations
 
@@ -14,13 +14,13 @@ from torch import nn
 
 try:
     from .config import ExperimentConfig, copy_config_to_run_dir, parse_train_window_schedule, write_resolved_config
-    from .env import AgeStructuredPredatorPreyEnv
+    from .env import build_env
     from .eval import evaluate_conditions, rollout_condition, write_rollout_csv, write_summary
     from .model import SelfTalkController
     from .plots import plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
 except ImportError:  # pragma: no cover
     from config import ExperimentConfig, copy_config_to_run_dir, parse_train_window_schedule, write_resolved_config
-    from env import AgeStructuredPredatorPreyEnv
+    from env import build_env
     from eval import evaluate_conditions, rollout_condition, write_rollout_csv, write_summary
     from model import SelfTalkController
     from plots import plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
@@ -58,16 +58,22 @@ def _build_model(config: ExperimentConfig, *, device: torch.device) -> SelfTalkC
         activation=config.model.activation,
         language_dim=config.model.language_dim,
         language_readout_coverage=config.model.language_readout_coverage,
-        use_error_view=config.model.use_error_view,
         use_residual=config.model.use_residual,
         language_readout_all_layers=config.model.language_readout_all_layers,
         message_carry_mode=config.model.message_carry_mode,
         seed=config.run.seed,
+        observation_dim=2,
     ).to(device)
 
 
-def _observation(config: ExperimentConfig, eta: torch.Tensor, *, device: torch.device) -> torch.Tensor:
-    return torch.cat([eta, torch.full((1, 1), config.env.pulse_value, device=device)], dim=1)
+def _observation(config: ExperimentConfig, eta: torch.Tensor, *, device: torch.device, disable_observation: bool = False) -> torch.Tensor:
+    x_obs = torch.zeros_like(eta) if disable_observation else eta
+    pulse = torch.full((1, 1), config.env.pulse_value, device=device)
+    return torch.cat([x_obs, pulse], dim=1)
+
+
+def _bounded_control(raw_u: torch.Tensor, config: ExperimentConfig) -> torch.Tensor:
+    return config.env.u_max * torch.tanh(raw_u)
 
 
 def train_model(config: ExperimentConfig, config_path: Path) -> Path:
@@ -86,7 +92,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
     write_resolved_config(config, run_dir / "resolved_config.json")
 
     device = torch.device("cpu")
-    env = AgeStructuredPredatorPreyEnv(config.env, config.ecology, device=device)
+    env = build_env(config, device=device)
     model = _build_model(config, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.train.lr, weight_decay=config.train.weight_decay)
 
@@ -102,53 +108,49 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        eta_losses: list[torch.Tensor] = []
+        state_losses: list[torch.Tensor] = []
         control_losses: list[torch.Tensor] = []
         record = {
             "start_step": int(global_step),
             "end_step": int(global_step + window_steps - 1),
             "steps": [],
-            "eta_norm_sq": [],
+            "x": [],
+            "x_sq": [],
             "u": [],
-            "population1": [],
-            "population2": [],
         }
-        min_population = float("inf")
-        final_eta_norm = 0.0
+        max_abs_x = 0.0
+        final_x_sq = 0.0
 
         for _local in range(window_steps):
-            eta, derived = env.eta(state, global_step)
+            eta, _derived = env.eta(state, global_step)
             observation = _observation(config, eta, device=device)
             raw_u, next_message, _hidden = model.forward_step(
                 observation,
-                error_view=eta,
                 message_prev=message,
-                force_zero_error=False,
                 disable_language=False,
             )
-            u = torch.nn.functional.softplus(raw_u)
+            u = _bounded_control(raw_u, config)
             next_state, _ = env.step(state, u, global_step)
             next_eta, next_derived = env.eta(next_state, global_step + 1)
-            eta_norm_sq = torch.sum(next_eta ** 2)
+            x_sq = torch.sum(next_eta ** 2)
 
-            eta_losses.append(eta_norm_sq)
+            state_losses.append(x_sq)
             control_losses.append(torch.mean(u ** 2))
             diagnostics = env.diagnostics(next_state, next_derived)
-            min_population = min(min_population, diagnostics["min_population"])
-            final_eta_norm = float(eta_norm_sq.detach().item())
+            max_abs_x = max(max_abs_x, diagnostics["abs_x"])
+            final_x_sq = float(x_sq.detach().item())
             record["steps"].append(int(global_step))
-            record["eta_norm_sq"].append(float(eta_norm_sq.detach().item()))
+            record["x"].append(diagnostics["x"])
+            record["x_sq"].append(diagnostics["x_sq"])
             record["u"].append(float(u.detach().item()))
-            record["population1"].append(diagnostics["population1"])
-            record["population2"].append(diagnostics["population2"])
 
             state = next_state
             message = next_message if model.use_language else None
             global_step += 1
 
-        eta_loss = torch.stack(eta_losses).mean()
+        state_loss = torch.stack(state_losses).mean()
         control_loss = torch.stack(control_losses).mean()
-        total_loss = eta_loss + config.train.control_loss_weight * control_loss
+        total_loss = state_loss + config.train.control_loss_weight * control_loss
         total_loss.backward()
         if config.train.grad_clip > 0.0:
             nn.utils.clip_grad_norm_(model.parameters(), config.train.grad_clip)
@@ -171,25 +173,25 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
                 condition="full",
                 config=config,
             )
-            last_val = float(val["mean_eta_norm_sq"])
+            last_val = float(val["mean_x_sq"])
 
         row = {
             "epoch": float(epoch),
             "global_step": float(global_step),
             "train_steps": float(window_steps),
             "total_loss": float(total_loss.detach().item()),
-            "eta_loss": float(eta_loss.detach().item()),
+            "state_loss": float(state_loss.detach().item()),
             "control_loss": float(control_loss.detach().item()),
-            "val_eta_loss": float(last_val),
-            "min_population": float(min_population),
-            "final_eta_norm_sq": float(final_eta_norm),
+            "val_state_loss": float(last_val),
+            "max_abs_x": float(max_abs_x),
+            "final_x_sq": float(final_x_sq),
         }
         history.append(row)
         if epoch == 1 or epoch % config.run.log_every == 0 or epoch == config.train.epochs:
             print(
                 f"[exp0526] epoch {epoch:4d}/{config.train.epochs} "
-                f"steps={window_steps:3d} eta={row['eta_loss']:.6g} "
-                f"u2={row['control_loss']:.6g} val={row['val_eta_loss']:.6g}"
+                f"steps={window_steps:3d} x2={row['state_loss']:.6g} "
+                f"u2={row['control_loss']:.6g} val={row['val_state_loss']:.6g}"
             )
 
     torch.save(
@@ -219,7 +221,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
     _write_json(metrics_dir / "history_full_controller.json", history)
     if timeline_records:
         _write_json(metrics_dir / "training_timeline.json", {"windows": timeline_records})
-    write_summary(metrics_dir / "summary.json", evals, history)
+    write_summary(metrics_dir / "summary.json", evals, history, config)
     write_rollout_csv(metrics_dir / "eval_rollout.csv", evals)
 
     plot_training_curves(history=history, output_path=plots_dir / "training_curves.png", config=config)

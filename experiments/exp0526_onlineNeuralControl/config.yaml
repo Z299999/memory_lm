@@ -1,0 +1,59 @@
+run:
+  run_name: exp0526_scalar_cubic_v1   # run folder suffix under output_root/YYYYMMDD/
+  seed: 42                            # random seed for model init and fixed language readout
+  log_every: 25                       # print training/eval status every N updates
+  output_root: runs                   # where timestamped run folders are created
+
+model:
+  trunk_dims: [64, 64]                # hidden widths of the feed-forward controller trunk
+  activation: tanh                    # hidden activation: tanh, relu, or leaky_relu
+  language_dim: 17                    # number of self-talk channels; set 0 for the no-language control
+  language_readout_coverage: 3        # average number of language heads reading each hidden node
+  use_residual: true                  # skip connections on hidden->hidden layers with matching dims
+  language_readout_all_layers: true   # if true, message readout samples from all hidden layers concatenated
+  message_carry_mode: learnable_matrix  # identity | learnable_diagonal | learnable_matrix
+
+env:
+  env_kind: scalar_cubic              # first simple control benchmark from docs/idea2.tex
+  dt: 0.005                           # Euler step size
+  x0: 0.5                             # positive initial state; uncontrolled dynamics push it outward
+  pulse_value: 1.0                    # constant pulse appended to observation [x, pulse]
+  u_max: 2.0                          # bounded symmetric control scale, applied as u_max * tanh(raw_u)
+  linear_coeff: 1.0                   # linear drift coefficient in x_dot = a x + b x^3 + c u
+  cubic_coeff: 1.0                    # cubic drift coefficient
+  control_gain: 1.0                   # control coupling coefficient
+  state_limit: 4.0                    # soft tanh saturation to keep early continuous exploration finite
+
+train:
+  epochs: 1000                        # number of continuous-window optimizer updates
+  lr: 0.0001                          # Adam learning rate
+  weight_decay: 0.0                   # L2 regularization for Adam
+  grad_clip: 1.0                      # gradient clipping threshold; <=0 disables clipping
+  train_window_schedule: random_uniform(10, 30)  # rollout length rule: fixed(L) or random_uniform(a,b)
+  control_loss_weight: 0.0001         # penalty on mean u^2 to discourage excessive control
+
+eval:
+  eval_steps: 64                      # short validation rollout length used during training logs
+  future_steps: 256                   # held-out future rollout length after training stops
+  # ablation conditions: full | sole_eye | sole_speech | neither | blink(start,end) | stutter(start,end)
+  eval_conditions: [full, sole_eye, sole_speech, neither, "blink(20,40)", "stutter(50,100)"]
+
+plot:
+  plot_dpi: 160
+  plot_training_fig_width: 10.0
+  plot_training_fig_height: 6.0
+  plot_diag_fig_width: 16.0
+  plot_diag_fig_height: 12.0
+  plot_grid_alpha: 0.25
+  plot_title_fontsize: 14
+  plot_series_linewidth: 1.7
+  plot_aux_linewidth: 1.4
+  plot_zero_linewidth: 1.0
+  plot_legend_ncols: 4
+  plot_show_message_traces: true
+  plot_show_message_norm: true
+  plot_show_training_timeline: true
+  plot_training_timeline_num_panels: 20
+  plot_training_timeline_ncols: 5
+  plot_training_timeline_window_steps: 120
+  plot_training_timeline_fig_width: 24.0
