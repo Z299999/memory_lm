@@ -10,12 +10,12 @@ import warnings
 import torch
 
 try:
-    from .config import ExperimentConfig, parse_condition, train_window_bounds, train_window_reference_steps
+    from .config import ExperimentConfig, parse_condition, parse_train_window_schedule, train_window_bounds, train_window_reference_steps
     from .model import ExternalClockMLP
     from .plots import plot_rollout_diagnostics
     from .task import build_rollout_targets
 except ImportError:  # pragma: no cover - script mode
-    from config import ExperimentConfig, parse_condition, train_window_bounds, train_window_reference_steps
+    from config import ExperimentConfig, parse_condition, parse_train_window_schedule, train_window_bounds, train_window_reference_steps
     from model import ExternalClockMLP
     from plots import plot_rollout_diagnostics
     from task import build_rollout_targets
@@ -391,6 +391,7 @@ def _build_summary(
             return None
         return float(a["mse"] - b["mse"])
 
+    train_window_schedule = parse_train_window_schedule(config.train_window_schedule)
     train_window_min, train_window_max = train_window_bounds(config.train_window_schedule)
 
     return {
@@ -400,8 +401,10 @@ def _build_summary(
             "sequence_mode": config.sequence_mode,
             "use_language_resolved": config.language_dim > 0,
             "train_window_schedule": config.train_window_schedule,
+            "resolved_train_window_mode": train_window_schedule.mode,
             "resolved_train_window_min": train_window_min,
             "resolved_train_window_max": train_window_max,
+            "resolved_event_trigger_threshold": train_window_schedule.threshold,
             "resolved_train_window_reference_steps": train_window_reference_steps(config.train_window_schedule),
             "message_aux_loss_weight": config.message_aux_loss_weight,
             "detach_error_input": config.detach_error_input,

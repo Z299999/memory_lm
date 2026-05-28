@@ -5,9 +5,7 @@ run:
   output_root: runs            # where timestamped run folders are created
 
 model:
-  trunk_dims:
-    - 64                      # hidden width of the MLP trunk
-    - 64
+  trunk_dims: [64, 64, 64]    # hidden width of the MLP trunk
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
   language_dim: 17              # number of language input/output heads; set to 0 for the no-language control
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
@@ -20,7 +18,7 @@ task:
   cycle_steps: 32               # number of steps in one full target cycle
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
-  prediction_target: y          # supervised target space: y | velocity | acceleration
+  prediction_target: velocity          # supervised target space: y | velocity | acceleration
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
     - [0.0013, 1]
     - [0.004, 2.1]
@@ -30,21 +28,21 @@ task:
     - [0.05, 3]
     - [0.7, 2]
     - [1, 1.0]
-    - [2, 0.5]
-    - [3, 0.25]
-    - [5, 0.125]
-    - [7, 0.1]
+    # - [2, 0.5]
+    # - [3, 0.25]
+    # - [5, 0.125]
+    # - [7, 0.1]
     # - [31, 0.5]
     # - [79, 0.5]
     
 
 train:
-  epochs: 10000                # total training epochs
-  lr: 0.0001                  # Adam learning rate
+  epochs: 20000                # total training epochs
+  lr: 0.002                  # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
-  train_window_schedule: random_uniform(5, 50) # rollout length rule: fixed(L) or random_uniform(a,b)
+  train_window_schedule: random_uniform(5, 50) # rollout length rule: fixed(L), random_uniform(a,b), or event_triggered(threshold,min_steps,max_steps)
   train_phase_mode: continuous      # reset or continuous phase progression during training
   message_aux_loss_weight: 0  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
   detach_error_input: true     # whether e_t is detached before being fed into the next step

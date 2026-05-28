@@ -114,9 +114,15 @@ Supported schedule forms:
   - always train on length `L`
 - `random_uniform(a,b)`
   - sample an integer length uniformly from the closed interval `[a,b]` each epoch
+- `event_triggered(threshold,min_steps,max_steps)`
+  - roll forward step-by-step, accumulate train-space squared error, and end the window immediately once the cumulative total crosses `threshold`
+  - the threshold is only checked after `min_steps`
+  - if it never triggers, the window is forced to stop at `max_steps`
 
 This schedule works in both `reset` and `continuous_window` modes, though its
-main research use is for `continuous_window`.
+main research use is for `continuous_window`. The default mainline config still
+uses `random_uniform(...)`; `event_triggered(...)` is an optional training
+protocol rather than the new default.
 
 ## Task Variants
 

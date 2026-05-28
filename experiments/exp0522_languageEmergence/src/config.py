@@ -118,14 +118,22 @@ def parse_condition(s: str) -> tuple[str, tuple[int, ...]]:
     return s.strip(), ()
 
 
-def parse_train_window_schedule(spec: str) -> tuple[str, int, int]:
+@dataclass
+class TrainWindowSchedule:
+    mode: str
+    min_steps: int
+    max_steps: int
+    threshold: float | None = None
+
+
+def parse_train_window_schedule(spec: str) -> TrainWindowSchedule:
     raw = str(spec).strip()
     fixed_match = re.fullmatch(r"fixed\((\d+)\)", raw)
     if fixed_match:
         value = int(fixed_match.group(1))
         if value <= 0:
             raise ValueError("train_window_schedule fixed(L) requires L > 0.")
-        return "fixed", value, value
+        return TrainWindowSchedule(mode="fixed", min_steps=value, max_steps=value)
     uniform_match = re.fullmatch(r"random_uniform\((\d+),\s*(\d+)\)", raw)
     if uniform_match:
         lower = int(uniform_match.group(1))
@@ -134,22 +142,43 @@ def parse_train_window_schedule(spec: str) -> tuple[str, int, int]:
             raise ValueError("train_window_schedule random_uniform(a,b) requires a,b > 0.")
         if lower > upper:
             raise ValueError("train_window_schedule random_uniform(a,b) requires a <= b.")
-        return "random_uniform", lower, upper
+        return TrainWindowSchedule(mode="random_uniform", min_steps=lower, max_steps=upper)
+    event_match = re.fullmatch(
+        r"event_triggered\(([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?),\s*(\d+),\s*(\d+)\)",
+        raw,
+    )
+    if event_match:
+        threshold = float(event_match.group(1))
+        min_steps = int(event_match.group(2))
+        max_steps = int(event_match.group(3))
+        if threshold <= 0.0:
+            raise ValueError("train_window_schedule event_triggered(threshold,min,max) requires threshold > 0.")
+        if min_steps <= 0 or max_steps <= 0:
+            raise ValueError("train_window_schedule event_triggered(threshold,min,max) requires min,max > 0.")
+        if min_steps > max_steps:
+            raise ValueError("train_window_schedule event_triggered(threshold,min,max) requires min <= max.")
+        return TrainWindowSchedule(
+            mode="event_triggered",
+            min_steps=min_steps,
+            max_steps=max_steps,
+            threshold=threshold,
+        )
     raise ValueError(
-        "train_window_schedule must be 'fixed(L)' or 'random_uniform(a,b)' with positive integers."
+        "train_window_schedule must be 'fixed(L)', 'random_uniform(a,b)', or "
+        "'event_triggered(threshold,min_steps,max_steps)'."
     )
 
 
 def train_window_bounds(spec: str) -> tuple[int, int]:
-    _mode, lower, upper = parse_train_window_schedule(spec)
-    return lower, upper
+    schedule = parse_train_window_schedule(spec)
+    return schedule.min_steps, schedule.max_steps
 
 
 def train_window_reference_steps(spec: str) -> int:
-    mode, lower, upper = parse_train_window_schedule(spec)
-    if mode == "fixed":
-        return lower
-    return int(round((lower + upper) / 2.0))
+    schedule = parse_train_window_schedule(spec)
+    if schedule.mode == "fixed":
+        return schedule.min_steps
+    return int(round((schedule.min_steps + schedule.max_steps) / 2.0))
 
 
 @dataclass
@@ -238,6 +267,7 @@ class ExperimentConfig:
     def to_resolved_dict(self) -> dict[str, object]:
         payload = self.to_user_dict()
         payload["run"]["output_root"] = str(payload["run"]["output_root"])
+        train_schedule = parse_train_window_schedule(self.train_window_schedule)
         payload["resolved"] = {
             "message_init": 0.0,
             "use_language_resolved": self.language_dim > 0,
@@ -247,8 +277,10 @@ class ExperimentConfig:
             "reported_prediction_space": "y",
             "target": _resolved_target_description(self),
             "train_window_schedule": self.train_window_schedule,
-            "resolved_train_window_min": train_window_bounds(self.train_window_schedule)[0],
-            "resolved_train_window_max": train_window_bounds(self.train_window_schedule)[1],
+            "resolved_train_window_mode": train_schedule.mode,
+            "resolved_train_window_min": train_schedule.min_steps,
+            "resolved_train_window_max": train_schedule.max_steps,
+            "resolved_event_trigger_threshold": train_schedule.threshold,
             "resolved_train_window_reference_steps": train_window_reference_steps(self.train_window_schedule),
             "phase_init": 0.0,
             "omega": omega_from_cycle_steps(self.cycle_steps),
@@ -437,7 +469,9 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("activation must be 'tanh', 'relu', or 'leaky_relu'.")
     if payload["message_carry_mode"] not in {"identity", "learnable_diagonal", "learnable_matrix"}:
         raise ValueError("message_carry_mode must be 'identity', 'learnable_diagonal', or 'learnable_matrix'.")
-    _window_mode, window_min, window_max = parse_train_window_schedule(payload["train_window_schedule"])
+    window_schedule = parse_train_window_schedule(payload["train_window_schedule"])
+    window_min = window_schedule.min_steps
+    window_max = window_schedule.max_steps
     if payload["train_phase_mode"] not in {"reset", "continuous"}:
         raise ValueError("train_phase_mode must be either 'reset' or 'continuous'.")
     if payload["eval_phase_mode"] not in {"reset", "continuous", "both"}:

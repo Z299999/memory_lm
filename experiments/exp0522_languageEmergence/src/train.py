@@ -97,10 +97,12 @@ def _analysis_checkpoint_epochs(config: ExperimentConfig) -> tuple[int, ...]:
 
 
 def _sample_train_steps(config: ExperimentConfig) -> int:
-    mode, lower, upper = parse_train_window_schedule(config.train_window_schedule)
-    if mode == "fixed":
-        return lower
-    return random.randint(lower, upper)
+    schedule = parse_train_window_schedule(config.train_window_schedule)
+    if schedule.mode == "fixed":
+        return schedule.min_steps
+    if schedule.mode == "random_uniform":
+        return random.randint(schedule.min_steps, schedule.max_steps)
+    raise ValueError("_sample_train_steps is only valid for fixed and random_uniform schedules.")
 
 
 def _build_training_timeline_panels(config: ExperimentConfig, total_steps: int) -> list[dict[str, Any]]:
@@ -189,6 +191,80 @@ def _save_checkpoint(model: ExternalClockMLP, output_path: Path, metadata: dict[
     )
 
 
+def _rollout_event_triggered_window(
+    *,
+    model: ExternalClockMLP,
+    pulse_value: float,
+    train_bundle: dict[str, torch.Tensor],
+    prediction_target: str,
+    threshold: float,
+    min_steps: int,
+    max_steps: int,
+    initial_message: torch.Tensor | None,
+    initial_error: torch.Tensor | None,
+    detach_error_input: bool,
+    force_zero_error_input: bool,
+) -> dict[str, Any]:
+    predictions: list[torch.Tensor] = []
+    raw_predictions: list[torch.Tensor] = []
+    messages: list[torch.Tensor] = []
+    cumulative_sse = 0.0
+
+    message_state = initial_message
+    error_state = initial_error
+    reconstruction_y_prev = train_bundle["init_y_prev"]
+    reconstruction_v_prev = train_bundle["init_v_prev"]
+    final_message: torch.Tensor | None = None
+    final_error: torch.Tensor | None = None
+
+    for step_idx in range(max_steps):
+        prediction_step, raw_prediction_step, messages_step, _hidden, final_message, final_error = model.rollout(
+            num_steps=1,
+            pulse_value=pulse_value,
+            target_sequence=train_bundle["train_target"][step_idx : step_idx + 1],
+            y_target_sequence=train_bundle["target_y"][step_idx : step_idx + 1],
+            initial_message=message_state,
+            initial_error=error_state,
+            initial_reconstruction_y=reconstruction_y_prev,
+            initial_reconstruction_v=reconstruction_v_prev,
+            prediction_target=prediction_target,
+            detach_error_input=detach_error_input,
+            force_zero_error_input=force_zero_error_input,
+            disable_language=False,
+            return_hidden=False,
+        )
+        predictions.append(prediction_step)
+        raw_predictions.append(raw_prediction_step)
+        messages.append(messages_step)
+
+        cumulative_sse += float(torch.sum((raw_prediction_step - train_bundle["train_target"][step_idx : step_idx + 1]) ** 2).item())
+        step_count = step_idx + 1
+
+        message_state = final_message if model.use_language else None
+        error_state = final_error if model.use_error_input else None
+        if prediction_target == "velocity":
+            reconstruction_y_prev = prediction_step
+        elif prediction_target == "acceleration":
+            reconstruction_v_prev = reconstruction_v_prev + raw_prediction_step
+            reconstruction_y_prev = prediction_step
+
+        if step_count >= min_steps and cumulative_sse >= threshold:
+            break
+
+    realized_steps = len(predictions)
+    if realized_steps == 0 or final_message is None or final_error is None:
+        raise RuntimeError("event_triggered window rollout produced no steps.")
+
+    return {
+        "realized_steps": realized_steps,
+        "prediction": torch.cat(predictions, dim=0),
+        "raw_prediction": torch.cat(raw_predictions, dim=0),
+        "messages": torch.cat(messages, dim=0),
+        "final_message": final_message,
+        "final_error": final_error,
+    }
+
+
 def _train_single_model(
     *,
     model_name: str,
@@ -207,8 +283,8 @@ def _train_single_model(
     reference_train_steps = train_window_reference_steps(config.train_window_schedule)
     cache_steps = {reference_train_steps, config.eval_steps, config.long_steps, config.continuous_eval_steps}
 
-    schedule_mode, _, _ = parse_train_window_schedule(config.train_window_schedule)
-    if config.train_phase_mode == "reset" and schedule_mode == "fixed":
+    schedule = parse_train_window_schedule(config.train_window_schedule)
+    if config.train_phase_mode == "reset" and schedule.mode == "fixed":
         for steps in cache_steps:
             bundle = _build_train_target(
                 num_steps=steps,
@@ -228,9 +304,12 @@ def _train_single_model(
     train_message_state: torch.Tensor | None = None
     train_error_state: torch.Tensor | None = None
     for epoch in range(1, config.epochs + 1):
-        effective_steps = _sample_train_steps(config)
         train_window_start = train_time_cursor if config.train_phase_mode == "continuous" else 0
-        if config.train_phase_mode == "reset" and schedule_mode == "fixed":
+        if schedule.mode == "event_triggered":
+            effective_steps = schedule.max_steps
+        else:
+            effective_steps = _sample_train_steps(config)
+        if config.train_phase_mode == "reset" and schedule.mode == "fixed":
             train_bundle = target_cache[(effective_steps, 0)]
         else:
             train_bundle = _build_train_target(
@@ -247,21 +326,44 @@ def _train_single_model(
         train_target_y = train_bundle["target_y"]
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        prediction, raw_prediction, messages, _hidden, final_message, final_error = model.rollout(
-            num_steps=effective_steps,
-            pulse_value=config.pulse_value,
-            target_sequence=train_target,
-            y_target_sequence=train_target_y,
-            initial_message=train_message_state,
-            initial_error=train_error_state,
-            initial_reconstruction_y=train_bundle["init_y_prev"],
-            initial_reconstruction_v=train_bundle["init_v_prev"],
-            prediction_target=config.prediction_target,
-            detach_error_input=config.detach_error_input,
-            force_zero_error_input=config.force_zero_error_input,
-            disable_language=False,
-            return_hidden=False,
-        )
+        if schedule.mode == "event_triggered":
+            event_result = _rollout_event_triggered_window(
+                model=model,
+                pulse_value=config.pulse_value,
+                train_bundle=train_bundle,
+                prediction_target=config.prediction_target,
+                threshold=float(schedule.threshold),
+                min_steps=schedule.min_steps,
+                max_steps=schedule.max_steps,
+                initial_message=train_message_state,
+                initial_error=train_error_state,
+                detach_error_input=config.detach_error_input,
+                force_zero_error_input=config.force_zero_error_input,
+            )
+            effective_steps = int(event_result["realized_steps"])
+            prediction = event_result["prediction"]
+            raw_prediction = event_result["raw_prediction"]
+            messages = event_result["messages"]
+            final_message = event_result["final_message"]
+            final_error = event_result["final_error"]
+            train_target = train_target[:effective_steps]
+            train_target_y = train_target_y[:effective_steps]
+        else:
+            prediction, raw_prediction, messages, _hidden, final_message, final_error = model.rollout(
+                num_steps=effective_steps,
+                pulse_value=config.pulse_value,
+                target_sequence=train_target,
+                y_target_sequence=train_target_y,
+                initial_message=train_message_state,
+                initial_error=train_error_state,
+                initial_reconstruction_y=train_bundle["init_y_prev"],
+                initial_reconstruction_v=train_bundle["init_v_prev"],
+                prediction_target=config.prediction_target,
+                detach_error_input=config.detach_error_input,
+                force_zero_error_input=config.force_zero_error_input,
+                disable_language=False,
+                return_hidden=False,
+            )
         train_loss = torch.mean((raw_prediction - train_target) ** 2)
 
         use_aux = (
