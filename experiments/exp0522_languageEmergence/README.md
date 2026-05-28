@@ -231,9 +231,41 @@ task:
 - `acceleration`
   - supervise `(y_t - y_{t-1}) - (y_{t-1} - y_{t-2})`
 
-Training loss always uses the configured target space. Eval plots, summaries,
-and rollout CSVs still report predictions in reconstructed `y` space so runs
-remain visually comparable across target modes.
+The loss space is controlled separately by `train_loss_space` (see below). Eval
+plots, summaries, and rollout CSVs always report predictions in reconstructed `y`
+space so runs remain visually comparable across target modes.
+
+## Loss Space
+
+`prediction_target` sets what the network outputs (`y`, `v`, or `a`), but the
+quantity we actually care about is the reconstructed position `y`. With
+`prediction_target: acceleration` the network can fit `a` very well while the
+double-integrated `y` drifts badly — small per-step `a` errors accumulate into
+large position error. `train_loss_space` decides which space the loss is measured in:
+
+```yaml
+train:
+  train_loss_space: y           # raw | y  (default: y)
+```
+
+- `y`
+  - loss is `MSE(ŷ_t, y_t)` on the reconstructed position. Gradients flow back
+    through the (fully differentiable) integration chain to the network's `a`/`v`
+    output, so the model is optimized for the outcome, not the intermediate space.
+- `raw`
+  - loss is `MSE(raw_output, target)` in the configured `prediction_target` space
+    (the previous behavior).
+
+When `prediction_target: y` the two modes are identical (`ŷ == raw_output`); they
+diverge only for `velocity`/`acceleration`. The validation curve (`full_val`) is
+reported in the matching space so train/val stay comparable.
+
+`train_loss_space` also controls the **`event_triggered` window-termination space**:
+the cumulative SSE that ends a window is measured in `y` space when
+`train_loss_space: y`. Note that `y`-space errors are typically much larger in
+magnitude than `acceleration`-space errors, so an `event_triggered(threshold,...)`
+threshold tuned for `raw` will trigger far sooner (shorter windows) under `y` — you
+will likely need to **raise the threshold** when switching to `y`.
 
 ## Model Variants
 

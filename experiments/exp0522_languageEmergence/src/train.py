@@ -277,6 +277,7 @@ def _rollout_event_triggered_window(
     detach_error_input: bool,
     force_zero_error_input: bool,
     error_degrade_generator: _ErrorDegradeGenerator,
+    loss_space: str,
 ) -> dict[str, Any]:
     predictions: list[torch.Tensor] = []
     raw_predictions: list[torch.Tensor] = []
@@ -317,7 +318,12 @@ def _rollout_event_triggered_window(
         messages.append(messages_step)
         error_gains.append(error_gain)
 
-        cumulative_sse += float(torch.sum((raw_prediction_step - train_bundle["train_target"][step_idx : step_idx + 1]) ** 2).item())
+        if loss_space == "y":
+            target_step = train_bundle["target_y"][step_idx : step_idx + 1]
+            cumulative_sse += float(torch.sum((prediction_step - target_step) ** 2).item())
+        else:
+            target_step = train_bundle["train_target"][step_idx : step_idx + 1]
+            cumulative_sse += float(torch.sum((raw_prediction_step - target_step) ** 2).item())
         step_count = step_idx + 1
 
         message_state = final_message if model.use_language else None
@@ -422,6 +428,7 @@ def _train_single_model(
                 detach_error_input=config.detach_error_input,
                 force_zero_error_input=config.force_zero_error_input,
                 error_degrade_generator=error_degrade_generator,
+                loss_space=config.train_loss_space,
             )
             effective_steps = int(event_result["realized_steps"])
             prediction = event_result["prediction"]
@@ -454,13 +461,17 @@ def _train_single_model(
                 disable_language=False,
                 return_hidden=False,
             )
+        if config.train_loss_space == "y":
+            full_prediction, full_target = prediction, train_target_y
+        else:
+            full_prediction, full_target = raw_prediction, train_target
         tail = config.train_loss_tail_steps
         if tail is not None and tail < effective_steps:
-            loss_prediction = raw_prediction[-tail:]
-            loss_target = train_target[-tail:]
+            loss_prediction = full_prediction[-tail:]
+            loss_target = full_target[-tail:]
         else:
-            loss_prediction = raw_prediction
-            loss_target = train_target
+            loss_prediction = full_prediction
+            loss_target = full_target
         train_loss = torch.mean((loss_prediction - loss_target) ** 2)
 
         use_aux = (
@@ -480,7 +491,7 @@ def _train_single_model(
                 mixed_sin_components=config.mixed_sin_components,
                 prediction_target=config.prediction_target,
             )
-            _aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
+            aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
                 num_steps=1,
                 pulse_value=config.pulse_value,
                 target_sequence=aux_bundle["train_target"],
@@ -495,7 +506,10 @@ def _train_single_model(
                 disable_language=False,
                 return_hidden=False,
             )
-            aux_loss = torch.mean((aux_raw_prediction - aux_bundle["train_target"]) ** 2)
+            if config.train_loss_space == "y":
+                aux_loss = torch.mean((aux_prediction - aux_bundle["target_y"]) ** 2)
+            else:
+                aux_loss = torch.mean((aux_raw_prediction - aux_bundle["train_target"]) ** 2)
             total_loss = train_loss + config.message_aux_loss_weight * aux_loss
             aux_loss_val = float(aux_loss.item())
         else:
@@ -546,7 +560,7 @@ def _train_single_model(
             "epoch": float(epoch),
             "train_steps": float(effective_steps),
             "train_loss": float(train_loss.item()),
-            "val_loss": float(val_result["raw_target_mse"]),
+            "val_loss": float(val_result["mse"] if config.train_loss_space == "y" else val_result["raw_target_mse"]),
         }
         error_degrade_steps, error_gain_mean = _error_degrade_stats(error_gain_sequence)
         row["error_degrade_steps"] = float(error_degrade_steps)

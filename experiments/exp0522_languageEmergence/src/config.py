@@ -30,6 +30,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "carry_error_between_windows",
         "force_zero_error_input",
         "train_loss_tail_steps",
+        "train_loss_space",
     ),
     "eval": (
         "eval_steps",
@@ -269,6 +270,7 @@ class ExperimentConfig:
     carry_error_between_windows: bool = True
     force_zero_error_input: bool = False
     train_loss_tail_steps: int | None = None
+    train_loss_space: str = "y"
     trunk_dims: tuple[int, ...] = (32,)
     activation: str = "tanh"
     language_dim: int = 4
@@ -507,6 +509,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
     payload["prediction_target"] = str(payload["prediction_target"])
+    payload["train_loss_space"] = str(payload["train_loss_space"])
     payload["train_window_schedule"] = str(payload["train_window_schedule"])
     payload["error_degrade"] = str(payload["error_degrade"])
     payload["plot_rollout_top_mode"] = str(payload["plot_rollout_top_mode"])
@@ -569,6 +572,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("message_aux_loss_weight must be >= 0.")
     if payload["sequence_mode"] not in {"reset", "continuous_window"}:
         raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
+    if payload["train_loss_space"] not in {"raw", "y"}:
+        raise ValueError("train_loss_space must be 'raw' or 'y'.")
     if payload["activation"] not in {"tanh", "relu", "leaky_relu"}:
         raise ValueError("activation must be 'tanh', 'relu', or 'leaky_relu'.")
     if payload["message_carry_mode"] not in {"identity", "learnable_diagonal", "learnable_matrix"}:
