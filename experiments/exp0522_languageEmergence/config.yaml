@@ -94,3 +94,4 @@ plot:
   plot_training_timeline_window_steps: 200 # number of global time steps shown inside each training timeline panel
   plot_training_timeline_fig_width: 27.0   # width of training_timeline.png (independent of training_curves width)
   plot_training_timeline_shared_ylim: true  # if true, all timeline panels share the same y-axis range
+  plot_training_timeline_ylim: null         # null = auto (shared_ylim logic); or [ymin, ymax] to pin the range, e.g. [-2.0, 2.0]

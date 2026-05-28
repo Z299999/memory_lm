@@ -72,6 +72,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_training_timeline_window_steps",
         "plot_training_timeline_fig_width",
         "plot_training_timeline_shared_ylim",
+        "plot_training_timeline_ylim",
     ),
 }
 
@@ -255,6 +256,7 @@ class ExperimentConfig:
     plot_training_timeline_window_steps: int = 200
     plot_training_timeline_fig_width: float = 14.0
     plot_training_timeline_shared_ylim: bool = False
+    plot_training_timeline_ylim: tuple[float, float] | None = None
 
     def to_user_dict(self) -> dict[str, object]:
         flat = asdict(self)
@@ -438,6 +440,14 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if not isinstance(checkpoint_epochs, (list, tuple)):
         raise ValueError("checkpoint_epochs must be a yaml list.")
     payload["checkpoint_epochs"] = tuple(int(item) for item in checkpoint_epochs)
+
+    ylim_raw = payload.get("plot_training_timeline_ylim", None)
+    if ylim_raw is None:
+        payload["plot_training_timeline_ylim"] = None
+    elif isinstance(ylim_raw, (list, tuple)) and len(ylim_raw) == 2:
+        payload["plot_training_timeline_ylim"] = (float(ylim_raw[0]), float(ylim_raw[1]))
+    else:
+        raise ValueError("plot_training_timeline_ylim must be null or [ymin, ymax].")
 
     eval_conditions_raw = payload.get("eval_conditions", defaults.eval_conditions)
     if not isinstance(eval_conditions_raw, (list, tuple)):

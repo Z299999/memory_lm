@@ -242,7 +242,9 @@ def plot_training_timeline(
     )
     flat_axes = list(axes.flat)
 
-    if config.plot_training_timeline_shared_ylim and panels:
+    if config.plot_training_timeline_ylim is not None:
+        _shared_ylim = config.plot_training_timeline_ylim
+    elif config.plot_training_timeline_shared_ylim and panels:
         all_vals = np.concatenate([
             np.concatenate([panel["target"], panel["prediction"]])
             for panel in panels
