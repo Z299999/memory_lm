@@ -24,6 +24,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "sequence_mode",
         "train_window_schedule",
         "train_phase_mode",
+        "error_degrade",
         "message_aux_loss_weight",
         "detach_error_input",
         "carry_error_between_windows",
@@ -128,6 +129,16 @@ class TrainWindowSchedule:
     threshold: float | None = None
 
 
+@dataclass
+class ErrorDegradeSchedule:
+    mode: str
+    rate: float = 0.0
+    min_steps: int = 0
+    max_steps: int = 0
+    pct: int = 100
+    ramp_steps: int = 0
+
+
 def parse_train_window_schedule(spec: str) -> TrainWindowSchedule:
     raw = str(spec).strip()
     fixed_match = re.fullmatch(r"fixed\((\d+)\)", raw)
@@ -183,6 +194,41 @@ def train_window_reference_steps(spec: str) -> int:
     return int(round((schedule.min_steps + schedule.max_steps) / 2.0))
 
 
+def parse_error_degrade(spec: str) -> ErrorDegradeSchedule:
+    raw = str(spec).strip()
+    if raw == "none":
+        return ErrorDegradeSchedule(mode="none")
+    dim_match = re.fullmatch(
+        r"dim\(([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)",
+        raw,
+    )
+    if dim_match:
+        rate = float(dim_match.group(1))
+        min_steps = int(dim_match.group(2))
+        max_steps = int(dim_match.group(3))
+        pct = int(dim_match.group(4))
+        ramp_steps = int(dim_match.group(5))
+        if rate < 0.0 or rate > 1.0:
+            raise ValueError("error_degrade dim(rate,min,max,pct,ramp) requires 0 <= rate <= 1.")
+        if min_steps <= 0 or max_steps <= 0:
+            raise ValueError("error_degrade dim(rate,min,max,pct,ramp) requires min,max > 0.")
+        if min_steps > max_steps:
+            raise ValueError("error_degrade dim(rate,min,max,pct,ramp) requires min <= max.")
+        if pct < 0 or pct > 100:
+            raise ValueError("error_degrade dim(rate,min,max,pct,ramp) requires 0 <= pct <= 100.")
+        if ramp_steps < 0:
+            raise ValueError("error_degrade dim(rate,min,max,pct,ramp) requires ramp >= 0.")
+        return ErrorDegradeSchedule(
+            mode="dim",
+            rate=rate,
+            min_steps=min_steps,
+            max_steps=max_steps,
+            pct=pct,
+            ramp_steps=ramp_steps,
+        )
+    raise ValueError("error_degrade must be 'none' or 'dim(rate,min_steps,max_steps,pct,ramp_steps)'.")
+
+
 @dataclass
 class ExperimentConfig:
     """User-facing configuration for exp0522 runs."""
@@ -195,6 +241,7 @@ class ExperimentConfig:
     grad_clip: float = 1.0
     sequence_mode: str = "reset"
     train_window_schedule: str = "fixed(128)"
+    error_degrade: str = "none"
     message_aux_loss_weight: float = 0.0
     detach_error_input: bool = True
     carry_error_between_windows: bool = True
@@ -272,6 +319,7 @@ class ExperimentConfig:
         payload = self.to_user_dict()
         payload["run"]["output_root"] = str(payload["run"]["output_root"])
         train_schedule = parse_train_window_schedule(self.train_window_schedule)
+        error_degrade = parse_error_degrade(self.error_degrade)
         payload["resolved"] = {
             "message_init": 0.0,
             "use_language_resolved": self.language_dim > 0,
@@ -286,6 +334,13 @@ class ExperimentConfig:
             "resolved_train_window_max": train_schedule.max_steps,
             "resolved_event_trigger_threshold": train_schedule.threshold,
             "resolved_train_window_reference_steps": train_window_reference_steps(self.train_window_schedule),
+            "error_degrade": self.error_degrade,
+            "resolved_error_degrade_mode": error_degrade.mode,
+            "resolved_error_degrade_rate": error_degrade.rate,
+            "resolved_error_degrade_min": error_degrade.min_steps,
+            "resolved_error_degrade_max": error_degrade.max_steps,
+            "resolved_error_degrade_pct": error_degrade.pct,
+            "resolved_error_degrade_ramp_steps": error_degrade.ramp_steps,
             "phase_init": 0.0,
             "omega": omega_from_cycle_steps(self.cycle_steps),
         }
@@ -427,6 +482,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["target_kind"] = str(payload["target_kind"])
     payload["prediction_target"] = str(payload["prediction_target"])
     payload["train_window_schedule"] = str(payload["train_window_schedule"])
+    payload["error_degrade"] = str(payload["error_degrade"])
     payload["plot_rollout_top_mode"] = str(payload["plot_rollout_top_mode"])
     payload["plot_aux_horizon"] = str(payload["plot_aux_horizon"])
     payload["plot_target_color"] = str(payload["plot_target_color"])
@@ -483,6 +539,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if payload["message_carry_mode"] not in {"identity", "learnable_diagonal", "learnable_matrix"}:
         raise ValueError("message_carry_mode must be 'identity', 'learnable_diagonal', or 'learnable_matrix'.")
     window_schedule = parse_train_window_schedule(payload["train_window_schedule"])
+    parse_error_degrade(payload["error_degrade"])
     window_min = window_schedule.min_steps
     window_max = window_schedule.max_steps
     if payload["train_phase_mode"] not in {"reset", "continuous"}:

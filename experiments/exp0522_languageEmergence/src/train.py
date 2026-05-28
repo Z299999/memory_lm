@@ -16,6 +16,7 @@ try:
     from .config import (
         ExperimentConfig,
         copy_config_to_run_dir,
+        parse_error_degrade,
         parse_train_window_schedule,
         train_window_reference_steps,
         write_resolved_config,
@@ -27,6 +28,7 @@ except ImportError:  # pragma: no cover - script mode
     from config import (
         ExperimentConfig,
         copy_config_to_run_dir,
+        parse_error_degrade,
         parse_train_window_schedule,
         train_window_reference_steps,
         write_resolved_config,
@@ -105,6 +107,50 @@ def _sample_train_steps(config: ExperimentConfig) -> int:
     raise ValueError("_sample_train_steps is only valid for fixed and random_uniform schedules.")
 
 
+class _ErrorDegradeGenerator:
+    """Online dim-event generator over global training time."""
+
+    def __init__(self, spec: str) -> None:
+        self.schedule = parse_error_degrade(spec)
+        self._active_gains: list[float] = []
+        if self.schedule.mode == "dim" and self.schedule.rate > 0.0:
+            avg_len = (self.schedule.min_steps + self.schedule.max_steps) / 2.0
+            self._start_prob = min(1.0, self.schedule.rate / avg_len)
+        else:
+            self._start_prob = 0.0
+
+    def _sample_event_gains(self) -> list[float]:
+        length = random.randint(self.schedule.min_steps, self.schedule.max_steps)
+        min_gain = self.schedule.pct / 100.0
+        ramp = min(self.schedule.ramp_steps, length // 2)
+        if ramp <= 0:
+            return [min_gain] * length
+        ramp_down = np.linspace(1.0, min_gain, ramp + 1, dtype=float)[1:].tolist()
+        plateau = [min_gain] * max(0, length - (2 * ramp))
+        ramp_up = np.linspace(min_gain, 1.0, ramp + 1, dtype=float)[1:].tolist()
+        return ramp_down + plateau + ramp_up
+
+    def next_gain(self, *, force_zero_error_input: bool) -> float:
+        if force_zero_error_input or self.schedule.mode == "none" or self.schedule.rate <= 0.0:
+            return 1.0
+        if not self._active_gains and random.random() < self._start_prob:
+            self._active_gains = self._sample_event_gains()
+        if self._active_gains:
+            return float(self._active_gains.pop(0))
+        return 1.0
+
+    def next_gains(self, num_steps: int, *, force_zero_error_input: bool, device: torch.device) -> torch.Tensor:
+        gains = [self.next_gain(force_zero_error_input=force_zero_error_input) for _ in range(num_steps)]
+        return torch.tensor(gains, dtype=torch.float32, device=device).reshape(num_steps, 1)
+
+
+def _error_degrade_stats(error_gain_sequence: torch.Tensor) -> tuple[int, float]:
+    if error_gain_sequence.numel() == 0:
+        return 0, 1.0
+    detached = error_gain_sequence.detach()
+    return int(torch.sum(detached < 0.999999).item()), float(torch.mean(detached).item())
+
+
 def _build_training_timeline_panels(config: ExperimentConfig, total_steps: int) -> list[dict[str, Any]]:
     if total_steps <= 0:
         return []
@@ -128,6 +174,7 @@ def _build_training_timeline_panels(config: ExperimentConfig, total_steps: int) 
             "global_step": [],
             "target": [],
             "prediction": [],
+            "error_gain": [],
             "update_steps": [],
         }
         for start in starts
@@ -141,11 +188,15 @@ def _record_training_timeline_overlap(
     train_window_end: int,
     target: torch.Tensor,
     prediction: torch.Tensor,
+    error_gain: torch.Tensor | None = None,
 ) -> None:
     if not panels:
         return
     target_np = target.squeeze(1).detach().cpu().numpy()
     prediction_np = prediction.squeeze(1).detach().cpu().numpy()
+    error_gain_np = None
+    if error_gain is not None:
+        error_gain_np = error_gain.reshape(-1).detach().cpu().numpy()
     for panel in panels:
         overlap_start = max(train_window_start, int(panel["start_step"]))
         overlap_end = min(train_window_end, int(panel["end_step"]))
@@ -157,6 +208,8 @@ def _record_training_timeline_overlap(
         panel["global_step"].extend(steps)
         panel["target"].extend(float(value) for value in target_np[local_start : local_end + 1])
         panel["prediction"].extend(float(value) for value in prediction_np[local_start : local_end + 1])
+        if error_gain_np is not None:
+            panel["error_gain"].extend(float(value) for value in error_gain_np[local_start : local_end + 1])
         if panel["start_step"] <= train_window_end <= panel["end_step"]:
             panel["update_steps"].append(int(train_window_end))
 
@@ -177,6 +230,7 @@ def _materialize_training_timeline(
             train_window_end=int(record["train_window_end"]),
             target=record["target"],
             prediction=record["prediction"],
+            error_gain=record.get("error_gain"),
         )
     return {"panels": panels}
 
@@ -204,10 +258,12 @@ def _rollout_event_triggered_window(
     initial_error: torch.Tensor | None,
     detach_error_input: bool,
     force_zero_error_input: bool,
+    error_degrade_generator: _ErrorDegradeGenerator,
 ) -> dict[str, Any]:
     predictions: list[torch.Tensor] = []
     raw_predictions: list[torch.Tensor] = []
     messages: list[torch.Tensor] = []
+    error_gains: list[float] = []
     cumulative_sse = 0.0
 
     message_state = initial_message
@@ -218,6 +274,7 @@ def _rollout_event_triggered_window(
     final_error: torch.Tensor | None = None
 
     for step_idx in range(max_steps):
+        error_gain = error_degrade_generator.next_gain(force_zero_error_input=force_zero_error_input)
         prediction_step, raw_prediction_step, messages_step, _hidden, final_message, final_error = model.rollout(
             num_steps=1,
             pulse_value=pulse_value,
@@ -230,12 +287,14 @@ def _rollout_event_triggered_window(
             prediction_target=prediction_target,
             detach_error_input=detach_error_input,
             force_zero_error_input=force_zero_error_input,
+            error_input_scale=error_gain,
             disable_language=False,
             return_hidden=False,
         )
         predictions.append(prediction_step)
         raw_predictions.append(raw_prediction_step)
         messages.append(messages_step)
+        error_gains.append(error_gain)
 
         cumulative_sse += float(torch.sum((raw_prediction_step - train_bundle["train_target"][step_idx : step_idx + 1]) ** 2).item())
         step_count = step_idx + 1
@@ -260,6 +319,7 @@ def _rollout_event_triggered_window(
         "prediction": torch.cat(predictions, dim=0),
         "raw_prediction": torch.cat(raw_predictions, dim=0),
         "messages": torch.cat(messages, dim=0),
+        "error_gain_sequence": torch.tensor(error_gains, dtype=torch.float32, device=train_bundle["train_target"].device).reshape(realized_steps, 1),
         "final_message": final_message,
         "final_error": final_error,
     }
@@ -300,6 +360,7 @@ def _train_single_model(
 
     history: list[dict[str, float]] = []
     timeline_window_records: list[dict[str, Any]] = []
+    error_degrade_generator = _ErrorDegradeGenerator(config.error_degrade)
     train_time_cursor = 0
     train_message_state: torch.Tensor | None = None
     train_error_state: torch.Tensor | None = None
@@ -339,16 +400,23 @@ def _train_single_model(
                 initial_error=train_error_state,
                 detach_error_input=config.detach_error_input,
                 force_zero_error_input=config.force_zero_error_input,
+                error_degrade_generator=error_degrade_generator,
             )
             effective_steps = int(event_result["realized_steps"])
             prediction = event_result["prediction"]
             raw_prediction = event_result["raw_prediction"]
             messages = event_result["messages"]
+            error_gain_sequence = event_result["error_gain_sequence"]
             final_message = event_result["final_message"]
             final_error = event_result["final_error"]
             train_target = train_target[:effective_steps]
             train_target_y = train_target_y[:effective_steps]
         else:
+            error_gain_sequence = error_degrade_generator.next_gains(
+                effective_steps,
+                force_zero_error_input=config.force_zero_error_input,
+                device=device,
+            )
             prediction, raw_prediction, messages, _hidden, final_message, final_error = model.rollout(
                 num_steps=effective_steps,
                 pulse_value=config.pulse_value,
@@ -361,6 +429,7 @@ def _train_single_model(
                 prediction_target=config.prediction_target,
                 detach_error_input=config.detach_error_input,
                 force_zero_error_input=config.force_zero_error_input,
+                error_input_scale_sequence=error_gain_sequence,
                 disable_language=False,
                 return_hidden=False,
             )
@@ -416,6 +485,7 @@ def _train_single_model(
                     "train_window_end": int(train_window_start + effective_steps - 1),
                     "target": train_target_y.detach().cpu(),
                     "prediction": prediction.detach().cpu(),
+                    "error_gain": error_gain_sequence.detach().cpu(),
                 }
             )
 
@@ -450,6 +520,9 @@ def _train_single_model(
             "train_loss": float(train_loss.item()),
             "val_loss": float(val_result["raw_target_mse"]),
         }
+        error_degrade_steps, error_gain_mean = _error_degrade_stats(error_gain_sequence)
+        row["error_degrade_steps"] = float(error_degrade_steps)
+        row["error_gain_mean"] = float(error_gain_mean)
         if use_aux:
             row["aux_loss"] = aux_loss_val
         if config.sequence_mode == "continuous_window":

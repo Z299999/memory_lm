@@ -193,6 +193,7 @@ class ExternalClockMLP(nn.Module):
         detach_error_input: bool = True,
         force_zero_error_input: bool = False,
         error_input_scale: float = 1.0,
+        error_input_scale_sequence: torch.Tensor | None = None,
         disable_language: bool = False,
         return_hidden: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
@@ -245,6 +246,17 @@ class ExternalClockMLP(nn.Module):
             error_input_scale = float(error_input_scale)
             if error_input_scale < 0.0:
                 raise ValueError("error_input_scale must be non-negative.")
+            if error_input_scale_sequence is not None:
+                error_input_scale_sequence = error_input_scale_sequence.to(device=device, dtype=y_target_sequence.dtype)
+                if error_input_scale_sequence.ndim == 1:
+                    error_input_scale_sequence = error_input_scale_sequence.reshape(num_steps, 1)
+                if tuple(error_input_scale_sequence.shape) != (num_steps, 1):
+                    raise ValueError(
+                        f"error_input_scale_sequence must have shape {(num_steps, 1)} or {(num_steps,)}, "
+                        f"got {tuple(error_input_scale_sequence.shape)}."
+                    )
+                if torch.any(error_input_scale_sequence < 0.0):
+                    raise ValueError("error_input_scale_sequence must be non-negative.")
             y_target_sequence = y_target_sequence.to(device=device)
         else:
             error_prev = torch.zeros(batch_size, 0, device=device)
@@ -330,7 +342,11 @@ class ExternalClockMLP(nn.Module):
                 else:
                     error_t = y_target_sequence[step_idx : step_idx + 1] - y_t
                     error_prev = error_t.detach() if detach_error_input else error_t
-                    error_prev = error_input_scale * error_prev
+                    if error_input_scale_sequence is None:
+                        step_error_scale = error_input_scale
+                    else:
+                        step_error_scale = error_input_scale_sequence[step_idx : step_idx + 1]
+                    error_prev = step_error_scale * error_prev
 
         hidden_tensor = torch.cat(hidden_snapshots, dim=0) if return_hidden else None
         final_message = message_prev

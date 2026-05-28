@@ -130,6 +130,33 @@ main research use is for `continuous_window`. The default mainline config still
 uses `random_uniform(...)`; `event_triggered(...)` is an optional training
 protocol rather than the new default.
 
+## Training Error Degradation
+
+Training-time prediction-error degradation is configured with `train.error_degrade`.
+It is independent of eval-only conditions such as `dim(start,end,pct)`.
+
+```yaml
+train:
+  error_degrade: none
+```
+
+```yaml
+train:
+  error_degrade: dim(0.3,20,80,5,10)
+```
+
+`dim(rate,min_steps,max_steps,pct,ramp_steps)` runs an online dim-event process
+over global training time. In the example above, roughly `30%` of training steps
+will fall inside an error-degradation event. Each event lasts `20..80` total
+steps, including the linear ramp down and ramp back up. At the darkest point,
+the fed-back prediction error is scaled to `5%`, so `e_t` becomes `0.05 * e_t`.
+Setting `ramp_steps` to `0` gives a hard transition.
+
+The degradation only weakens the error cue fed back into the next step. Targets,
+losses, message carry, and eval conditions are unchanged. The intent is to reduce
+over-reliance on the error input and encourage the message/internal dynamics to
+support weak-cue trajectory completion.
+
 ## Task Variants
 
 The `mixed_sin` target sums an arbitrary list of `[freq_multiplier, amplitude]` components,
