@@ -89,7 +89,7 @@ class Exp0526EnvSmokeTest(unittest.TestCase):
             + cfg.env.cubic_coeff * (state ** 3)
             + cfg.env.control_gain * u
         )
-        expected = cfg.env.state_limit * torch.tanh(raw_next / cfg.env.state_limit)
+        expected = torch.clamp(raw_next, min=-cfg.env.state_limit, max=cfg.env.state_limit)
         self.assertAlmostEqual(next_state.item(), expected.item(), places=6)
 
     def test_scalar_x_loss_reaches_model_parameters(self):

@@ -108,6 +108,7 @@ class TrainConfig:
     weight_decay: float = 0.0
     grad_clip: float = 1.0
     train_window_schedule: str = "random_uniform(10,30)"
+    state_loss_weight: float = 1.0
     control_loss_weight: float = 1e-4
 
 
@@ -218,6 +219,8 @@ def validate_config(config: ExperimentConfig) -> None:
         if config.env.beta <= 0.0:
             raise ValueError("env.beta must be positive for planar_double_well.")
     parse_train_window_schedule(config.train.train_window_schedule)
+    if config.train.state_loss_weight < 0.0:
+        raise ValueError("train.state_loss_weight must be >= 0.")
     if config.train.control_loss_weight < 0.0:
         raise ValueError("train.control_loss_weight must be >= 0.")
     valid_conditions = {"full", "sole_eye", "sole_speech", "neither", "blink", "stutter"}

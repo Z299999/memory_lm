@@ -229,6 +229,8 @@ def _plot_phase_portrait(ax: plt.Axes, *, evals: dict[str, dict[str, Any]], env:
     ref = evals.get("full")
     if ref is None:
         return
+    start_step = int(ref["global_step"][0]) if ref["global_step"] else int(ref["start_step"])
+    end_step = int(ref["global_step"][-1]) if ref["global_step"] else int(ref["start_step"])
     x1_values: list[float] = []
     x2_values: list[float] = []
     for result in evals.values():
@@ -242,7 +244,7 @@ def _plot_phase_portrait(ax: plt.Axes, *, evals: dict[str, dict[str, Any]], env:
         x1_values.append(float(point[0]))
         x2_values.append(float(point[1]))
     max_abs = max([1.25] + [abs(v) for v in x1_values] + [abs(v) for v in x2_values]) * 1.15
-    grid = np.linspace(-max_abs, max_abs, 21)
+    grid = np.linspace(-max_abs, max_abs, 13)
     gx1, gx2 = np.meshgrid(grid, grid)
     tx1 = torch.tensor(gx1, dtype=torch.float32)
     tx2 = torch.tensor(gx2, dtype=torch.float32)
@@ -256,11 +258,11 @@ def _plot_phase_portrait(ax: plt.Axes, *, evals: dict[str, dict[str, Any]], env:
         dx1_np / norm,
         dx2_np / norm,
         color="#bdbdbd",
-        alpha=0.7,
-        linewidth=0.6,
+        alpha=0.18,
+        linewidth=0.4,
         angles="xy",
         scale_units="xy",
-        scale=0.9 / max_abs,
+        scale=5.5 / max_abs,
     )
     for condition, result in evals.items():
         base, _ = parse_condition(condition)
@@ -283,13 +285,24 @@ def _plot_phase_portrait(ax: plt.Axes, *, evals: dict[str, dict[str, Any]], env:
             ax.scatter([x1], [x2], color="black", s=28, zorder=4)
         else:
             ax.scatter([x1], [x2], facecolors="none", edgecolors="black", s=40, zorder=4)
-    ax.set_title("Phase portrait")
+    ax.set_title(f"Phase portrait (global step {start_step}..{end_step})")
     ax.set_xlabel("x1")
     ax.set_ylabel("x2")
     ax.set_xlim(-max_abs, max_abs)
     ax.set_ylim(-max_abs, max_abs)
     ax.grid(True, alpha=config.plot.plot_grid_alpha)
     _maybe_add_legend(ax, ncol=3)
+    ax.text(
+        0.02,
+        0.02,
+        "start: open circle   end: X",
+        transform=ax.transAxes,
+        fontsize=max(config.plot.plot_title_fontsize - 4, 8),
+        color="#4d4d4d",
+        ha="left",
+        va="bottom",
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.7, "pad": 2.0},
+    )
 
 
 def plot_phase_portrait(*, evals: dict[str, dict[str, Any]], output_path: Path, config: ExperimentConfig, env: Any) -> None:

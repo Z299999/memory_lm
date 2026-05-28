@@ -65,17 +65,28 @@ The control output is bounded symmetrically:
 u_t = u_{\max} \tanh(\text{raw}_t).
 \]
 
-For numerical stability during early random-policy exploration, the mainline implementation also applies a soft state limit with `state_limit * tanh(raw_state / state_limit)` after each Euler step. Near the origin this leaves the intended cubic dynamics essentially unchanged while preventing runaway overflow in continuous training.
+For numerical stability during early random-policy exploration, the mainline implementation applies a state-limit guard after each Euler step:
+
+\[
+x \leftarrow \mathrm{clip}(x, -\text{state\_limit}, \text{state\_limit}).
+\]
+
+This leaves the intended dynamics unchanged inside the normal operating region while preventing runaway overflow during early continuous training.
 
 ## Loss
 
 The per-step control objective is
 
 \[
-x_t^2 + \lambda_u u_t^2.
+\lambda_x \|x_t\|^2 + \lambda_u u_t^2.
 \]
 
 Training averages this local loss over one sampled training window.
+
+In config terms:
+
+- `train.state_loss_weight` = `\lambda_x`
+- `train.control_loss_weight` = `\lambda_u`
 
 ## No-language control
 

@@ -47,6 +47,10 @@ def _scalar_tensor(value: float, *, like: torch.Tensor) -> torch.Tensor:
     return torch.tensor(float(value), dtype=like.dtype, device=like.device)
 
 
+def _apply_state_limit(raw_state: torch.Tensor, limit: float) -> torch.Tensor:
+    return torch.clamp(raw_state, min=-float(limit), max=float(limit))
+
+
 def _compile_scalar_expr(expr: str) -> Callable[[torch.Tensor], torch.Tensor]:
     tree = ast.parse(expr, mode="eval")
 
@@ -134,7 +138,7 @@ class ScalarControlAffineEnv:
         drift = self._f(state)
         control_field = self._g(state)
         raw_next_state = state + self.config.dt * (drift + control_field * u)
-        next_state = self.config.state_limit * torch.tanh(raw_next_state / self.config.state_limit)
+        next_state = _apply_state_limit(raw_next_state, self.config.state_limit)
         next_derived = {
             "x": float(next_state.detach().item()),
             "x_sq": float((next_state.detach() ** 2).item()),

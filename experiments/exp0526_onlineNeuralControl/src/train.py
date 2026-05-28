@@ -152,7 +152,10 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
 
         state_loss = torch.stack(state_losses).mean()
         control_loss = torch.stack(control_losses).mean()
-        total_loss = state_loss + config.train.control_loss_weight * control_loss
+        total_loss = (
+            config.train.state_loss_weight * state_loss
+            + config.train.control_loss_weight * control_loss
+        )
         total_loss.backward()
         if config.train.grad_clip > 0.0:
             nn.utils.clip_grad_norm_(model.parameters(), config.train.grad_clip)

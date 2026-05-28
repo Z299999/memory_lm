@@ -26,7 +26,7 @@ env:
   # scalar template at the end of this block.
   env_kind: planar_double_well        # current default: 2D double-well benchmark
   dt: 0.01                            # Euler step size
-  x0: [0.2, 0.0]                      # 2D initial state [x1, x2]
+  x0: [0.2, 1.5]                      # 2D initial state [x1, x2]
   pulse_value: 1.0                    # constant pulse appended to observation [x, pulse]
   u_max: 1.5                          # bounded symmetric control scale, applied as u_max * tanh(raw_u)
   f_expr: x - x**3                    # 1D only: drift term f(x) for scalar_control_affine
@@ -37,7 +37,7 @@ env:
   alpha: 1.0                          # 2D only: double-well linear coefficient
   beta: 1.0                           # 2D only: double-well cubic coefficient; with alpha>0 gives outer stable points
   gamma: 0.4                          # 2D only: damping coefficient
-  state_limit: 6.0                    # soft tanh saturation to keep early continuous exploration finite
+  state_limit: 6.0                    # hard state clip guard used only to stop runaway exploration
 
   # -------- 1D scalar_control_affine template --------
   # env_kind: scalar_control_affine
@@ -51,16 +51,17 @@ env:
   # state_limit: 4.0
 
 train:
-  epochs: 10000                        # number of continuous-window optimizer updates
+  epochs: 5000                        # number of continuous-window optimizer updates
   lr: 0.0001                          # Adam learning rate
   weight_decay: 0.0                   # L2 regularization for Adam
   grad_clip: 1.0                      # gradient clipping threshold; <=0 disables clipping
   train_window_schedule: random_uniform(10, 30)  # rollout length rule: fixed(L) or random_uniform(a,b)
-  control_loss_weight: 0.001         # penalty on mean u^2 to discourage excessive control
+  state_loss_weight: 0.1            # rho1 on the state-energy term ||x||^2
+  control_loss_weight: 0.1          # rho2 on the control-energy term u^2
 
 eval:
   eval_steps: 64                      # short validation rollout length used during training logs
-  future_steps: 256                   # held-out future rollout length after training stops
+  future_steps: 512                   # held-out future rollout length after training stops; longer gives a more informative 2D phase portrait
   # ablation conditions: full | sole_eye | sole_speech | neither | blink(start,end) | stutter(start,end)
   eval_conditions: [full]
   # eval_conditions: [full, blink(20, 40), stutter(80, 120)]

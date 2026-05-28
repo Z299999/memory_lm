@@ -53,7 +53,7 @@ class PlanarDoubleWellEnv:
             + self.config.control_gain * u
         )
         raw_next_state = state + self.config.dt * torch.cat([x1_dot, x2_dot], dim=1)
-        next_state = self.config.state_limit * torch.tanh(raw_next_state / self.config.state_limit)
+        next_state = torch.clamp(raw_next_state, min=-float(self.config.state_limit), max=float(self.config.state_limit))
         next_eta, next_derived = self.eta(next_state, step + 1)
         _ = next_eta
         return next_state, next_derived
