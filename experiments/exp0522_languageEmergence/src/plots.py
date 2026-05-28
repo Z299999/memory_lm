@@ -20,6 +20,8 @@ os.environ.setdefault("XDG_CACHE_HOME", str(_XDG_CACHE))
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 try:
     from .config import ExperimentConfig, parse_condition
@@ -90,6 +92,43 @@ _CONDITION_COLORS: dict[str, str] = {
     "dim":         "#f4a261",  # lighter orange for soft blink
     "stutter":     "#e377c2",  # pink
 }
+
+_TRAINING_TIMELINE_GAIN_CMAP = LinearSegmentedColormap.from_list(
+    "timeline_error_gain",
+    [
+        (0.0, "#7bd88f"),  # strongest training-time dim
+        (0.55, "#2aa7a5"),
+        (1.0, "#1f77b4"),  # normal error cue
+    ],
+)
+
+
+def _plot_gain_colored_line(
+    ax: plt.Axes,
+    x: np.ndarray,
+    y: np.ndarray,
+    gains: np.ndarray | None,
+    *,
+    label: str,
+    linewidth: float,
+) -> None:
+    if gains is None or gains.shape[0] != y.shape[0] or x.shape[0] < 2:
+        ax.plot(x, y, linewidth=linewidth, label=label, color="#1f77b4")
+        return
+    points = np.column_stack([x, y]).reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    segment_gains = 0.5 * (gains[:-1] + gains[1:])
+    collection = LineCollection(
+        segments,
+        cmap=_TRAINING_TIMELINE_GAIN_CMAP,
+        norm=Normalize(vmin=0.0, vmax=1.0),
+        linewidth=linewidth,
+        label=label,
+        zorder=3,
+    )
+    collection.set_array(segment_gains)
+    ax.add_collection(collection)
+    ax.plot([], [], color="#1f77b4", linewidth=linewidth, label=label)
 
 def _resolve_top_rollout_panels(
     config: ExperimentConfig,
@@ -258,6 +297,9 @@ def plot_training_timeline(
         global_steps = np.asarray(panel["global_step"], dtype=float)
         target = np.asarray(panel["target"], dtype=float)
         prediction = np.asarray(panel["prediction"], dtype=float)
+        error_gain = np.asarray(panel.get("error_gain", []), dtype=float)
+        if error_gain.size == 0:
+            error_gain = None
         ax.plot(
             global_steps,
             target,
@@ -266,11 +308,13 @@ def plot_training_timeline(
             linewidth=config.plot_target_linewidth,
             label="target",
         )
-        ax.plot(
+        _plot_gain_colored_line(
+            ax,
             global_steps,
             prediction,
-            linewidth=config.plot_series_linewidth,
+            error_gain,
             label=full_label,
+            linewidth=config.plot_series_linewidth,
         )
         for update_step in panel.get("update_steps", []):
             ax.axvline(
