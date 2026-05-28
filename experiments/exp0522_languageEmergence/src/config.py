@@ -29,6 +29,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "detach_error_input",
         "carry_error_between_windows",
         "force_zero_error_input",
+        "train_loss_tail_steps",
     ),
     "eval": (
         "eval_steps",
@@ -267,6 +268,7 @@ class ExperimentConfig:
     detach_error_input: bool = True
     carry_error_between_windows: bool = True
     force_zero_error_input: bool = False
+    train_loss_tail_steps: int | None = None
     trunk_dims: tuple[int, ...] = (32,)
     activation: str = "tanh"
     language_dim: int = 4
@@ -520,6 +522,15 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if not isinstance(checkpoint_epochs, (list, tuple)):
         raise ValueError("checkpoint_epochs must be a yaml list.")
     payload["checkpoint_epochs"] = tuple(int(item) for item in checkpoint_epochs)
+
+    tail_raw = payload.get("train_loss_tail_steps", None)
+    if tail_raw is None:
+        payload["train_loss_tail_steps"] = None
+    else:
+        v = int(tail_raw)
+        if v <= 0:
+            raise ValueError("train_loss_tail_steps must be a positive integer or null.")
+        payload["train_loss_tail_steps"] = v
 
     ylim_raw = payload.get("plot_training_timeline_ylim", None)
     if ylim_raw is None:

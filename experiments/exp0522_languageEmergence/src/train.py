@@ -454,7 +454,14 @@ def _train_single_model(
                 disable_language=False,
                 return_hidden=False,
             )
-        train_loss = torch.mean((raw_prediction - train_target) ** 2)
+        tail = config.train_loss_tail_steps
+        if tail is not None and tail < effective_steps:
+            loss_prediction = raw_prediction[-tail:]
+            loss_target = train_target[-tail:]
+        else:
+            loss_prediction = raw_prediction
+            loss_target = train_target
+        train_loss = torch.mean((loss_prediction - loss_target) ** 2)
 
         use_aux = (
             config.sequence_mode == "continuous_window"
