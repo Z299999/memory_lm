@@ -72,6 +72,7 @@ def _build_train_target(
     start_step: int,
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
+    prediction_target: str,
 ) -> dict[str, torch.Tensor]:
     try:
         from .task import build_rollout_targets
@@ -85,6 +86,7 @@ def _build_train_target(
         start_step=offset,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
+        prediction_target=prediction_target,
     )
 
 
@@ -216,6 +218,7 @@ def _train_single_model(
                 start_step=0,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
+                prediction_target=config.prediction_target,
             )
             target_cache[(int(steps), 0)] = bundle
 
@@ -238,6 +241,7 @@ def _train_single_model(
                 start_step=train_window_start,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
+                prediction_target=config.prediction_target,
             )
         train_target = train_bundle["train_target"]
         train_target_y = train_bundle["target_y"]
@@ -250,6 +254,9 @@ def _train_single_model(
             y_target_sequence=train_target_y,
             initial_message=train_message_state,
             initial_error=train_error_state,
+            initial_reconstruction_y=train_bundle["init_y_prev"],
+            initial_reconstruction_v=train_bundle["init_v_prev"],
+            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
@@ -272,6 +279,7 @@ def _train_single_model(
                 start_step=train_window_start + effective_steps,
                 target_kind=config.target_kind,
                 mixed_sin_components=config.mixed_sin_components,
+                prediction_target=config.prediction_target,
             )
             _aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
                 num_steps=1,
@@ -280,6 +288,9 @@ def _train_single_model(
                 y_target_sequence=aux_bundle["target_y"],
                 initial_message=final_message,
                 initial_error=final_error,
+                initial_reconstruction_y=aux_bundle["init_y_prev"],
+                initial_reconstruction_v=aux_bundle["init_v_prev"],
+                prediction_target=config.prediction_target,
                 detach_error_input=config.detach_error_input,
                 force_zero_error_input=config.force_zero_error_input,
                 disable_language=False,
@@ -326,6 +337,7 @@ def _train_single_model(
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,

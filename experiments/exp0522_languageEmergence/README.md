@@ -10,7 +10,7 @@ an external state register for a feed-forward MLP under continuous rollout.
 - The only ordinary input is a constant pulse `x_t = 1`.
 - The full model also receives its previous language signal `m_{t-1}`.
 - At every step the model emits one scalar, trained directly against the
-  waveform value `y_t`.
+  configured prediction target.
 
 Supported target kinds:
 
@@ -141,7 +141,26 @@ task:
   target_kind: sine
 ```
 
-The model is directly supervised on the waveform value `y`.
+By default, the model is directly supervised on the waveform value `y`.
+
+Optional prediction-target modes can change the supervised space without
+changing the displayed eval plots:
+
+```yaml
+task:
+  prediction_target: y          # y | velocity | acceleration
+```
+
+- `y`
+  - direct waveform supervision
+- `velocity`
+  - supervise `y_t - y_{t-1}`
+- `acceleration`
+  - supervise `(y_t - y_{t-1}) - (y_{t-1} - y_{t-2})`
+
+Training loss always uses the configured target space. Eval plots, summaries,
+and rollout CSVs still report predictions in reconstructed `y` space so runs
+remain visually comparable across target modes.
 
 ## Model Variants
 

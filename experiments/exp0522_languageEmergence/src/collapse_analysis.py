@@ -256,6 +256,7 @@ def analyze_continuous_collapse(run_dir: Path, *, model_name: str | None = None)
             pulse_value=config.pulse_value,
             target_kind=config.target_kind,
             mixed_sin_components=config.mixed_sin_components,
+            prediction_target=config.prediction_target,
             detach_error_input=config.detach_error_input,
             force_zero_error_input=config.force_zero_error_input if resolved_model_name != "v0_open_loop" else False,
             disable_language=False,

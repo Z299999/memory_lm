@@ -15,7 +15,7 @@ import yaml
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
     "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers", "message_carry_mode"),
-    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components"),
+    "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "prediction_target"),
     "train": (
         "epochs",
         "lr",
@@ -179,6 +179,7 @@ class ExperimentConfig:
     cycle_steps: int = 32
     target_kind: str = "sine"
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5))
+    prediction_target: str = "y"
     eval_steps: int = 128
     long_steps: int = 512
     continuous_eval_steps: int = 512
@@ -241,6 +242,9 @@ class ExperimentConfig:
             "message_init": 0.0,
             "use_language_resolved": self.language_dim > 0,
             "target_kind": self.target_kind,
+            "prediction_target": self.prediction_target,
+            "raw_prediction_space": self.prediction_target,
+            "reported_prediction_space": "y",
             "target": _resolved_target_description(self),
             "train_window_schedule": self.train_window_schedule,
             "resolved_train_window_min": train_window_bounds(self.train_window_schedule)[0],
@@ -265,7 +269,13 @@ def _resolved_target_description(config: ExperimentConfig) -> str:
         terms = " + ".join(f"{amp}*sin({freq}*phi_t)" for freq, amp in config.mixed_sin_components)
         scale = sum(abs(amp) for _, amp in config.mixed_sin_components)
         waveform = f"({terms}) / {scale}"
-    return waveform
+    if config.prediction_target == "y":
+        return waveform
+    if config.prediction_target == "velocity":
+        return f"{waveform}_t - {waveform}_{{t-1}}"
+    if config.prediction_target == "acceleration":
+        return f"({waveform}_t - {waveform}_{{t-1}}) - ({waveform}_{{t-1}} - {waveform}_{{t-2}})"
+    raise ValueError(f"Unsupported prediction_target: {config.prediction_target!r}")
 
 
 def _flatten_user_config(raw: dict[str, object], defaults: ExperimentConfig) -> dict[str, object]:
@@ -373,14 +383,13 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload.pop("eval_blink_blind_end", None)
     payload.pop("eval_stutter_mute_start", None)
     payload.pop("eval_stutter_mute_end", None)
-    legacy_prediction_target = payload.pop("prediction_target", "y")
-
     payload["sequence_mode"] = str(payload["sequence_mode"])
     payload["activation"] = str(payload["activation"])
     payload["message_carry_mode"] = str(payload["message_carry_mode"])
     payload["train_phase_mode"] = str(payload["train_phase_mode"])
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
+    payload["prediction_target"] = str(payload["prediction_target"])
     payload["train_window_schedule"] = str(payload["train_window_schedule"])
     payload["plot_rollout_top_mode"] = str(payload["plot_rollout_top_mode"])
     payload["plot_aux_horizon"] = str(payload["plot_aux_horizon"])
@@ -448,8 +457,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("cycle_steps must be greater than 1.")
     if payload["target_kind"] not in {"sine", "mixed_sin"}:
         raise ValueError("target_kind must be either 'sine' or 'mixed_sin'.")
-    if str(legacy_prediction_target) != "y":
-        raise ValueError("prediction_target has been removed; only the original 'y' mode is still supported.")
+    if payload["prediction_target"] not in {"y", "velocity", "acceleration"}:
+        raise ValueError("prediction_target must be 'y', 'velocity', or 'acceleration'.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
         raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
     if any(epoch <= 0 for epoch in payload["checkpoint_epochs"]):
