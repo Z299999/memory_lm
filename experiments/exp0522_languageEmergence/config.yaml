@@ -8,7 +8,7 @@ model:
   trunk_dims: [96, 96, 96]    # hidden width of the MLP trunk
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
   language_dim: 7              # number of language input/output heads; set to 0 for the no-language control
-  language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  language_readout_coverage: 2  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims
   language_readout_all_layers: true  # if true, readout node pool = all hidden layers (concat); false = last layer only
@@ -56,7 +56,7 @@ eval:
   eval_phase_mode: both        # which evals to run and plot: reset | continuous | both
   # ablation conditions: full | sole_eye | sole_speech | neither
   #                      late_blind(N) | late_mute(N) | blink(start,end) | dim(start,end,pct) | stutter(start,end)
-  eval_conditions: [full, "blink(40,100)", "dim(40,100,5)", "stutter(120,220)"]
+  eval_conditions: [full, "blink(40,100)", "dim(40,200,5)", "stutter(120,220)"]
 
 analysis:
   enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis
@@ -93,3 +93,4 @@ plot:
   plot_training_timeline_ncols: 5      # number of columns in the training timeline grid
   plot_training_timeline_window_steps: 200 # number of global time steps shown inside each training timeline panel
   plot_training_timeline_fig_width: 27.0   # width of training_timeline.png (independent of training_curves width)
+  plot_training_timeline_shared_ylim: true  # if true, all timeline panels share the same y-axis range

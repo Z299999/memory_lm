@@ -71,6 +71,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "plot_training_timeline_ncols",
         "plot_training_timeline_window_steps",
         "plot_training_timeline_fig_width",
+        "plot_training_timeline_shared_ylim",
     ),
 }
 
@@ -253,6 +254,7 @@ class ExperimentConfig:
     plot_training_timeline_ncols: int = 2
     plot_training_timeline_window_steps: int = 200
     plot_training_timeline_fig_width: float = 14.0
+    plot_training_timeline_shared_ylim: bool = False
 
     def to_user_dict(self) -> dict[str, object]:
         flat = asdict(self)
@@ -453,6 +455,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "plot_show_message_traces",
         "plot_show_message_norm",
         "plot_show_training_timeline",
+        "plot_training_timeline_shared_ylim",
     ):
         value = payload[key]
         if not isinstance(value, bool):

@@ -242,6 +242,16 @@ def plot_training_timeline(
     )
     flat_axes = list(axes.flat)
 
+    if config.plot_training_timeline_shared_ylim and panels:
+        all_vals = np.concatenate([
+            np.concatenate([panel["target"], panel["prediction"]])
+            for panel in panels
+        ])
+        _y_margin = (all_vals.max() - all_vals.min()) * 0.05 + 1e-6
+        _shared_ylim = (float(all_vals.min() - _y_margin), float(all_vals.max() + _y_margin))
+    else:
+        _shared_ylim = None
+
     for ax, panel in zip(flat_axes, panels):
         global_steps = np.asarray(panel["global_step"], dtype=float)
         target = np.asarray(panel["target"], dtype=float)
@@ -272,6 +282,8 @@ def plot_training_timeline(
             f"t={int(panel['start_step'])}..{int(panel['end_step'])}",
             fontsize=max(config.plot_title_fontsize - 2, 10),
         )
+        if _shared_ylim is not None:
+            ax.set_ylim(_shared_ylim)
         ax.set_xlabel("global step")
         ax.set_ylabel("value")
         ax.grid(True, alpha=config.plot_grid_alpha)
