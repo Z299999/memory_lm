@@ -537,10 +537,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
             raise ValueError("mixed_sin_components: each amplitude must be finite.")
         parsed.append((freq, amp))
     payload["mixed_sin_components"] = tuple(parsed)
-    if window_max > payload["long_steps"]:
-        raise ValueError("train_window_schedule maximum length must be <= long_steps.")
-    if window_max > payload["continuous_eval_steps"]:
-        raise ValueError("train_window_schedule maximum length must be <= continuous_eval_steps.")
     if payload["eval_steps"] < payload["cycle_steps"]:
         raise ValueError("eval_steps must be at least one cycle long.")
     if payload["long_steps"] < payload["eval_steps"]:
