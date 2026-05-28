@@ -18,7 +18,7 @@ task:
   cycle_steps: 32               # number of steps in one full target cycle
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
-  prediction_target: velocity          # supervised target space: y | velocity | acceleration
+  prediction_target: acceleration          # supervised target space: y | velocity | acceleration
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
     - [0.0013, 1]
     - [0.004, 2.1]
@@ -37,7 +37,7 @@ task:
     
 
 train:
-  epochs: 1000                # total training epochs
+  epochs: 2000                # total training epochs
   lr: 0.001                  # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
@@ -57,8 +57,8 @@ eval:
   continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
   eval_phase_mode: both        # which evals to run and plot: reset | continuous | both
   # ablation conditions: full | sole_eye | sole_speech | neither
-  #                      late_blind(N) | late_mute(N) | blink(start,end) | dim(start,end,pct) | stutter(start,end)
-  eval_conditions: [full, "blink(40,100)", "dim(40,200,5)", "stutter(120,220)"]
+  #                      late_blind(N) | late_mute(N) | blink(start,end) | dim(start,ramp_end,end,pct) | stutter(start,end)
+  eval_conditions: [full, "blink(40,100)", "dim(40,140,200,5)", "stutter(120,220)"]
 
 analysis:
   enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis

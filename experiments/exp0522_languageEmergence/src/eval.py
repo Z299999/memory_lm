@@ -58,6 +58,7 @@ def _evaluate_rollout(
     detach_error_input: bool = True,
     force_zero_error_input: bool = False,
     error_input_scale: float = 1.0,
+    error_input_scale_sequence: torch.Tensor | None = None,
     disable_language: bool = False,
 ) -> dict[str, Any]:
     model.eval()
@@ -85,6 +86,7 @@ def _evaluate_rollout(
             detach_error_input=detach_error_input,
             force_zero_error_input=force_zero_error_input,
             error_input_scale=error_input_scale,
+            error_input_scale_sequence=error_input_scale_sequence,
             disable_language=disable_language,
             return_hidden=True,
         )
@@ -203,9 +205,11 @@ def _evaluate_temporary_loss_rollout(
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
     detach_error_input: bool = True,
+    phase2_gain_sequence: torch.Tensor | None = None,
 ) -> dict[str, Any]:
     """Full model → temporarily lose a channel [loss_start, loss_end) → full again."""
-    def _rollout(n: int, s: int, msg, err, fze: bool, eis: float, dl: bool) -> dict[str, Any]:
+    def _rollout(n: int, s: int, msg, err, fze: bool, eis: float, dl: bool,
+                 eis_seq: torch.Tensor | None = None) -> dict[str, Any]:
         return _evaluate_rollout(
             model,
             num_steps=n,
@@ -220,6 +224,7 @@ def _evaluate_temporary_loss_rollout(
             detach_error_input=detach_error_input,
             force_zero_error_input=fze,
             error_input_scale=eis,
+            error_input_scale_sequence=eis_seq,
             disable_language=dl,
         )
 
@@ -229,6 +234,7 @@ def _evaluate_temporary_loss_rollout(
         return p1
 
     p2_steps = min(loss_end - loss_start, num_steps - p1_steps)
+    p2_seq = phase2_gain_sequence[:p2_steps] if phase2_gain_sequence is not None else None
     p2 = _rollout(
         p2_steps,
         start_step + p1_steps,
@@ -237,9 +243,11 @@ def _evaluate_temporary_loss_rollout(
         phase2_force_zero_error,
         phase2_error_input_scale,
         phase2_disable_language,
+        eis_seq=p2_seq,
     )
     if p1_steps + p2_steps >= num_steps:
         parts = [p1, p2]
+        p3_steps = 0
     else:
         p3_steps = num_steps - p1_steps - p2_steps
         p3 = _rollout(
@@ -256,7 +264,19 @@ def _evaluate_temporary_loss_rollout(
     prediction = torch.cat([p["prediction"] for p in parts])
     raw_prediction = torch.cat([p["raw_prediction"] for p in parts])
     target = torch.cat([p["target"] for p in parts])
-    return {
+
+    # Build full error_gain sequence for plotting (None if not a gain-modulated condition)
+    if phase2_gain_sequence is not None:
+        gain_p1 = torch.ones(p1_steps, 1)
+        gain_p2 = p2_seq if p2_seq is not None else torch.full((p2_steps, 1), phase2_error_input_scale)
+        gain_parts = [gain_p1, gain_p2]
+        if p3_steps > 0:
+            gain_parts.append(torch.ones(p3_steps, 1))
+        error_gain = torch.cat(gain_parts).squeeze(1)
+    else:
+        error_gain = None
+
+    result = {
         "mse": float(torch.mean((prediction - target) ** 2).item()),
         "raw_target_mse": None,
         "phase": torch.cat([p["phase"] for p in parts]),
@@ -270,6 +290,9 @@ def _evaluate_temporary_loss_rollout(
         "final_error": parts[-1]["final_error"],
         "start_step": int(start_step),
     }
+    if error_gain is not None:
+        result["error_gain"] = error_gain
+    return result
 
 
 # Phase-2 rollout settings for temporary-loss conditions.
@@ -569,16 +592,27 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         base, params = parse_condition(condition)
         if base in _TEMPORARY_LOSS_FLAGS:
             phase2_config = dict(_TEMPORARY_LOSS_FLAGS[base])
+            phase2_gain_seq = None
             if base == "dim":
-                phase2_config["error_input_scale"] = params[2] / 100.0
+                # params = (start, ramp_end, end, pct)
+                dim_start, dim_ramp_end, dim_end, dim_pct = params[0], params[1], params[2], params[3]
+                ramp_len = dim_ramp_end - dim_start
+                flat_len = dim_end - dim_ramp_end
+                ramp = torch.linspace(1.0, dim_pct / 100.0, ramp_len + 1)[:-1]
+                flat = torch.full((flat_len,), dim_pct / 100.0)
+                phase2_gain_seq = torch.cat([ramp, flat]).unsqueeze(1)
+                phase2_config["error_input_scale"] = dim_pct / 100.0
+            loss_start_step = params[0]
+            loss_end_step = params[2] if base == "dim" else params[1]
             return _evaluate_temporary_loss_rollout(
                 model,
                 num_steps=num_steps,
-                loss_start=params[0],
-                loss_end=params[1],
+                loss_start=loss_start_step,
+                loss_end=loss_end_step,
                 phase2_force_zero_error=bool(phase2_config["force_zero_error_input"]),
                 phase2_error_input_scale=float(phase2_config["error_input_scale"]),
                 phase2_disable_language=bool(phase2_config["disable_language"]),
+                phase2_gain_sequence=phase2_gain_seq,
                 start_step=start_step,
                 initial_message=initial_message,
                 initial_error=initial_error,

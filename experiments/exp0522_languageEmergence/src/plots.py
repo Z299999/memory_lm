@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import torch
 
 # Keep matplotlib/font caches inside the experiment workspace.
 _RUNTIME_CACHE = Path(__file__).resolve().parents[1] / ".runtime_cache"
@@ -41,7 +42,7 @@ def _slice_rollout(rollout: dict[str, Any] | None, num_steps: int) -> dict[str, 
     if rollout is None:
         return None
     sliced = dict(rollout)
-    for key in ("phase", "target", "prediction", "messages", "message_norm"):
+    for key in ("phase", "target", "prediction", "messages", "message_norm", "error_gain"):
         value = rollout.get(key)
         if value is not None:
             sliced[key] = value[:num_steps]
@@ -501,14 +502,20 @@ def plot_rollout_diagnostics(
                 continue
             base, _ = parse_condition(condition)
             width_kind = _condition_width_kind(condition)
-            ax.plot(
-                steps,
-                rollout["prediction"].numpy(),
-                label=condition,
-                linewidth=_linewidth(config, width_kind),
-                color=_CONDITION_COLORS.get(base),
-                zorder=3 if base == "full" else 2,
-            )
+            error_gain = rollout.get("error_gain")
+            if error_gain is not None:
+                gains_np = error_gain.numpy() if isinstance(error_gain, torch.Tensor) else np.asarray(error_gain, dtype=float)
+                _plot_gain_colored_line(ax, steps, rollout["prediction"].numpy(), gains_np,
+                                        label=condition, linewidth=_linewidth(config, width_kind))
+            else:
+                ax.plot(
+                    steps,
+                    rollout["prediction"].numpy(),
+                    label=condition,
+                    linewidth=_linewidth(config, width_kind),
+                    color=_CONDITION_COLORS.get(base),
+                    zorder=3 if base == "full" else 2,
+                )
         for vline_step, vline_label, vline_color in _build_transition_vlines(
             config.eval_conditions,
             num_steps,
