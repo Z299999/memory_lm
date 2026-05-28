@@ -168,6 +168,28 @@ falls to `min_pct / 100` by `end_step`, and remains there afterward. For example
 `tail_dim(200,2000,5)` starts dimming only after a window survives 200 local
 steps and reaches a 5% error cue at local step 2000.
 
+## Tail-Loss Window
+
+By default, the training loss is the mean squared error over the entire rollout window.
+When `tail_dim` is active, the early part of each window still has a live error cue,
+so the model can "cheat" there. Setting `train_loss_tail_steps` focuses the gradient
+signal on the harder, error-dimmed tail of the window.
+
+```yaml
+train:
+  train_loss_tail_steps: null   # null = all steps (default)
+```
+
+```yaml
+train:
+  train_loss_tail_steps: 100    # only the last 100 steps contribute to the MSE loss
+```
+
+When `effective_steps <= train_loss_tail_steps`, the full window is used automatically.
+BPTT still runs through the entire window, so parameters that processed early steps
+still receive gradient via the message state chain. The window termination criterion
+(`event_triggered`) is not affected by this setting.
+
 ## Task Variants
 
 The `mixed_sin` target sums an arbitrary list of `[freq_multiplier, amplitude]` components,
@@ -432,6 +454,22 @@ This writes:
 - `plots/training_timeline.png`
 
 The timeline figure uses the **real predictions and targets seen during training**, not a later checkpoint replay.
+
+By default each panel autoscales its y-axis independently. Two options allow a
+uniform scale across all panels for easier visual comparison:
+
+```yaml
+plot:
+  plot_training_timeline_shared_ylim: true   # auto: compute global min/max across all panels
+  plot_training_timeline_ylim: null          # null = use shared_ylim logic
+```
+
+```yaml
+plot:
+  plot_training_timeline_ylim: [-2.0, 2.0]  # pin a fixed range; overrides shared_ylim
+```
+
+`plot_training_timeline_ylim` takes precedence over `plot_training_timeline_shared_ylim` when set.
 
 The config is grouped into six top-level sections:
 
