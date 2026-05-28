@@ -130,8 +130,23 @@ class _ErrorDegradeGenerator:
         ramp_up = np.linspace(min_gain, 1.0, ramp + 1, dtype=float)[1:].tolist()
         return ramp_down + plateau + ramp_up
 
-    def next_gain(self, *, force_zero_error_input: bool) -> float:
-        if force_zero_error_input or self.schedule.mode == "none" or self.schedule.rate <= 0.0:
+    def _tail_dim_gain(self, local_step: int) -> float:
+        if self.schedule.start_step is None or self.schedule.end_step is None or self.schedule.min_pct is None:
+            raise ValueError("tail_dim schedule is missing start/end/min_pct.")
+        if local_step < self.schedule.start_step:
+            return 1.0
+        min_gain = self.schedule.min_pct / 100.0
+        if local_step >= self.schedule.end_step:
+            return min_gain
+        progress = (local_step - self.schedule.start_step) / float(self.schedule.end_step - self.schedule.start_step)
+        return 1.0 - (1.0 - min_gain) * progress
+
+    def next_gain(self, *, force_zero_error_input: bool, local_step: int) -> float:
+        if force_zero_error_input or self.schedule.mode == "none":
+            return 1.0
+        if self.schedule.mode == "tail_dim":
+            return float(self._tail_dim_gain(local_step))
+        if self.schedule.rate <= 0.0:
             return 1.0
         if not self._active_gains and random.random() < self._start_prob:
             self._active_gains = self._sample_event_gains()
@@ -140,7 +155,10 @@ class _ErrorDegradeGenerator:
         return 1.0
 
     def next_gains(self, num_steps: int, *, force_zero_error_input: bool, device: torch.device) -> torch.Tensor:
-        gains = [self.next_gain(force_zero_error_input=force_zero_error_input) for _ in range(num_steps)]
+        gains = [
+            self.next_gain(force_zero_error_input=force_zero_error_input, local_step=idx)
+            for idx in range(num_steps)
+        ]
         return torch.tensor(gains, dtype=torch.float32, device=device).reshape(num_steps, 1)
 
 
@@ -274,7 +292,10 @@ def _rollout_event_triggered_window(
     final_error: torch.Tensor | None = None
 
     for step_idx in range(max_steps):
-        error_gain = error_degrade_generator.next_gain(force_zero_error_input=force_zero_error_input)
+        error_gain = error_degrade_generator.next_gain(
+            force_zero_error_input=force_zero_error_input,
+            local_step=step_idx,
+        )
         prediction_step, raw_prediction_step, messages_step, _hidden, final_message, final_error = model.rollout(
             num_steps=1,
             pulse_value=pulse_value,

@@ -197,13 +197,13 @@ def plot_training_curves(
     baseline_label: str = "baseline",
 ) -> None:
     fig, axes = plt.subplots(
-        2,
+        3,
         1,
-        figsize=(config.plot_training_fig_width, config.plot_training_fig_height + 2.0),
-        gridspec_kw={"height_ratios": [1.65, 1.0]},
+        figsize=(config.plot_training_fig_width, config.plot_training_fig_height + 3.6),
+        gridspec_kw={"height_ratios": [1.65, 1.0, 0.9]},
         sharex=True,
     )
-    loss_axis, steps_axis = axes
+    loss_axis, steps_axis, gain_axis = axes
     epochs = [row["epoch"] for row in full_history]
     histories = {
         "full": full_history,
@@ -254,6 +254,32 @@ def plot_training_curves(
     steps_axis.set_title("Realized window length")
     steps_axis.grid(True, alpha=config.plot_grid_alpha)
     _maybe_add_legend(steps_axis, ncol=2)
+
+    error_gain_mean = [row.get("error_gain_mean", 1.0) for row in full_history]
+    gain_axis.plot(
+        epochs,
+        error_gain_mean,
+        color="#2aa7a5",
+        linewidth=config.plot_series_linewidth,
+        alpha=0.9,
+        label="mean error gain",
+    )
+    if len(error_gain_mean) >= 2:
+        gain_rolling_window = max(3, min(25, len(error_gain_mean) // 10 if len(error_gain_mean) >= 10 else len(error_gain_mean)))
+        gain_axis.plot(
+            epochs,
+            _rolling_mean(error_gain_mean, gain_rolling_window),
+            color="#0d3b66",
+            linewidth=config.plot_aux_linewidth,
+            linestyle="--",
+            label=f"rolling mean ({gain_rolling_window})",
+        )
+    gain_axis.set_xlabel("Epoch")
+    gain_axis.set_ylabel("Mean gain")
+    gain_axis.set_ylim(-0.02, 1.02)
+    gain_axis.set_title("Training error-cue strength")
+    gain_axis.grid(True, alpha=config.plot_grid_alpha)
+    _maybe_add_legend(gain_axis, ncol=2)
     fig.tight_layout()
     fig.savefig(output_path, dpi=config.plot_dpi)
     plt.close(fig)

@@ -137,6 +137,9 @@ class ErrorDegradeSchedule:
     max_steps: int = 0
     pct: int = 100
     ramp_steps: int = 0
+    start_step: int | None = None
+    end_step: int | None = None
+    min_pct: int | None = None
 
 
 def parse_train_window_schedule(spec: str) -> TrainWindowSchedule:
@@ -226,7 +229,25 @@ def parse_error_degrade(spec: str) -> ErrorDegradeSchedule:
             pct=pct,
             ramp_steps=ramp_steps,
         )
-    raise ValueError("error_degrade must be 'none' or 'dim(rate,min_steps,max_steps,pct,ramp_steps)'.")
+    tail_match = re.fullmatch(r"tail_dim\((\d+),\s*(\d+),\s*(\d+)\)", raw)
+    if tail_match:
+        start_step = int(tail_match.group(1))
+        end_step = int(tail_match.group(2))
+        min_pct = int(tail_match.group(3))
+        if end_step <= start_step:
+            raise ValueError("error_degrade tail_dim(start,end,min_pct) requires end > start.")
+        if min_pct < 0 or min_pct > 100:
+            raise ValueError("error_degrade tail_dim(start,end,min_pct) requires 0 <= min_pct <= 100.")
+        return ErrorDegradeSchedule(
+            mode="tail_dim",
+            start_step=start_step,
+            end_step=end_step,
+            min_pct=min_pct,
+        )
+    raise ValueError(
+        "error_degrade must be 'none', 'dim(rate,min_steps,max_steps,pct,ramp_steps)', "
+        "or 'tail_dim(start_step,end_step,min_pct)'."
+    )
 
 
 @dataclass
@@ -341,6 +362,9 @@ class ExperimentConfig:
             "resolved_error_degrade_max": error_degrade.max_steps,
             "resolved_error_degrade_pct": error_degrade.pct,
             "resolved_error_degrade_ramp_steps": error_degrade.ramp_steps,
+            "resolved_error_degrade_start_step": error_degrade.start_step,
+            "resolved_error_degrade_end_step": error_degrade.end_step,
+            "resolved_error_degrade_min_pct": error_degrade.min_pct,
             "phase_init": 0.0,
             "omega": omega_from_cycle_steps(self.cycle_steps),
         }

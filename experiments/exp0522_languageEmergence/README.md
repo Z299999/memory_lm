@@ -145,6 +145,11 @@ train:
   error_degrade: dim(0.3,20,80,5,10)
 ```
 
+```yaml
+train:
+  error_degrade: tail_dim(200,2000,5)
+```
+
 `dim(rate,min_steps,max_steps,pct,ramp_steps)` runs an online dim-event process
 over global training time. In the example above, roughly `30%` of training steps
 will fall inside an error-degradation event. Each event lasts `20..80` total
@@ -156,6 +161,12 @@ The degradation only weakens the error cue fed back into the next step. Targets,
 losses, message carry, and eval conditions are unchanged. The intent is to reduce
 over-reliance on the error input and encourage the message/internal dynamics to
 support weak-cue trajectory completion.
+
+`tail_dim(start_step,end_step,min_pct)` is a local-window curriculum. Within each
+training window, the error gain stays at `1.0` before `start_step`, then linearly
+falls to `min_pct / 100` by `end_step`, and remains there afterward. For example,
+`tail_dim(200,2000,5)` starts dimming only after a window survives 200 local
+steps and reaches a 5% error cue at local step 2000.
 
 ## Task Variants
 
