@@ -49,6 +49,17 @@ def _slice_rollout(rollout: dict[str, Any] | None, num_steps: int) -> dict[str, 
 _ROLLOUT_DIAG_BASE_HEIGHT_UNITS = (4 * 1.35) + 1.0 + 1.0 + 0.85
 
 
+def _rolling_mean(values: list[float], window: int) -> np.ndarray:
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        return arr
+    if window <= 1:
+        return arr.copy()
+    kernel = np.ones(window, dtype=float) / float(window)
+    padded = np.pad(arr, (window - 1, 0), mode="edge")
+    return np.convolve(padded, kernel, mode="valid")
+
+
 def _linewidth(config: ExperimentConfig, width_kind: str) -> float:
     if width_kind == "target":
         return config.plot_target_linewidth
@@ -145,9 +156,14 @@ def plot_training_curves(
     full_label: str = "full",
     baseline_label: str = "baseline",
 ) -> None:
-    fig, ax = plt.subplots(
-        figsize=(config.plot_training_fig_width, config.plot_training_fig_height),
+    fig, axes = plt.subplots(
+        2,
+        1,
+        figsize=(config.plot_training_fig_width, config.plot_training_fig_height + 2.0),
+        gridspec_kw={"height_ratios": [1.65, 1.0]},
+        sharex=True,
     )
+    loss_axis, steps_axis = axes
     epochs = [row["epoch"] for row in full_history]
     histories = {
         "full": full_history,
@@ -162,18 +178,42 @@ def plot_training_curves(
             display_label = label.replace("full", full_label, 1)
         else:
             display_label = label.replace("baseline", baseline_label, 1)
-        ax.plot(
+        loss_axis.plot(
             epochs,
             [row[metric_key] for row in history],
             label=display_label,
             linewidth=_linewidth(config, width_kind),
         )
-    ax.set_yscale("log")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("MSE")
-    ax.set_title("exp0522 training curves")
-    ax.grid(True, alpha=config.plot_grid_alpha)
-    _maybe_add_legend(ax, ncol=min(len(config.plot_training_series), 4))
+    loss_axis.set_yscale("log")
+    loss_axis.set_ylabel("MSE")
+    loss_axis.set_title("exp0522 training curves")
+    loss_axis.grid(True, alpha=config.plot_grid_alpha)
+    _maybe_add_legend(loss_axis, ncol=min(len(config.plot_training_series), 4))
+
+    train_steps = [row["train_steps"] for row in full_history]
+    rolling_window = max(3, min(25, len(train_steps) // 10 if len(train_steps) >= 10 else len(train_steps)))
+    steps_axis.plot(
+        epochs,
+        train_steps,
+        color="#1f77b4",
+        linewidth=config.plot_series_linewidth,
+        alpha=0.8,
+        label="train steps",
+    )
+    if len(train_steps) >= 2:
+        steps_axis.plot(
+            epochs,
+            _rolling_mean(train_steps, rolling_window),
+            color="#0d3b66",
+            linewidth=config.plot_aux_linewidth,
+            linestyle="--",
+            label=f"rolling mean ({rolling_window})",
+        )
+    steps_axis.set_xlabel("Epoch")
+    steps_axis.set_ylabel("Train steps")
+    steps_axis.set_title("Realized window length")
+    steps_axis.grid(True, alpha=config.plot_grid_alpha)
+    _maybe_add_legend(steps_axis, ncol=2)
     fig.tight_layout()
     fig.savefig(output_path, dpi=config.plot_dpi)
     plt.close(fig)
