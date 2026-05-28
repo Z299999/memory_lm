@@ -17,13 +17,13 @@ try:
     from .env import build_env
     from .eval import evaluate_conditions, rollout_condition, write_rollout_csv, write_summary
     from .model import SelfTalkController
-    from .plots import plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
+    from .plots import plot_phase_portrait, plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
 except ImportError:  # pragma: no cover
     from config import ExperimentConfig, copy_config_to_run_dir, parse_train_window_schedule, write_resolved_config
     from env import build_env
     from eval import evaluate_conditions, rollout_condition, write_rollout_csv, write_summary
     from model import SelfTalkController
-    from plots import plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
+    from plots import plot_phase_portrait, plot_rollout_diagnostics, plot_training_curves, plot_training_timeline
 
 
 def _seed_everything(seed: int) -> None:
@@ -232,6 +232,12 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
     plot_rollout_diagnostics(
         evals=evals,
         output_path=plots_dir / "eval_rollout_diagnostics.png",
+        config=config,
+        env=env,
+    )
+    plot_phase_portrait(
+        evals=evals,
+        output_path=plots_dir / "eval_phase_portrait.png",
         config=config,
         env=env,
     )

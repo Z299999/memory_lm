@@ -19,6 +19,8 @@ os.environ.setdefault("XDG_CACHE_HOME", str(_XDG_CACHE))
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
+from matplotlib.colors import to_rgb
 import torch
 
 try:
@@ -41,6 +43,30 @@ def _maybe_add_legend(ax: plt.Axes, *, ncol: int) -> None:
     handles, _labels = ax.get_legend_handles_labels()
     if handles:
         ax.legend(loc="upper right", ncol=ncol)
+
+
+def _blend_with_white(color: str, blend: float) -> tuple[float, float, float]:
+    base = np.array(to_rgb(color))
+    white = np.ones(3)
+    return tuple((1.0 - blend) * base + blend * white)
+
+
+def _draw_gradient_path(ax: plt.Axes, x: np.ndarray, y: np.ndarray, color: str, *, linewidth: float) -> None:
+    points = np.column_stack([x, y])
+    if len(points) < 2:
+        return
+    segments = np.stack([points[:-1], points[1:]], axis=1)
+    start_rgb = _blend_with_white(color, 0.8)
+    end_rgb = to_rgb(color)
+    weights = np.linspace(0.0, 1.0, len(segments))
+    colors = np.column_stack([
+        start_rgb[0] + (end_rgb[0] - start_rgb[0]) * weights,
+        start_rgb[1] + (end_rgb[1] - start_rgb[1]) * weights,
+        start_rgb[2] + (end_rgb[2] - start_rgb[2]) * weights,
+        np.linspace(0.22, 1.0, len(segments)),
+    ])
+    collection = LineCollection(segments, colors=colors, linewidths=linewidth, zorder=2)
+    ax.add_collection(collection)
 
 
 def _transition_vlines(config: ExperimentConfig, start_step: int, num_steps: int) -> list[tuple[int, str, str]]:
@@ -241,13 +267,15 @@ def _plot_phase_portrait(ax: plt.Axes, *, evals: dict[str, dict[str, Any]], env:
         if base not in {"full", "blink", "stutter"}:
             continue
         color = _CONDITION_COLORS.get(base)
-        ax.plot(
-            result["state_0"],
-            result["state_1"],
-            label=condition,
-            color=color,
-            linewidth=config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth,
-        )
+        x = np.asarray(result["state_0"], dtype=float)
+        y = np.asarray(result["state_1"], dtype=float)
+        linewidth = config.plot.plot_series_linewidth if base == "full" else config.plot.plot_aux_linewidth
+        _draw_gradient_path(ax, x, y, color, linewidth=linewidth)
+        start_color = _blend_with_white(color, 0.8)
+        ax.plot([], [], color=color, linewidth=linewidth, label=condition)
+        if x.size:
+            ax.scatter([x[0]], [y[0]], facecolors="none", edgecolors=[start_color], linewidths=1.15, marker="o", s=42, zorder=1)
+            ax.scatter([x[-1]], [y[-1]], color=color, marker="X", s=52, linewidths=1.1, zorder=4)
     for item in equilibrium_points:
         x1, x2 = item["point"]
         stable = bool(item["stable"])
@@ -264,6 +292,19 @@ def _plot_phase_portrait(ax: plt.Axes, *, evals: dict[str, dict[str, Any]], env:
     _maybe_add_legend(ax, ncol=3)
 
 
+def plot_phase_portrait(*, evals: dict[str, dict[str, Any]], output_path: Path, config: ExperimentConfig, env: Any) -> None:
+    if int(getattr(env, "state_dim", 1)) != 2:
+        return
+    ref = evals.get("full")
+    if ref is None:
+        return
+    fig, ax = plt.subplots(figsize=(7.0, 6.6))
+    _plot_phase_portrait(ax, evals=evals, env=env, config=config)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=config.plot.plot_dpi)
+    plt.close(fig)
+
+
 def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: Path, config: ExperimentConfig, env: Any) -> None:
     ref = evals.get("full")
     if ref is None:
@@ -276,7 +317,7 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
     if state_dim == 1:
         panels = ["state_0", "state_norm_sq", "control"]
     else:
-        panels = ["state_0", "state_1", "state_norm_sq", "control", "phase_portrait"]
+        panels = ["state_0", "state_1", "state_norm_sq", "control"]
     has_messages = ref["messages"].numel() and ref["messages"].shape[1] > 0
     if has_messages and config.plot.plot_show_message_traces:
         panels.append("messages")
@@ -290,7 +331,7 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
         figsize=(config.plot.plot_diag_fig_width, height),
         gridspec_kw={
             "height_ratios": [
-                1.35 if p == "phase_portrait" else 1.25 if p in {"state_0", "state_1", "state_norm_sq", "control"} else 1.0
+                1.25 if p in {"state_0", "state_1", "state_norm_sq", "control"} else 1.0
                 for p in panels
             ]
         },
@@ -299,7 +340,7 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
         axes = np.array([axes])
     by_name = {name: ax for name, ax in zip(panels, axes)}
 
-    series_panels = [name for name in panels if name not in {"messages", "message_norm", "phase_portrait"}]
+    series_panels = [name for name in panels if name not in {"messages", "message_norm"}]
     for condition, result in evals.items():
         base, _ = parse_condition(condition)
         color = _CONDITION_COLORS.get(base)
@@ -343,9 +384,6 @@ def plot_rollout_diagnostics(*, evals: dict[str, dict[str, Any]], output_path: P
     by_name["control"].set_title("Control signal")
     by_name["control"].set_ylabel("u")
     by_name["control"].set_xlabel("global step")
-
-    if "phase_portrait" in by_name:
-        _plot_phase_portrait(by_name["phase_portrait"], evals=evals, env=env, config=config)
 
     if "messages" in by_name:
         ax = by_name["messages"]

@@ -99,11 +99,13 @@ Each run writes:
 - `plots/training_curves.png`
 - `plots/training_timeline.png`
 - `plots/eval_rollout_diagnostics.png`
+- `plots/eval_phase_portrait.png` for 2D `planar_double_well` runs only
 
 ## Design notes
 
 - `docs/idea2.tex` is the active design document for the simplified control benchmark.
 - `env_kind: scalar_control_affine` lets you specify `f_expr` and `g_expr` directly in the config using a restricted math-expression syntax over `x`.
 - `env_kind: scalar_cubic` is still available as a compatibility wrapper around the older `a x + b x^3 + c u` parameterization.
-- `env_kind: planar_double_well` adds a fixed 2D benchmark with phase-space geometry and a phase portrait panel in `eval_rollout_diagnostics.png`.
-- `docs/phaseportrait.tex` explains why the 2D system is kept alongside the 1D baseline and why the phase portrait is shown only in eval plots.
+- `env_kind: planar_double_well` adds a fixed 2D benchmark with phase-space geometry.
+- For 2D runs, `eval_rollout_diagnostics.png` now stays time-domain only, while `eval_phase_portrait.png` holds the separate phase portrait.
+- `docs/phaseportrait.tex` explains why the 2D system is kept alongside the 1D baseline, why the phase portrait is eval-only, and why the 2D eval is split into two figures.

@@ -7,24 +7,48 @@ run:
 model:
   trunk_dims: [64, 64]                # hidden widths of the feed-forward controller trunk
   activation: tanh                    # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 17                    # number of self-talk channels; set 0 for the no-language control
-  language_readout_coverage: 3        # average number of language heads reading each hidden node
+  language_dim: 7                    # number of self-talk channels; set 0 for the no-language control
+  language_readout_coverage: 2        # average number of language heads reading each hidden node
   use_residual: true                  # skip connections on hidden->hidden layers with matching dims
   language_readout_all_layers: true   # if true, message readout samples from all hidden layers concatenated
-  message_carry_mode: learnable_matrix  # identity | learnable_diagonal | learnable_matrix
+  message_carry_mode: identity  # identity | learnable_diagonal | learnable_matrix
 
 env:
-  env_kind: scalar_control_affine     # scalar control-affine system x_dot = f(x) + g(x) u
-  dt: 0.005                           # Euler step size
-  x0: 0.5                             # positive initial state; uncontrolled dynamics push it outward
+  # Available env kinds:
+  #   scalar_control_affine : 1D system x_dot = f(x) + g(x) u
+  #   scalar_cubic          : 1D compatibility wrapper x_dot = a x + b x^3 + c u
+  #   planar_double_well    : 2D system
+  #                           x1_dot = x2
+  #                           x2_dot = alpha*x1 - beta*x1^3 - gamma*x2 + control_gain*u
+  #
+  # Mainline default below is now the 2D planar_double_well system.
+  # If you ever want to temporarily switch back to 1D, use the commented
+  # scalar template at the end of this block.
+  env_kind: planar_double_well        # current default: 2D double-well benchmark
+  dt: 0.01                            # Euler step size
+  x0: [0.2, 0.0]                      # 2D initial state [x1, x2]
   pulse_value: 1.0                    # constant pulse appended to observation [x, pulse]
-  u_max: 2.0                          # bounded symmetric control scale, applied as u_max * tanh(raw_u)
-  f_expr: x - x**3                    # drift term f(x); this default has equilibria at x = -1, 0, 1
-  g_expr: x+2                         # control field g(x)
-  linear_coeff: 1.0                   # linear drift coefficient in x_dot = a x + b x^3 + c u
-  cubic_coeff: 1.0                    # cubic drift coefficient
+  u_max: 1.5                          # bounded symmetric control scale, applied as u_max * tanh(raw_u)
+  f_expr: x - x**3                    # 1D only: drift term f(x) for scalar_control_affine
+  g_expr: x+2                         # 1D only: control field g(x) for scalar_control_affine
+  linear_coeff: 1.0                   # 1D only: linear drift coefficient in x_dot = a x + b x^3 + c u
+  cubic_coeff: 1.0                    # 1D only: cubic drift coefficient for scalar_cubic
   control_gain: 1.0                   # control coupling coefficient
-  state_limit: 4.0                    # soft tanh saturation to keep early continuous exploration finite
+  alpha: 1.0                          # 2D only: double-well linear coefficient
+  beta: 1.0                           # 2D only: double-well cubic coefficient; with alpha>0 gives outer stable points
+  gamma: 0.4                          # 2D only: damping coefficient
+  state_limit: 6.0                    # soft tanh saturation to keep early continuous exploration finite
+
+  # -------- 1D scalar_control_affine template --------
+  # env_kind: scalar_control_affine
+  # dt: 0.005
+  # x0: 0.5
+  # pulse_value: 1.0
+  # u_max: 2.0
+  # f_expr: x - x**3
+  # g_expr: x+2
+  # control_gain: 1.0
+  # state_limit: 4.0
 
 train:
   epochs: 10000                        # number of continuous-window optimizer updates

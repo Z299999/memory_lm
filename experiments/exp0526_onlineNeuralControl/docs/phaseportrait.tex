@@ -67,4 +67,54 @@ The phase portrait answers a different question:
     \item how blink or stutter perturbations deflect the path.
 \end{itemize}
 
-For that reason the phase portrait is added only to \texttt{eval\_rollout\_diagnostics.png}. It belongs to the evaluation layer, where we compare full, blink, and stutter rollouts against the vector field and equilibrium structure of the environment.
+For that reason the phase portrait belongs only to the evaluation layer, where we compare full, blink, and stutter rollouts against the vector field and equilibrium structure of the environment.
+
+\section{Why split the 2D eval into two figures?}
+
+In the first 2D implementation, the time-domain panels and the phase portrait lived in a single \texttt{eval\_rollout\_diagnostics.png}. That made the figure too crowded, because the time-domain questions and the geometry questions are different.
+
+The time-domain diagnostics answer:
+\begin{itemize}
+    \item whether $x_1(t)$ and $x_2(t)$ settle,
+    \item how $\|x(t)\|^2$ evolves,
+    \item how the control signal $u(t)$ changes,
+    \item what the message channels are doing.
+\end{itemize}
+
+The phase portrait answers:
+\begin{itemize}
+    \item which basin the trajectory enters,
+    \item whether blink or stutter perturbations deflect the path,
+    \item how the rollout moves relative to stable and unstable equilibria.
+\end{itemize}
+
+So the 2D eval is split into:
+\begin{itemize}
+    \item \texttt{eval\_rollout\_diagnostics.png} for time-domain diagnostics,
+    \item \texttt{eval\_phase\_portrait.png} for the state-space geometry.
+\end{itemize}
+
+\section{Why use a gradient path instead of a plain line?}
+
+A plain trajectory line hides time ordering unless one stares closely at start and end markers. For the planar system we want the path to communicate time direction visually.
+
+So the phase portrait trajectory is rendered as a gradient path:
+\begin{itemize}
+    \item early segments are lighter and more transparent,
+    \item later segments are darker and more opaque,
+    \item the start point is marked separately,
+    \item the endpoint is marked separately.
+\end{itemize}
+
+This makes it easier to see not only where a rollout goes, but also how it gets there.
+
+\section{Why only full, blink, and stutter in the phase portrait?}
+
+The phase portrait is meant to compare the nominal closed-loop trajectory with the most informative perturbation cases. For that purpose we keep only:
+\begin{itemize}
+    \item \texttt{full},
+    \item \texttt{blink},
+    \item \texttt{stutter}.
+\end{itemize}
+
+Conditions such as \texttt{sole\_eye}, \texttt{sole\_speech}, and \texttt{neither} remain available in the time-domain diagnostics, but they are omitted from the phase portrait to keep the geometry figure readable.
