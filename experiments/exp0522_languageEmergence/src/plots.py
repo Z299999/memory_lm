@@ -96,8 +96,8 @@ _CONDITION_COLORS: dict[str, str] = {
 _TRAINING_TIMELINE_GAIN_CMAP = LinearSegmentedColormap.from_list(
     "timeline_error_gain",
     [
-        (0.0, "#7bd88f"),  # strongest training-time dim
-        (0.55, "#2aa7a5"),
+        (0.0, "#d81b60"),  # strongest training-time dim
+        (0.55, "#8e5ab5"),
         (1.0, "#1f77b4"),  # normal error cue
     ],
 )
