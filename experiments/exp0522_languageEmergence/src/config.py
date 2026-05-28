@@ -96,13 +96,13 @@ LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither", "late_blind", "late_mute", "blink", "stutter"})
+_VALID_EVAL_CONDITIONS = frozenset({"full", "sole_eye", "sole_speech", "neither", "late_blind", "late_mute", "blink", "dim", "stutter"})
 
 # Expected number of integer params per condition base name.
 _CONDITION_PARAM_COUNTS: dict[str, int] = {
     "full": 0, "sole_eye": 0, "sole_speech": 0, "neither": 0,
     "late_blind": 1, "late_mute": 1,
-    "blink": 2, "stutter": 2,
+    "blink": 2, "dim": 3, "stutter": 2,
 }
 
 
@@ -519,6 +519,13 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
                 raise ValueError(f"eval_conditions: loss_start in '{_cond_str}' must be >= 0.")
             if _params[1] <= _params[0]:
                 raise ValueError(f"eval_conditions: loss_end must be > loss_start in '{_cond_str}'.")
+        if _base == "dim":
+            if _params[0] < 0:
+                raise ValueError(f"eval_conditions: loss_start in '{_cond_str}' must be >= 0.")
+            if _params[1] <= _params[0]:
+                raise ValueError(f"eval_conditions: loss_end must be > loss_start in '{_cond_str}'.")
+            if _params[2] < 0 or _params[2] > 100:
+                raise ValueError(f"eval_conditions: pct in '{_cond_str}' must satisfy 0 <= pct <= 100.")
         _base_names_seen.add(_base)
     if "full" not in _base_names_seen:
         raise ValueError("eval_conditions must contain 'full'.")

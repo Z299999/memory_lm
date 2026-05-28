@@ -29,7 +29,7 @@ _CONDITION_FLAGS: dict[str, tuple[bool, bool]] = {
     "neither":     (True,  True),
 }
 
-_CONDITIONS_NEEDING_ERROR = frozenset({"sole_speech", "neither", "late_blind", "blink", "stutter"})
+_CONDITIONS_NEEDING_ERROR = frozenset({"sole_speech", "neither", "late_blind", "blink", "dim", "stutter"})
 
 
 def _condition_flags(condition_name: str) -> tuple[bool, bool]:
@@ -57,6 +57,7 @@ def _evaluate_rollout(
     initial_error: torch.Tensor | None = None,
     detach_error_input: bool = True,
     force_zero_error_input: bool = False,
+    error_input_scale: float = 1.0,
     disable_language: bool = False,
 ) -> dict[str, Any]:
     model.eval()
@@ -83,6 +84,7 @@ def _evaluate_rollout(
             prediction_target=prediction_target,
             detach_error_input=detach_error_input,
             force_zero_error_input=force_zero_error_input,
+            error_input_scale=error_input_scale,
             disable_language=disable_language,
             return_hidden=True,
         )
@@ -125,6 +127,7 @@ def _evaluate_late_transition_rollout(
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
     detach_error_input: bool = True,
+    error_input_scale: float = 1.0,
 ) -> dict[str, Any]:
     """Run full model for transition_step steps, then switch to given post-transition flags."""
     effective_transition = min(transition_step, num_steps)
@@ -141,6 +144,7 @@ def _evaluate_late_transition_rollout(
         initial_error=initial_error,
         detach_error_input=detach_error_input,
         force_zero_error_input=False,
+        error_input_scale=error_input_scale,
         disable_language=False,
     )
     remaining = num_steps - effective_transition
@@ -159,6 +163,7 @@ def _evaluate_late_transition_rollout(
         initial_error=phase1["final_error"],
         detach_error_input=detach_error_input,
         force_zero_error_input=post_force_zero_error,
+        error_input_scale=error_input_scale,
         disable_language=post_disable_language,
     )
     prediction = torch.cat([phase1["prediction"], phase2["prediction"]])
@@ -188,6 +193,7 @@ def _evaluate_temporary_loss_rollout(
     loss_end: int,
     phase2_force_zero_error: bool,
     phase2_disable_language: bool,
+    phase2_error_input_scale: float,
     cycle_steps: int,
     pulse_value: float,
     target_kind: str,
@@ -199,7 +205,7 @@ def _evaluate_temporary_loss_rollout(
     detach_error_input: bool = True,
 ) -> dict[str, Any]:
     """Full model → temporarily lose a channel [loss_start, loss_end) → full again."""
-    def _rollout(n: int, s: int, msg, err, fze: bool, dl: bool) -> dict[str, Any]:
+    def _rollout(n: int, s: int, msg, err, fze: bool, eis: float, dl: bool) -> dict[str, Any]:
         return _evaluate_rollout(
             model,
             num_steps=n,
@@ -213,11 +219,12 @@ def _evaluate_temporary_loss_rollout(
             initial_error=err,
             detach_error_input=detach_error_input,
             force_zero_error_input=fze,
+            error_input_scale=eis,
             disable_language=dl,
         )
 
     p1_steps = min(loss_start, num_steps)
-    p1 = _rollout(p1_steps, start_step, initial_message, initial_error, False, False)
+    p1 = _rollout(p1_steps, start_step, initial_message, initial_error, False, 1.0, False)
     if p1_steps >= num_steps:
         return p1
 
@@ -228,6 +235,7 @@ def _evaluate_temporary_loss_rollout(
         p1["final_message"],
         p1["final_error"],
         phase2_force_zero_error,
+        phase2_error_input_scale,
         phase2_disable_language,
     )
     if p1_steps + p2_steps >= num_steps:
@@ -240,6 +248,7 @@ def _evaluate_temporary_loss_rollout(
             p2["final_message"],
             p2["final_error"],
             False,
+            1.0,
             False,
         )
         parts = [p1, p2, p3]
@@ -263,10 +272,11 @@ def _evaluate_temporary_loss_rollout(
     }
 
 
-# Phase-2 flags for temporary-loss conditions: (force_zero_error, disable_language)
-_TEMPORARY_LOSS_FLAGS: dict[str, tuple[bool, bool]] = {
-    "blink":   (True,  False),  # temporarily lose error channel
-    "stutter": (False, True),   # temporarily lose language channel
+# Phase-2 rollout settings for temporary-loss conditions.
+_TEMPORARY_LOSS_FLAGS: dict[str, dict[str, float | bool]] = {
+    "blink":   {"force_zero_error_input": True, "error_input_scale": 1.0, "disable_language": False},
+    "dim":     {"force_zero_error_input": False, "error_input_scale": 1.0, "disable_language": False},
+    "stutter": {"force_zero_error_input": False, "error_input_scale": 1.0, "disable_language": True},
 }
 
 # Post-transition flags for each late-transition condition.
@@ -317,6 +327,7 @@ def _evaluate_continuous_stream(
                 prediction_target=prediction_target,
                 detach_error_input=detach_error_input,
                 force_zero_error_input=force_zero_error_input,
+                error_input_scale=error_input_scale,
                 disable_language=disable_language,
                 return_hidden=False,
             )
@@ -338,6 +349,7 @@ def _evaluate_continuous_stream(
         initial_error=initial_error,
         detach_error_input=detach_error_input,
         force_zero_error_input=force_zero_error_input,
+        error_input_scale=error_input_scale,
         disable_language=disable_language,
     )
 
@@ -544,19 +556,22 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     ) -> dict[str, Any]:
         base, params = parse_condition(condition)
         if base in _TEMPORARY_LOSS_FLAGS:
-            p2_fze, p2_dl = _TEMPORARY_LOSS_FLAGS[base]
+            phase2_config = dict(_TEMPORARY_LOSS_FLAGS[base])
+            if base == "dim":
+                phase2_config["error_input_scale"] = params[2] / 100.0
             return _evaluate_temporary_loss_rollout(
                 model,
                 num_steps=num_steps,
                 loss_start=params[0],
                 loss_end=params[1],
-                phase2_force_zero_error=p2_fze,
-                phase2_disable_language=p2_dl,
-                    start_step=start_step,
-                    initial_message=initial_message,
-                    initial_error=initial_error,
-                    **common_kwargs,
-                )
+                phase2_force_zero_error=bool(phase2_config["force_zero_error_input"]),
+                phase2_error_input_scale=float(phase2_config["error_input_scale"]),
+                phase2_disable_language=bool(phase2_config["disable_language"]),
+                start_step=start_step,
+                initial_message=initial_message,
+                initial_error=initial_error,
+                **common_kwargs,
+            )
         if base in _LATE_TRANSITION_FLAGS:
             post_fze, post_dl = _LATE_TRANSITION_FLAGS[base]
             return _evaluate_late_transition_rollout(
@@ -565,22 +580,22 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                 transition_step=params[0],
                 post_force_zero_error=post_fze,
                 post_disable_language=post_dl,
-                    start_step=start_step,
-                    initial_message=initial_message,
-                    initial_error=initial_error,
-                    **common_kwargs,
-                )
+                start_step=start_step,
+                initial_message=initial_message,
+                initial_error=initial_error,
+                **common_kwargs,
+            )
         fze, dl = _condition_flags(base)
         return _evaluate_rollout(
             model,
             num_steps=num_steps,
             force_zero_error_input=fze,
             disable_language=dl,
-                start_step=start_step,
-                initial_message=initial_message,
-                initial_error=initial_error,
-                **common_kwargs,
-            )
+            start_step=start_step,
+            initial_message=initial_message,
+            initial_error=initial_error,
+            **common_kwargs,
+        )
 
     if reset_eval_enabled:
         reset_evals = {c: _run_condition(c, config.eval_steps) for c in config.eval_conditions}

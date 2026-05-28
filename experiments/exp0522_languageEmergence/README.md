@@ -58,6 +58,12 @@ training path.
   - temporary loss of error or language during rollout
   - test whether the learned closed loop can recover after a transient interruption
 
+- `dim(start,end,pct)`
+  - temporary weakening of the error channel during rollout
+  - feeds `(pct / 100) * e_t` into the next step instead of zeroing the error
+  - useful for testing whether a weak but nonzero prediction-error cue is enough for the language/message loop to complete the trajectory
+  - this is a degraded prediction-error cue model, not a retinal luminance model
+
 Architecture-level comparison against a model with no language channel is now
 done by running a separate config with `language_dim: 0`.
 

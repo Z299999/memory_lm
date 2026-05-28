@@ -1,13 +1,13 @@
 run:
   run_name: exp0522_single_agent_mainline  # run folder suffix
   seed: 42                     # random seed for model init and fixed language readout
-  log_every: 100               # print training status every N epochs
+  log_every: 25               # print training status every N epochs
   output_root: runs            # where timestamped run folders are created
 
 model:
-  trunk_dims: [64, 64, 64]    # hidden width of the MLP trunk
+  trunk_dims: [96, 96, 96]    # hidden width of the MLP trunk
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
-  language_dim: 17              # number of language input/output heads; set to 0 for the no-language control
+  language_dim: 7              # number of language input/output heads; set to 0 for the no-language control
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims
@@ -37,12 +37,12 @@ task:
     
 
 train:
-  epochs: 20000                # total training epochs
-  lr: 0.002                  # Adam learning rate
+  epochs: 300                # total training epochs
+  lr: 0.001                  # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
-  train_window_schedule: random_uniform(5, 50) # rollout length rule: fixed(L), random_uniform(a,b), or event_triggered(threshold,min_steps,max_steps)
+  train_window_schedule: event_triggered(0.02,10,2000) # rollout length rule: fixed(L), random_uniform(a,b), or event_triggered(threshold,min_steps,max_steps)
   train_phase_mode: continuous      # reset or continuous phase progression during training
   message_aux_loss_weight: 0  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
   detach_error_input: true     # whether e_t is detached before being fed into the next step
@@ -55,8 +55,8 @@ eval:
   continuous_eval_steps: 512   # measured length of the continuous-stream evaluation
   eval_phase_mode: both        # which evals to run and plot: reset | continuous | both
   # ablation conditions: full | sole_eye | sole_speech | neither
-  #                      late_blind(N) | late_mute(N) | blink(start,end) | stutter(start,end)
-  eval_conditions: [full, "blink(40,100)", "stutter(120,220)"]
+  #                      late_blind(N) | late_mute(N) | blink(start,end) | dim(start,end,pct) | stutter(start,end)
+  eval_conditions: [full, "blink(40,100)", "dim(40,100,5)", "stutter(120,220)"]
 
 analysis:
   enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis

@@ -192,6 +192,7 @@ class ExternalClockMLP(nn.Module):
         prediction_target: str = "y",
         detach_error_input: bool = True,
         force_zero_error_input: bool = False,
+        error_input_scale: float = 1.0,
         disable_language: bool = False,
         return_hidden: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
@@ -241,6 +242,9 @@ class ExternalClockMLP(nn.Module):
                         f"got {tuple(initial_error.shape)}."
                     )
                 error_prev = initial_error.to(device=device)
+            error_input_scale = float(error_input_scale)
+            if error_input_scale < 0.0:
+                raise ValueError("error_input_scale must be non-negative.")
             y_target_sequence = y_target_sequence.to(device=device)
         else:
             error_prev = torch.zeros(batch_size, 0, device=device)
@@ -326,6 +330,7 @@ class ExternalClockMLP(nn.Module):
                 else:
                     error_t = y_target_sequence[step_idx : step_idx + 1] - y_t
                     error_prev = error_t.detach() if detach_error_input else error_t
+                    error_prev = error_input_scale * error_prev
 
         hidden_tensor = torch.cat(hidden_snapshots, dim=0) if return_hidden else None
         final_message = message_prev

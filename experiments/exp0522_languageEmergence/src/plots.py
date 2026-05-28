@@ -87,6 +87,7 @@ _CONDITION_COLORS: dict[str, str] = {
     "late_blind":  "#c05030",  # muted red-orange
     "late_mute":   "#bcbd22",  # olive yellow
     "blink":       "#ff7f0e",  # vivid orange
+    "dim":         "#f4a261",  # lighter orange for soft blink
     "stutter":     "#e377c2",  # pink
 }
 
@@ -386,6 +387,12 @@ def plot_rollout_diagnostics(
                     vlines.append((start_step + s - 1, f"↓{base}", color))
                 if e < num_steps:
                     vlines.append((start_step + e - 1, f"↑{base}", color))
+            elif base == "dim" and len(params) == 3:
+                s, e, pct = params
+                if s < num_steps:
+                    vlines.append((start_step + s - 1, f"↓dim({pct}%)", color))
+                if e < num_steps:
+                    vlines.append((start_step + e - 1, f"↑dim({pct}%)", color))
         return vlines
 
     def _plot_rollout_panel(ax: plt.Axes, evals: dict[str, dict] | None, num_steps: int, title: str) -> None:
