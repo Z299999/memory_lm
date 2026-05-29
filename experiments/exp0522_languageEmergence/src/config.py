@@ -14,7 +14,7 @@ import yaml
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
-    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "use_dense", "language_readout_all_layers", "message_carry_mode", "language_readout_trainable"),
+    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "use_dense", "language_readout_all_layers", "message_carry_mode", "language_readout_trainable", "readout_nonlinearity"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "prediction_target"),
     "train": (
         "epochs",
@@ -302,6 +302,7 @@ class ExperimentConfig:
     use_dense: bool = False
     language_readout_all_layers: bool = False
     language_readout_trainable: bool = False
+    readout_nonlinearity: str = "none"
     message_carry_mode: str = "identity"
     cycle_steps: int = 32
     target_kind: str = "sine"
@@ -611,6 +612,9 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("train_loss_space must be 'raw' or 'y'.")
     if payload["activation"] not in {"tanh", "relu", "leaky_relu"}:
         raise ValueError("activation must be 'tanh', 'relu', or 'leaky_relu'.")
+    payload["readout_nonlinearity"] = str(payload["readout_nonlinearity"])
+    if payload["readout_nonlinearity"] not in {"none", "tanh"}:
+        raise ValueError("readout_nonlinearity must be 'none' or 'tanh'.")
     if payload["message_carry_mode"] not in {"identity", "learnable_diagonal", "learnable_matrix"}:
         raise ValueError("message_carry_mode must be 'identity', 'learnable_diagonal', or 'learnable_matrix'.")
     window_schedule = parse_train_window_schedule(payload["train_window_schedule"])

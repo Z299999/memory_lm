@@ -121,6 +121,7 @@ class ExternalClockMLP(nn.Module):
         use_dense: bool = False,
         language_readout_all_layers: bool = False,
         language_readout_trainable: bool = False,
+        readout_nonlinearity: str = "none",
         message_carry_mode: str = "identity",
         seed: int = 42,
     ) -> None:
@@ -134,6 +135,7 @@ class ExternalClockMLP(nn.Module):
         self.use_language = bool(use_language) and self.language_dim > 0
         self.use_residual = bool(use_residual)
         self.use_dense = bool(use_dense)
+        self.readout_nonlinearity = str(readout_nonlinearity)
         self.language_readout_all_layers = bool(language_readout_all_layers)
         self.message_carry_mode = str(message_carry_mode)
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
@@ -346,6 +348,8 @@ class ExternalClockMLP(nn.Module):
             if self.use_language and not disable_language:
                 readout_input = torch.cat(all_hiddens, dim=-1) if self.language_readout_all_layers else hidden
                 message_t = readout_input @ self.language_readout
+                if self.readout_nonlinearity == "tanh":
+                    message_t = torch.tanh(message_t)
             elif self.use_language:
                 message_t = torch.zeros_like(message_prev)
             else:

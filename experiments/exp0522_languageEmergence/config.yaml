@@ -5,16 +5,17 @@ run:
   output_root: runs            # where timestamped run folders are created
 
 model:
-  trunk_dims: [64,64,64,64,64,64]    # hidden width of the MLP trunk
+  trunk_dims: "[11]*20"    # hidden width of the MLP trunk
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
   language_dim: 53              # number of language input/output heads; set to 0 for the no-language control
-  language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
+  language_readout_coverage: 2  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
   use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims (ignored when use_dense is true)
-  use_dense: false             # DenseNet trunk: each layer receives concat of all previous layer outputs
+  use_dense: true             # DenseNet trunk: each layer receives concat of all previous layer outputs
   language_readout_all_layers: true  # if true, readout node pool = all hidden layers (concat); false = last layer only
   language_readout_trainable: true  # true = R is nn.Parameter; gradient shapes which layer each head reads from
-  message_carry_mode: identity       # identity | learnable_diagonal | learnable_matrix
+  readout_nonlinearity: none        # activation after readout projection: none | tanh
+  message_carry_mode: learnable_matrix       # identity | learnable_diagonal | learnable_matrix
 
 task:
   cycle_steps: 32               # number of steps in one full target cycle

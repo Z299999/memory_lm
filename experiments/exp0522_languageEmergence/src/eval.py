@@ -532,6 +532,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         use_dense=config.use_dense,
         language_readout_all_layers=config.language_readout_all_layers,
         language_readout_trainable=config.language_readout_trainable,
+        readout_nonlinearity=config.readout_nonlinearity,
         message_carry_mode=config.message_carry_mode,
         seed=config.seed,
     ).to(device)
