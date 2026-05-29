@@ -515,6 +515,14 @@ def _train_single_model(
         else:
             total_loss = train_loss
 
+        if (
+            config.language_readout_trainable
+            and config.language_readout_norm_penalty > 0.0
+            and model.use_language
+        ):
+            col_norms = model.language_readout.norm(dim=0)
+            total_loss = total_loss + config.language_readout_norm_penalty * ((col_norms - 1.0) ** 2).mean()
+
         total_loss.backward()
         if config.grad_clip > 0.0:
             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
@@ -637,6 +645,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
         use_language=True,
         use_residual=config.use_residual,
         language_readout_all_layers=config.language_readout_all_layers,
+        language_readout_trainable=config.language_readout_trainable,
         message_carry_mode=config.message_carry_mode,
         seed=config.seed,
     ).to(device)

@@ -119,6 +119,7 @@ class ExternalClockMLP(nn.Module):
         use_language: bool = True,
         use_residual: bool = True,
         language_readout_all_layers: bool = False,
+        language_readout_trainable: bool = False,
         message_carry_mode: str = "identity",
         seed: int = 42,
     ) -> None:
@@ -165,7 +166,10 @@ class ExternalClockMLP(nn.Module):
             )
         else:
             readout = torch.zeros(readout_input_dim, 0)
-        self.register_buffer("language_readout", readout)
+        if language_readout_trainable and self.use_language:
+            self.language_readout = nn.Parameter(readout)
+        else:
+            self.register_buffer("language_readout", readout)
 
     def _step_hidden(self, step_input: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
         hidden = step_input

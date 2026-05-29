@@ -330,6 +330,34 @@ model:
   language_readout_all_layers: true
 ```
 
+## Trainable Language Readout
+
+By default the readout matrix R is a fixed `register_buffer` and receives no gradients.
+Setting `language_readout_trainable: true` promotes R to an `nn.Parameter` so that each
+message head can learn which layer to read from.
+
+```yaml
+model:
+  language_readout_trainable: true   # R becomes nn.Parameter; initialized from the fixed sparse matrix
+```
+
+The most useful combination is `language_readout_all_layers: true` (readout shape
+`(sum(trunk_dims), language_dim)`). With three trunk layers of width 96 the rows partition
+as layer-1: 0–95, layer-2: 96–191, layer-3: 192–287. Gradient pressure will push fast-timescale
+heads toward layer-1 rows and slow-timescale heads toward layer-3 rows.
+
+To prevent message dimensions from silently collapsing to zero use the column-norm penalty:
+
+```yaml
+train:
+  language_readout_norm_penalty: 0.01  # penalizes (||col_j||_2 - 1)^2 for each message head j
+```
+
+**Important:** this feature is only meaningful when the language channel faces genuine training-time
+pressure — i.e. error feedback is off or strongly dimmed (`force_zero_error_input`, `tail_dim`, etc.).
+With a live error input the error cheat path eliminates gradient pressure on the language channel and
+the learned readout will be near-arbitrary.
+
 ## Message Carry Mode
 
 Controls how the previous message is transformed before entering the next step's

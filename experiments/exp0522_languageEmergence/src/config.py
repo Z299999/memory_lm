@@ -14,7 +14,7 @@ import yaml
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
-    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers", "message_carry_mode"),
+    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers", "message_carry_mode", "language_readout_trainable"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "prediction_target"),
     "train": (
         "epochs",
@@ -31,6 +31,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "force_zero_error_input",
         "train_loss_tail_steps",
         "train_loss_space",
+        "language_readout_norm_penalty",
     ),
     "eval": (
         "eval_steps",
@@ -291,6 +292,7 @@ class ExperimentConfig:
     force_zero_error_input: bool = False
     train_loss_tail_steps: int | None = None
     train_loss_space: str = "y"
+    language_readout_norm_penalty: float = 0.0
     trunk_dims: tuple[int, ...] = (32,)
     activation: str = "tanh"
     language_dim: int = 4
@@ -298,6 +300,7 @@ class ExperimentConfig:
     use_error_input: bool = False
     use_residual: bool = True
     language_readout_all_layers: bool = False
+    language_readout_trainable: bool = False
     message_carry_mode: str = "identity"
     cycle_steps: int = 32
     target_kind: str = "sine"
@@ -496,6 +499,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "grad_clip",
         "pulse_value",
         "message_aux_loss_weight",
+        "language_readout_norm_penalty",
         "plot_training_fig_width",
         "plot_training_fig_height",
         "plot_diag_fig_width",
@@ -572,6 +576,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "use_error_input",
         "use_residual",
         "language_readout_all_layers",
+        "language_readout_trainable",
         "enable_continuous_collapse",
         "detach_error_input",
         "carry_error_between_windows",
