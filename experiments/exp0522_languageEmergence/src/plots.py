@@ -657,16 +657,25 @@ def plot_readout_kernels(
 
     col_norms = np.linalg.norm(R, axis=0)  # (language_dim,)
 
+    # Each cell is a square: cell_size inches per grid unit, capped so the figure
+    # stays under ~24" wide.
+    cell_size = min(0.18, 22.0 / max(hidden_dim, 1))
+    heat_w = hidden_dim * cell_size
+    heat_h = language_dim * cell_size
+    norm_h = 1.6
+    fig_w = heat_w + 2.0   # +2 for colorbar / margins
+    fig_h = heat_h + norm_h + 1.2
+
     fig, (ax_heat, ax_norm) = plt.subplots(
         2, 1,
-        figsize=(max(8, hidden_dim / 12), language_dim * 0.6 + 1.8),
-        gridspec_kw={"height_ratios": [language_dim, 1.2], "hspace": 0.35},
+        figsize=(fig_w, fig_h),
+        gridspec_kw={"height_ratios": [heat_h, norm_h], "hspace": 0.45},
     )
 
     vmax = max(float(np.abs(R_T).max()), 1e-6)
     im = ax_heat.imshow(
         R_T,
-        aspect="auto",
+        aspect="equal",
         cmap="RdBu_r",
         vmin=-vmax,
         vmax=vmax,
