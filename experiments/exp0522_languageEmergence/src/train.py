@@ -587,6 +587,16 @@ def _train_single_model(
                 f"train={row['train_loss']:.6f} val={row['val_loss']:.6f}"
             )
 
+        if (
+            config.early_stop_min_steps is not None
+            and effective_steps >= config.early_stop_min_steps
+        ):
+            print(
+                f"[{model_name}] early stop at epoch {epoch}: "
+                f"steps={effective_steps} >= early_stop_min_steps={config.early_stop_min_steps}"
+            )
+            break
+
         if checkpoint_dir is not None and epoch in checkpoint_epochs:
             _save_checkpoint(
                 model,

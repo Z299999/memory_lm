@@ -25,6 +25,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "train_window_schedule",
         "train_phase_mode",
         "error_degrade",
+        "early_stop_min_steps",
         "message_aux_loss_weight",
         "detach_error_input",
         "carry_error_between_windows",
@@ -290,6 +291,7 @@ class ExperimentConfig:
     detach_error_input: bool = True
     carry_error_between_windows: bool = True
     force_zero_error_input: bool = False
+    early_stop_min_steps: int | None = None
     train_loss_tail_steps: int | None = None
     train_loss_space: str = "y"
     language_readout_norm_penalty: float = 0.0
@@ -559,6 +561,15 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if not isinstance(checkpoint_epochs, (list, tuple)):
         raise ValueError("checkpoint_epochs must be a yaml list.")
     payload["checkpoint_epochs"] = tuple(int(item) for item in checkpoint_epochs)
+
+    early_stop_raw = payload.get("early_stop_min_steps", None)
+    if early_stop_raw is None:
+        payload["early_stop_min_steps"] = None
+    else:
+        v = int(early_stop_raw)
+        if v <= 0:
+            raise ValueError("early_stop_min_steps must be a positive integer or null.")
+        payload["early_stop_min_steps"] = v
 
     tail_raw = payload.get("train_loss_tail_steps", None)
     if tail_raw is None:
