@@ -634,3 +634,86 @@ def plot_rollout_diagnostics(
     fig.tight_layout()
     fig.savefig(output_path, dpi=config.plot_dpi)
     plt.close(fig)
+
+
+def plot_readout_kernels(
+    readout_matrix: np.ndarray,
+    trunk_dims: tuple[int, ...],
+    language_readout_all_layers: bool,
+    language_readout_trainable: bool,
+    output_path: Path,
+    dpi: int = 160,
+) -> None:
+    """Visualize the language readout matrix R (hidden_dim × language_dim).
+
+    Each row of the heatmap is one message head; each column is a hidden node.
+    Vertical dividers mark layer boundaries when language_readout_all_layers is True.
+    A column-norm bar below the heatmap shows how active each head is.
+    """
+    # readout_matrix: (hidden_dim, language_dim) — transpose for plotting
+    R = readout_matrix  # (hidden_dim, language_dim)
+    hidden_dim, language_dim = R.shape
+    R_T = R.T  # (language_dim, hidden_dim) — rows=heads, cols=hidden nodes
+
+    col_norms = np.linalg.norm(R, axis=0)  # (language_dim,)
+
+    fig, (ax_heat, ax_norm) = plt.subplots(
+        2, 1,
+        figsize=(max(8, hidden_dim / 12), language_dim * 0.6 + 1.8),
+        gridspec_kw={"height_ratios": [language_dim, 1.2], "hspace": 0.35},
+    )
+
+    vmax = max(float(np.abs(R_T).max()), 1e-6)
+    im = ax_heat.imshow(
+        R_T,
+        aspect="auto",
+        cmap="RdBu_r",
+        vmin=-vmax,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+    fig.colorbar(im, ax=ax_heat, shrink=0.8, label="weight")
+
+    # Layer boundary dividers
+    if language_readout_all_layers and len(trunk_dims) > 1:
+        cumulative = 0
+        for layer_idx, dim in enumerate(trunk_dims):
+            if layer_idx > 0:
+                ax_heat.axvline(x=cumulative - 0.5, color="black", linewidth=0.8, alpha=0.6)
+            label_x = cumulative + dim / 2 - 0.5
+            ax_heat.text(
+                label_x, -0.7, f"L{layer_idx + 1}",
+                ha="center", va="bottom", fontsize=7,
+                transform=ax_heat.get_xaxis_transform(),
+            )
+            cumulative += dim
+
+    ax_heat.set_xlabel("hidden node (grouped by layer)" if language_readout_all_layers else "hidden node")
+    ax_heat.set_ylabel("message head")
+    ax_heat.set_yticks(range(language_dim))
+    ax_heat.set_yticklabels([str(i) for i in range(language_dim)], fontsize=8)
+    trainable_tag = "trainable" if language_readout_trainable else "fixed"
+    ax_heat.set_title(
+        f"Language readout R  ({hidden_dim}×{language_dim}, {trainable_tag})",
+        fontsize=10,
+    )
+
+    # Column-norm bar
+    bars = ax_norm.bar(range(language_dim), col_norms, color="#4c9be8", edgecolor="white", linewidth=0.5)
+    ax_norm.axhline(y=1.0, color="gray", linewidth=0.8, linestyle="--", alpha=0.7)
+    ax_norm.set_xlim(-0.5, language_dim - 0.5)
+    ax_norm.set_xticks(range(language_dim))
+    ax_norm.set_xlabel("message head")
+    ax_norm.set_ylabel("‖col‖₂")
+    ax_norm.set_title("per-head column norm", fontsize=9)
+    ax_norm.grid(True, axis="y", alpha=0.3)
+    for bar, val in zip(bars, col_norms):
+        ax_norm.text(
+            bar.get_x() + bar.get_width() / 2,
+            val + float(np.max(col_norms)) * 0.02,
+            f"{val:.2f}",
+            ha="center", va="bottom", fontsize=7,
+        )
+
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)

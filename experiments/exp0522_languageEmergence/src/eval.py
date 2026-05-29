@@ -12,12 +12,12 @@ import torch
 try:
     from .config import ExperimentConfig, parse_condition, parse_error_degrade, parse_train_window_schedule, train_window_bounds, train_window_reference_steps
     from .model import ExternalClockMLP
-    from .plots import plot_rollout_diagnostics
+    from .plots import plot_readout_kernels, plot_rollout_diagnostics
     from .task import build_rollout_targets
 except ImportError:  # pragma: no cover - script mode
     from config import ExperimentConfig, parse_condition, parse_error_degrade, parse_train_window_schedule, train_window_bounds, train_window_reference_steps
     from model import ExternalClockMLP
-    from plots import plot_rollout_diagnostics
+    from plots import plot_readout_kernels, plot_rollout_diagnostics
     from task import build_rollout_targets
 
 
@@ -530,6 +530,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         use_language=True,
         use_residual=config.use_residual,
         language_readout_all_layers=config.language_readout_all_layers,
+        language_readout_trainable=config.language_readout_trainable,
         message_carry_mode=config.message_carry_mode,
         seed=config.seed,
     ).to(device)
@@ -712,6 +713,17 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         output_path=plots_dir / "eval_rollout_diagnostics.png",
         config=config,
     )
+
+    if model.use_language:
+        import numpy as np
+        plot_readout_kernels(
+            readout_matrix=model.language_readout.detach().cpu().numpy(),
+            trunk_dims=config.trunk_dims,
+            language_readout_all_layers=config.language_readout_all_layers,
+            language_readout_trainable=config.language_readout_trainable,
+            output_path=plots_dir / "language_readout_kernels.png",
+            dpi=config.plot_dpi,
+        )
 
     full_history_path = metrics_dir / "history_full_language.json"
     full_history: list[dict[str, float]] = (
