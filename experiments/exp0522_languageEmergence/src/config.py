@@ -465,11 +465,12 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
 
     trunk_dims = payload.get("trunk_dims")
     if isinstance(trunk_dims, str):
-        # shorthand: "16x8" → (16,)*8, "32x4" → (32,)*4
+        # shorthand: "16x8" or "[16]*8" → (16,)*8
         import re as _re
-        _m = _re.fullmatch(r"(\d+)x(\d+)", trunk_dims.strip())
+        _s = trunk_dims.strip()
+        _m = _re.fullmatch(r"(\d+)x(\d+)", _s) or _re.fullmatch(r"\[(\d+)\]\*(\d+)", _s)
         if not _m:
-            raise ValueError("trunk_dims string shorthand must be 'WxD' (e.g. '16x8').")
+            raise ValueError("trunk_dims string shorthand must be 'WxD' or '[W]*D' (e.g. '16x8' or '[16]*8').")
         trunk_dims = [int(_m.group(1))] * int(_m.group(2))
     if not isinstance(trunk_dims, (list, tuple)) or not trunk_dims:
         raise ValueError("trunk_dims must be a non-empty list of positive integers.")
