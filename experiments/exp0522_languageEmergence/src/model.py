@@ -118,6 +118,7 @@ class ExternalClockMLP(nn.Module):
         use_error_input: bool = False,
         use_language: bool = True,
         use_residual: bool = True,
+        use_dense: bool = False,
         language_readout_all_layers: bool = False,
         language_readout_trainable: bool = False,
         message_carry_mode: str = "identity",
@@ -132,15 +133,24 @@ class ExternalClockMLP(nn.Module):
         self.language_dim = int(language_dim) if use_language else 0
         self.use_language = bool(use_language) and self.language_dim > 0
         self.use_residual = bool(use_residual)
+        self.use_dense = bool(use_dense)
         self.language_readout_all_layers = bool(language_readout_all_layers)
         self.message_carry_mode = str(message_carry_mode)
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
-        dims = [input_dim, *trunk_dims]
 
-        self.trunk = nn.ModuleList(
-            nn.Linear(dims[idx], dims[idx + 1], bias=True)
-            for idx in range(len(dims) - 1)
-        )
+        if self.use_dense:
+            cumulative_dim = input_dim
+            dense_layers = []
+            for out_dim in trunk_dims:
+                dense_layers.append(nn.Linear(cumulative_dim, out_dim, bias=True))
+                cumulative_dim += out_dim
+            self.trunk = nn.ModuleList(dense_layers)
+        else:
+            dims = [input_dim, *trunk_dims]
+            self.trunk = nn.ModuleList(
+                nn.Linear(dims[idx], dims[idx + 1], bias=True)
+                for idx in range(len(dims) - 1)
+            )
         for layer in self.trunk:
             _init_linear(layer, self.activation_name)
 
@@ -172,14 +182,21 @@ class ExternalClockMLP(nn.Module):
             self.register_buffer("language_readout", readout)
 
     def _step_hidden(self, step_input: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
-        hidden = step_input
         all_hiddens: list[torch.Tensor] = []
-        for layer in self.trunk:
-            new_hidden = self.activation(layer(hidden))
-            if self.use_residual and hidden.shape[-1] == new_hidden.shape[-1]:
-                new_hidden = new_hidden + hidden
-            hidden = new_hidden
-            all_hiddens.append(hidden)
+        if self.use_dense:
+            dense_in = step_input
+            for layer in self.trunk:
+                hidden = self.activation(layer(dense_in))
+                all_hiddens.append(hidden)
+                dense_in = torch.cat([dense_in, hidden], dim=-1)
+        else:
+            hidden = step_input
+            for layer in self.trunk:
+                new_hidden = self.activation(layer(hidden))
+                if self.use_residual and hidden.shape[-1] == new_hidden.shape[-1]:
+                    new_hidden = new_hidden + hidden
+                hidden = new_hidden
+                all_hiddens.append(hidden)
         return hidden, all_hiddens
 
     def rollout(

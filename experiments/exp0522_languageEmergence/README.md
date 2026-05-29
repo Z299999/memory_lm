@@ -317,7 +317,38 @@ new_hidden = activation(W @ hidden) + hidden
 ```
 
 This is a no-op on the first layer (input_dim ≠ trunk_dim) and on dimension-mismatched
-transitions between layers.
+transitions between layers. `use_residual` is ignored when `use_dense: true`.
+
+## DenseNet Trunk
+
+When `use_dense: true`, each trunk layer receives the concatenation of all preceding
+layer outputs (DenseNet-style) instead of only the immediately preceding layer:
+
+```
+h_k = activation(W_k @ concat(input, h_1, ..., h_{k-1}))
+```
+
+This gives every layer direct access to all earlier representations. The input dimension
+of layer k grows as `input_dim + sum(trunk_dims[:k-1])`, so parameters increase with
+depth. Example with `trunk_dims: [64,64,64,64,64,64]` and `input_dim=55`:
+
+| layer | input_dim |
+|---|---|
+| 1 | 55 |
+| 2 | 119 |
+| 3 | 183 |
+| 4 | 247 |
+| 5 | 311 |
+| 6 | 375 |
+
+Combined with `language_readout_all_layers: true` and `language_readout_trainable: true`,
+each message head can learn to mix across the full depth hierarchy, naturally supporting
+different timescales in different message dimensions.
+
+```yaml
+model:
+  use_dense: true
+```
 
 ## Multi-Layer Language Readout
 

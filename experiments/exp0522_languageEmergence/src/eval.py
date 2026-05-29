@@ -529,6 +529,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         use_error_input=config.use_error_input,
         use_language=True,
         use_residual=config.use_residual,
+        use_dense=config.use_dense,
         language_readout_all_layers=config.language_readout_all_layers,
         language_readout_trainable=config.language_readout_trainable,
         message_carry_mode=config.message_carry_mode,

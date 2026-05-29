@@ -14,7 +14,7 @@ import yaml
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
-    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "language_readout_all_layers", "message_carry_mode", "language_readout_trainable"),
+    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "use_dense", "language_readout_all_layers", "message_carry_mode", "language_readout_trainable"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "prediction_target"),
     "train": (
         "epochs",
@@ -299,6 +299,7 @@ class ExperimentConfig:
     language_readout_coverage: int = 1
     use_error_input: bool = False
     use_residual: bool = True
+    use_dense: bool = False
     language_readout_all_layers: bool = False
     language_readout_trainable: bool = False
     message_carry_mode: str = "identity"
@@ -575,6 +576,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     for key in (
         "use_error_input",
         "use_residual",
+        "use_dense",
         "language_readout_all_layers",
         "language_readout_trainable",
         "enable_continuous_collapse",
