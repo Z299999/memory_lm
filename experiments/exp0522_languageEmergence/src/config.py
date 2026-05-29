@@ -110,6 +110,26 @@ _CONDITION_PARAM_COUNTS: dict[str, int] = {
     "blink": 2, "dim": 4, "stutter": 2,
 }
 
+_PREDICTION_TARGET_ALIASES = {
+    "y": "y",
+    "v": "v",
+    "velocity": "v",
+    "a": "a",
+    "acceleration": "a",
+}
+
+
+def normalize_prediction_target(value: object) -> str:
+    """Normalize public target names to the compact y/v/a API."""
+    raw = str(value).strip()
+    try:
+        return _PREDICTION_TARGET_ALIASES[raw]
+    except KeyError as exc:
+        raise ValueError(
+            "prediction_target must be 'y', 'v', or 'a' "
+            "(legacy aliases 'velocity' and 'acceleration' are also accepted)."
+        ) from exc
+
 
 def parse_condition(s: str) -> tuple[str, tuple[int, ...]]:
     """Parse 'blink(40,100)' → ('blink', (40, 100)); 'full' → ('full', ())."""
@@ -390,9 +410,9 @@ def _resolved_target_description(config: ExperimentConfig) -> str:
         waveform = f"({terms}) / {scale}"
     if config.prediction_target == "y":
         return waveform
-    if config.prediction_target == "velocity":
+    if config.prediction_target == "v":
         return f"{waveform}_t - {waveform}_{{t-1}}"
-    if config.prediction_target == "acceleration":
+    if config.prediction_target == "a":
         return f"({waveform}_t - {waveform}_{{t-1}}) - ({waveform}_{{t-1}} - {waveform}_{{t-2}})"
     raise ValueError(f"Unsupported prediction_target: {config.prediction_target!r}")
 
@@ -508,7 +528,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["train_phase_mode"] = str(payload["train_phase_mode"])
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
-    payload["prediction_target"] = str(payload["prediction_target"])
+    payload["prediction_target"] = normalize_prediction_target(payload["prediction_target"])
     payload["train_loss_space"] = str(payload["train_loss_space"])
     payload["train_window_schedule"] = str(payload["train_window_schedule"])
     payload["error_degrade"] = str(payload["error_degrade"])
@@ -601,8 +621,8 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("cycle_steps must be greater than 1.")
     if payload["target_kind"] not in {"sine", "mixed_sin"}:
         raise ValueError("target_kind must be either 'sine' or 'mixed_sin'.")
-    if payload["prediction_target"] not in {"y", "velocity", "acceleration"}:
-        raise ValueError("prediction_target must be 'y', 'velocity', or 'acceleration'.")
+    if payload["prediction_target"] not in {"y", "v", "a"}:
+        raise ValueError("prediction_target must be 'y', 'v', or 'a'.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
         raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
     if any(epoch <= 0 for epoch in payload["checkpoint_epochs"]):

@@ -221,15 +221,18 @@ changing the displayed eval plots:
 
 ```yaml
 task:
-  prediction_target: y          # y | velocity | acceleration
+  prediction_target: y          # y | v | a
 ```
 
 - `y`
   - direct waveform supervision
-- `velocity`
+- `v`
   - supervise `y_t - y_{t-1}`
-- `acceleration`
+- `a`
   - supervise `(y_t - y_{t-1}) - (y_{t-1} - y_{t-2})`
+
+Legacy config values `velocity` and `acceleration` are still accepted as aliases
+for `v` and `a`, respectively.
 
 The loss space is controlled separately by `train_loss_space` (see below). Eval
 plots, summaries, and rollout CSVs always report predictions in reconstructed `y`
@@ -239,7 +242,7 @@ space so runs remain visually comparable across target modes.
 
 `prediction_target` sets what the network outputs (`y`, `v`, or `a`), but the
 quantity we actually care about is the reconstructed position `y`. With
-`prediction_target: acceleration` the network can fit `a` very well while the
+`prediction_target: a` the network can fit `a` very well while the
 double-integrated `y` drifts badly — small per-step `a` errors accumulate into
 large position error. `train_loss_space` decides which space the loss is measured in:
 
@@ -257,13 +260,13 @@ train:
     (the previous behavior).
 
 When `prediction_target: y` the two modes are identical (`ŷ == raw_output`); they
-diverge only for `velocity`/`acceleration`. The validation curve (`full_val`) is
+diverge only for `v`/`a`. The validation curve (`full_val`) is
 reported in the matching space so train/val stay comparable.
 
 `train_loss_space` also controls the **`event_triggered` window-termination space**:
 the cumulative SSE that ends a window is measured in `y` space when
 `train_loss_space: y`. Note that `y`-space errors are typically much larger in
-magnitude than `acceleration`-space errors, so an `event_triggered(threshold,...)`
+magnitude than `a`-space errors, so an `event_triggered(threshold,...)`
 threshold tuned for `raw` will trigger far sooner (shorter windows) under `y` — you
 will likely need to **raise the threshold** when switching to `y`.
 

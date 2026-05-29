@@ -18,7 +18,7 @@ task:
   cycle_steps: 32               # number of steps in one full target cycle
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
-  prediction_target: y          # supervised target space: y | velocity | acceleration
+  prediction_target: y          # supervised target space: y | v | a (legacy aliases velocity/acceleration also work)
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
     - [0.0013, 1]
     - [0.004, 2.1]

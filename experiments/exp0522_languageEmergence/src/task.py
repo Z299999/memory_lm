@@ -10,9 +10,9 @@ import torch
 def prediction_target_history(prediction_target: str) -> int:
     if prediction_target == "y":
         return 0
-    if prediction_target == "velocity":
+    if prediction_target == "v":
         return 1
-    if prediction_target == "acceleration":
+    if prediction_target == "a":
         return 2
     raise ValueError(f"Unsupported prediction_target: {prediction_target!r}")
 
@@ -90,12 +90,12 @@ def build_rollout_targets(
         train_target = target_y
         init_y_prev = torch.zeros(1, 1, device=device)
         init_v_prev = torch.zeros(1, 1, device=device)
-    elif prediction_target == "velocity":
+    elif prediction_target == "v":
         velocity = y_full[1:] - y_full[:-1]
         train_target = velocity.unsqueeze(1)
         init_y_prev = y_full[0:1].unsqueeze(1)
         init_v_prev = torch.zeros(1, 1, device=device)
-    elif prediction_target == "acceleration":
+    elif prediction_target == "a":
         velocity = y_full[1:] - y_full[:-1]
         acceleration = velocity[1:] - velocity[:-1]
         train_target = acceleration.unsqueeze(1)

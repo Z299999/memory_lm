@@ -328,9 +328,9 @@ def _rollout_event_triggered_window(
 
         message_state = final_message if model.use_language else None
         error_state = final_error if model.use_error_input else None
-        if prediction_target == "velocity":
+        if prediction_target == "v":
             reconstruction_y_prev = prediction_step
-        elif prediction_target == "acceleration":
+        elif prediction_target == "a":
             reconstruction_v_prev = reconstruction_v_prev + raw_prediction_step
             reconstruction_y_prev = prediction_step
 

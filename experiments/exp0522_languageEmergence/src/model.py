@@ -264,9 +264,9 @@ class ExternalClockMLP(nn.Module):
         if prediction_target == "y":
             reconstruction_y_prev = None
             reconstruction_v_prev = None
-        elif prediction_target == "velocity":
+        elif prediction_target == "v":
             if initial_reconstruction_y is None:
-                raise ValueError("initial_reconstruction_y is required for prediction_target='velocity'.")
+                raise ValueError("initial_reconstruction_y is required for prediction_target='v'.")
             if tuple(initial_reconstruction_y.shape) != (batch_size, 1):
                 raise ValueError(
                     f"initial_reconstruction_y must have shape {(batch_size, 1)}, "
@@ -274,11 +274,11 @@ class ExternalClockMLP(nn.Module):
                 )
             reconstruction_y_prev = initial_reconstruction_y.to(device=device)
             reconstruction_v_prev = None
-        elif prediction_target == "acceleration":
+        elif prediction_target == "a":
             if initial_reconstruction_y is None or initial_reconstruction_v is None:
                 raise ValueError(
                     "initial_reconstruction_y and initial_reconstruction_v are required "
-                    "for prediction_target='acceleration'."
+                    "for prediction_target='a'."
                 )
             if tuple(initial_reconstruction_y.shape) != (batch_size, 1):
                 raise ValueError(
@@ -314,7 +314,7 @@ class ExternalClockMLP(nn.Module):
             raw_t = self.output_head(hidden)
             if prediction_target == "y":
                 y_t = raw_t
-            elif prediction_target == "velocity":
+            elif prediction_target == "v":
                 y_t = reconstruction_y_prev + raw_t
                 reconstruction_y_prev = y_t
             else:
