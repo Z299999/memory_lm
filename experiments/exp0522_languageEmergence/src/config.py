@@ -464,6 +464,13 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload.update(_flatten_user_config(raw, defaults))
 
     trunk_dims = payload.get("trunk_dims")
+    if isinstance(trunk_dims, str):
+        # shorthand: "16x8" → (16,)*8, "32x4" → (32,)*4
+        import re as _re
+        _m = _re.fullmatch(r"(\d+)x(\d+)", trunk_dims.strip())
+        if not _m:
+            raise ValueError("trunk_dims string shorthand must be 'WxD' (e.g. '16x8').")
+        trunk_dims = [int(_m.group(1))] * int(_m.group(2))
     if not isinstance(trunk_dims, (list, tuple)) or not trunk_dims:
         raise ValueError("trunk_dims must be a non-empty list of positive integers.")
     payload["trunk_dims"] = tuple(int(dim) for dim in trunk_dims)
