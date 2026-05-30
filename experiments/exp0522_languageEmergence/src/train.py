@@ -80,6 +80,7 @@ def _build_train_target(
     target_kind: str,
     mixed_sin_components: tuple[tuple[float, float], ...],
     prediction_target: str,
+    phase_offset: float = 0.0,
 ) -> dict[str, torch.Tensor]:
     try:
         from .task import build_rollout_targets
@@ -94,6 +95,7 @@ def _build_train_target(
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
         prediction_target=prediction_target,
+        phase_offset=phase_offset,
     )
 
 
@@ -215,11 +217,10 @@ class FrequencyScheduler:
         if (
             self._schedule.retreat_patience > 0
             and self._epochs_since_change >= self._schedule.retreat_patience
-            and self._current_freq > self._schedule.start_freq
         ):
             self._current_freq = max(
                 self._current_freq / self._schedule.factor,
-                self._schedule.start_freq,
+                1e-9,
             )
             self._recent.clear()
             self._epochs_since_change = 0
@@ -472,6 +473,8 @@ def _train_single_model(
     timeline_window_records: list[dict[str, Any]] = []
     error_degrade_generator = _ErrorDegradeGenerator(config.error_degrade)
     train_time_cursor = 0
+    train_phase_offset: float = 0.0
+    _omega = (2.0 * math.pi) / config.cycle_steps
     train_message_state: torch.Tensor | None = None
     train_error_state: torch.Tensor | None = None
     train_pipeline_buffers_state: list | None = None
@@ -507,6 +510,7 @@ def _train_single_model(
                 target_kind=config.target_kind,
                 mixed_sin_components=train_components,
                 prediction_target=config.prediction_target,
+                phase_offset=train_phase_offset,
             )
         train_target = train_bundle["train_target"]
         train_target_y = train_bundle["target_y"]
@@ -591,6 +595,7 @@ def _train_single_model(
                 target_kind=config.target_kind,
                 mixed_sin_components=train_components,
                 prediction_target=config.prediction_target,
+                phase_offset=train_phase_offset,
             )
             aux_prediction, aux_raw_prediction, _, _, _, _, _ = model.rollout(
                 num_steps=1,
@@ -677,7 +682,10 @@ def _train_single_model(
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
         )
+        _freq_before = freq_scheduler.current_freq
         _freq_action = freq_scheduler.report_window(effective_steps)
+        if _freq_action != 0:
+            train_phase_offset += (_freq_before - freq_scheduler.current_freq) * _omega * train_time_cursor
         if _freq_action == 1:
             print(
                 f"[{model_name}] freq_curriculum: promoted → freq={freq_scheduler.current_freq:.3e}"

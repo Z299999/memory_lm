@@ -26,12 +26,13 @@ def build_target_from_phase(
     *,
     target_kind: str = "sine",
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5)),
+    phase_offset: float = 0.0,
 ) -> torch.Tensor:
     """Build one rollout target tensor from phase values."""
     if target_kind == "sine":
-        target = torch.sin(phase)
+        target = torch.sin(phase + phase_offset)
     elif target_kind == "mixed_sin":
-        raw = sum(amp * torch.sin(freq * phase) for freq, amp in mixed_sin_components)
+        raw = sum(amp * torch.sin(freq * phase + phase_offset) for freq, amp in mixed_sin_components)
         scale = sum(abs(amp) for _, amp in mixed_sin_components)
         target = raw / scale
     else:
@@ -47,6 +48,7 @@ def build_rollout_waveform(
     start_step: int = 0,
     target_kind: str = "sine",
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5)),
+    phase_offset: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return phase and true y-target tensors for one rollout."""
     omega = omega_from_cycle_steps(cycle_steps)
@@ -56,6 +58,7 @@ def build_rollout_waveform(
         phase,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
+        phase_offset=phase_offset,
     )
     return phase, target
 
@@ -69,6 +72,7 @@ def build_rollout_targets(
     target_kind: str = "sine",
     mixed_sin_components: tuple[tuple[float, float], ...] = ((1.0, 1.0), (2.0, 0.5)),
     prediction_target: str = "y",
+    phase_offset: float = 0.0,
 ) -> dict[str, torch.Tensor]:
     """Return true y targets, supervised targets, and reconstruction anchors."""
     history = prediction_target_history(prediction_target)
@@ -81,6 +85,7 @@ def build_rollout_targets(
         start_step=full_start,
         target_kind=target_kind,
         mixed_sin_components=mixed_sin_components,
+        phase_offset=phase_offset,
     )
     y_full = waveform.squeeze(1)
     phase_main = phase[history:]
