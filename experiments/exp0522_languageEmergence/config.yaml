@@ -5,7 +5,7 @@ run:
   output_root: runs            # where timestamped run folders are created
 
 model:
-  trunk_dims: "[31]*11"    # hidden width of the MLP trunk
+  trunk_dims: "[37]*11"    # hidden width of the MLP trunk
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
   language_dim: 53              # number of language input/output heads; set to 0 for the no-language control
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
@@ -21,7 +21,7 @@ task:
   cycle_steps: 32               # number of steps in one full target cycle
   pulse_value: 1.0              # constant ordinary input x_t at every step
   target_kind: mixed_sin        # target waveform: sine or mixed_sin
-  prediction_target: a          # supervised target space: y | v | a (legacy aliases velocity/acceleration also work)
+  prediction_target: y          # supervised target space: y | v | a (legacy aliases velocity/acceleration also work)
   mixed_sin_components:         # list of [freq_multiplier, amplitude] pairs; only used when target_kind is mixed_sin
     # - [0.0013, 1]
     # - [0.004, 2.1]
@@ -40,14 +40,14 @@ task:
     
 
 train:
-  epochs: 10000                # total training epochs
+  epochs: 10000000                # total training epochs
   lr: 0.0001                  # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
   train_window_schedule: event_triggered(2.00,10,10000) # rollout length: fixed(32) | random_uniform(5,50) | event_triggered(threshold,min,max), e.g. event_triggered(0.02,10,2000)
   error_degrade: tail_dim(2000, 5000, 0)          # training-time error dimming
-  early_stop_min_steps: 6000    # stop training if any window reaches this many steps (null = off): none | dim(rate,min,max,pct,ramp), e.g. dim(0.3,20,80,5,10) | tail_dim(start,end,min_pct), e.g. tail_dim(200,2000,5)
+  early_stop_min_steps: 5000    # stop training if any window reaches this many steps (null = off): none | dim(rate,min,max,pct,ramp), e.g. dim(0.3,20,80,5,10) | tail_dim(start,end,min_pct), e.g. tail_dim(200,2000,5)
   train_phase_mode: continuous      # reset or continuous phase progression during training
   message_aux_loss_weight: 0.1  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
   detach_error_input: true     # whether e_t is detached before being fed into the next step
@@ -69,6 +69,7 @@ eval:
 analysis:
   enable_continuous_collapse: true   # whether to save milestone full-model checkpoints for offline collapse analysis
   checkpoint_epochs: [1, 10, 50, 100, 500, 1000]  # milestone epochs saved under checkpoints/ before the final checkpoint
+  checkpoint_every: 100   # additionally save every N epochs (null = off)
 
 plot:
   plot_dpi: 200                # dpi for saved plots

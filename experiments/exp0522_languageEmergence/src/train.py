@@ -597,7 +597,10 @@ def _train_single_model(
             )
             break
 
-        if checkpoint_dir is not None and epoch in checkpoint_epochs:
+        save_this_epoch = epoch in checkpoint_epochs or (
+            config.checkpoint_every is not None and epoch % config.checkpoint_every == 0
+        )
+        if checkpoint_dir is not None and save_this_epoch:
             _save_checkpoint(
                 model,
                 checkpoint_dir / f"{model_name}_epoch_{epoch:04d}.pt",

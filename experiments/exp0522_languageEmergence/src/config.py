@@ -44,6 +44,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "analysis": (
         "enable_continuous_collapse",
         "checkpoint_epochs",
+        "checkpoint_every",
     ),
     "plot": (
         "plot_dpi",
@@ -316,6 +317,7 @@ class ExperimentConfig:
     eval_conditions: tuple[str, ...] = ("full", "sole_eye")
     enable_continuous_collapse: bool = True
     checkpoint_epochs: tuple[int, ...] = (1, 10, 50, 100, 500, 1000)
+    checkpoint_every: int | None = None
     pulse_value: float = 1.0
     train_phase_mode: str = "reset"
     eval_phase_mode: str = "both"
@@ -561,6 +563,15 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     if not isinstance(checkpoint_epochs, (list, tuple)):
         raise ValueError("checkpoint_epochs must be a yaml list.")
     payload["checkpoint_epochs"] = tuple(int(item) for item in checkpoint_epochs)
+
+    ckpt_every_raw = payload.get("checkpoint_every", None)
+    if ckpt_every_raw is None:
+        payload["checkpoint_every"] = None
+    else:
+        v = int(ckpt_every_raw)
+        if v <= 0:
+            raise ValueError("checkpoint_every must be a positive integer or null.")
+        payload["checkpoint_every"] = v
 
     early_stop_raw = payload.get("early_stop_min_steps", None)
     if early_stop_raw is None:
