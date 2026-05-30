@@ -417,13 +417,17 @@ The experiment now supports two training-state modes:
 - `sequence_mode: reset`
   - current v0 behavior
   - every training episode starts from `message = 0`
-  - use `train_phase_mode: reset`
+  - phase also resets automatically
 
 - `sequence_mode: continuous_window`
   - training runs on fixed-size windows of one discrete-time stream
   - the next window reuses the previous window's final message
   - the carried message is detached at the window boundary
-  - use `train_phase_mode: continuous`
+  - phase advances continuously automatically
+
+`sequence_mode` is the only public training-state switch. The older
+`train_phase_mode` field is now derived internally from `sequence_mode` so the
+two cannot be misconfigured.
 
 Example:
 
@@ -431,7 +435,6 @@ Example:
 train:
   sequence_mode: continuous_window
   train_window_schedule: fixed(32)
-  train_phase_mode: continuous
   detach_error_input: true
   carry_error_between_windows: true
   force_zero_error_input: false

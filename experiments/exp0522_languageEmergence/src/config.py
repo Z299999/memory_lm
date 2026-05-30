@@ -23,7 +23,6 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "grad_clip",
         "sequence_mode",
         "train_window_schedule",
-        "train_phase_mode",
         "error_degrade",
         "early_stop_min_steps",
         "message_aux_loss_weight",
@@ -84,7 +83,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
 
 LEGACY_SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("train_baseline", "eval_mute_deaf"),
-    "train": ("rollout_schedule", "train_steps", "fixed_train_steps", "message_refresh"),
+    "train": ("rollout_schedule", "train_steps", "fixed_train_steps", "message_refresh", "train_phase_mode"),
     "task": (
         "train_steps",
         "eval_steps",
@@ -542,7 +541,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     payload["sequence_mode"] = str(payload["sequence_mode"])
     payload["activation"] = str(payload["activation"])
     payload["message_carry_mode"] = str(payload["message_carry_mode"])
-    payload["train_phase_mode"] = str(payload["train_phase_mode"])
     payload["eval_phase_mode"] = str(payload["eval_phase_mode"])
     payload["target_kind"] = str(payload["target_kind"])
     payload["prediction_target"] = normalize_prediction_target(payload["prediction_target"])
@@ -625,6 +623,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("message_aux_loss_weight must be >= 0.")
     if payload["sequence_mode"] not in {"reset", "continuous_window"}:
         raise ValueError("sequence_mode must be either 'reset' or 'continuous_window'.")
+    payload["train_phase_mode"] = "continuous" if payload["sequence_mode"] == "continuous_window" else "reset"
     if payload["train_loss_space"] not in {"raw", "y"}:
         raise ValueError("train_loss_space must be 'raw' or 'y'.")
     if payload["activation"] not in {"tanh", "relu", "leaky_relu"}:
@@ -638,8 +637,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
     parse_error_degrade(payload["error_degrade"])
     window_min = window_schedule.min_steps
     window_max = window_schedule.max_steps
-    if payload["train_phase_mode"] not in {"reset", "continuous"}:
-        raise ValueError("train_phase_mode must be either 'reset' or 'continuous'.")
     if payload["eval_phase_mode"] not in {"reset", "continuous", "both"}:
         raise ValueError("eval_phase_mode must be 'reset', 'continuous', or 'both'.")
     if payload["plot_rollout_top_mode"] not in {"match_train", "match_eval", "all_available"}:
@@ -713,10 +710,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("eval_steps must be at least one cycle long.")
     if payload["long_steps"] < payload["eval_steps"]:
         raise ValueError("long_steps must be greater than or equal to eval_steps.")
-    if payload["sequence_mode"] == "continuous_window" and payload["train_phase_mode"] != "continuous":
-        raise ValueError("continuous_window mode requires train_phase_mode='continuous'.")
-    if payload["sequence_mode"] == "reset" and payload["train_phase_mode"] != "reset":
-        raise ValueError("reset mode requires train_phase_mode='reset'.")
     legacy_rollout_schedule = raw.get("rollout_schedule")
     if legacy_rollout_schedule is None and isinstance(raw.get("train"), dict):
         legacy_rollout_schedule = raw["train"].get("rollout_schedule")

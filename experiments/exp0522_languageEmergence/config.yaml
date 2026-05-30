@@ -45,11 +45,10 @@ train:
   lr: 0.0001                  # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
-  sequence_mode: continuous_window         # reset or continuous_window message handling between training windows
+  sequence_mode: continuous_window         # reset = independent windows; continuous_window = carry state between windows
   train_window_schedule: event_triggered(2.00,10,10000) # rollout length: fixed(32) | random_uniform(5,50) | event_triggered(threshold,min,max), e.g. event_triggered(0.02,10,2000)
   error_degrade: tail_dim(2000, 5000, 0)          # training-time error dimming
   early_stop_min_steps: 5000    # stop training if any window reaches this many steps (null = off): none | dim(rate,min,max,pct,ramp), e.g. dim(0.3,20,80,5,10) | tail_dim(start,end,min_pct), e.g. tail_dim(200,2000,5)
-  train_phase_mode: continuous      # reset or continuous phase progression during training
   message_aux_loss_weight: 0.1  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
   detach_error_input: true     # whether e_t is detached before being fed into the next step
   carry_error_between_windows: true # in continuous_window mode, carry the final detached error into the next window
