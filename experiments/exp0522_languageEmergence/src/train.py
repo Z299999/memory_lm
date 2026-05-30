@@ -16,8 +16,10 @@ from torch import nn
 try:
     from .config import (
         ExperimentConfig,
+        FreqCurriculumSchedule,
         copy_config_to_run_dir,
         parse_error_degrade,
+        parse_freq_curriculum,
         parse_train_window_schedule,
         train_window_reference_steps,
         write_resolved_config,
@@ -28,8 +30,10 @@ try:
 except ImportError:  # pragma: no cover - script mode
     from config import (
         ExperimentConfig,
+        FreqCurriculumSchedule,
         copy_config_to_run_dir,
         parse_error_degrade,
+        parse_freq_curriculum,
         parse_train_window_schedule,
         train_window_reference_steps,
         write_resolved_config,
@@ -159,6 +163,59 @@ class _ErrorDegradeGenerator:
             for idx in range(num_steps)
         ]
         return torch.tensor(gains, dtype=torch.float32, device=device).reshape(num_steps, 1)
+
+
+class FrequencyScheduler:
+    """Adaptive frequency curriculum: starts at low freq, promotes when model tracks well."""
+
+    def __init__(
+        self,
+        schedule: FreqCurriculumSchedule,
+        target_components: tuple[tuple[float, float], ...],
+    ) -> None:
+        self._target_components = target_components
+        self._target_freq = max(freq for freq, _ in target_components)
+        if schedule.mode == "none":
+            self._current_freq = self._target_freq
+            self._done = True
+        else:
+            self._current_freq = float(schedule.start_freq)
+            self._done = self._current_freq >= self._target_freq
+        self._schedule = schedule
+        self._recent: list[int] = []
+
+    def active_components(self) -> tuple[tuple[float, float], ...]:
+        if self._done:
+            return self._target_components
+        amp = self._target_components[0][1]
+        return ((self._current_freq, amp),)
+
+    def report_window(self, steps: int) -> bool:
+        """Record window length; return True if a frequency promotion occurred."""
+        if self._done:
+            return False
+        self._recent.append(steps)
+        if len(self._recent) > self._schedule.patience:
+            self._recent.pop(0)
+        if (
+            len(self._recent) == self._schedule.patience
+            and all(s >= self._schedule.target_steps for s in self._recent)
+        ):
+            new_freq = min(self._current_freq * self._schedule.factor, self._target_freq)
+            self._current_freq = new_freq
+            self._recent.clear()
+            if self._current_freq >= self._target_freq:
+                self._done = True
+            return True
+        return False
+
+    @property
+    def current_freq(self) -> float:
+        return self._current_freq
+
+    @property
+    def is_done(self) -> bool:
+        return self._done
 
 
 def _error_degrade_stats(error_gain_sequence: torch.Tensor) -> tuple[int, float]:
@@ -375,7 +432,12 @@ def _train_single_model(
     cache_steps = {reference_train_steps, config.eval_steps, config.long_steps, config.continuous_eval_steps}
 
     schedule = parse_train_window_schedule(config.train_window_schedule)
-    if config.train_phase_mode == "reset" and schedule.mode == "fixed":
+    freq_scheduler = FrequencyScheduler(
+        parse_freq_curriculum(config.freq_curriculum),
+        config.mixed_sin_components,
+    )
+    freq_curriculum_active = config.freq_curriculum is not None
+    if config.train_phase_mode == "reset" and schedule.mode == "fixed" and not freq_curriculum_active:
         for steps in cache_steps:
             bundle = _build_train_target(
                 num_steps=steps,
@@ -411,11 +473,12 @@ def _train_single_model(
 
     for epoch in range(1, config.epochs + 1):
         train_window_start = train_time_cursor if config.train_phase_mode == "continuous" else 0
+        train_components = freq_scheduler.active_components()
         if schedule.mode == "event_triggered":
             effective_steps = schedule.max_steps
         else:
             effective_steps = _sample_train_steps(config)
-        if config.train_phase_mode == "reset" and schedule.mode == "fixed":
+        if config.train_phase_mode == "reset" and schedule.mode == "fixed" and not freq_curriculum_active:
             train_bundle = target_cache[(effective_steps, 0)]
         else:
             train_bundle = _build_train_target(
@@ -425,7 +488,7 @@ def _train_single_model(
                 train_phase_mode=config.train_phase_mode,
                 start_step=train_window_start,
                 target_kind=config.target_kind,
-                mixed_sin_components=config.mixed_sin_components,
+                mixed_sin_components=train_components,
                 prediction_target=config.prediction_target,
             )
         train_target = train_bundle["train_target"]
@@ -509,7 +572,7 @@ def _train_single_model(
                 train_phase_mode="continuous",
                 start_step=train_window_start + effective_steps,
                 target_kind=config.target_kind,
-                mixed_sin_components=config.mixed_sin_components,
+                mixed_sin_components=train_components,
                 prediction_target=config.prediction_target,
             )
             aux_prediction, aux_raw_prediction, _, _, _, _, _ = model.rollout(
@@ -597,11 +660,19 @@ def _train_single_model(
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
         )
+        promoted = freq_scheduler.report_window(effective_steps)
+        if promoted:
+            print(
+                f"[{model_name}] freq_curriculum: promoted → freq={freq_scheduler.current_freq:.5f}"
+                + (" (done)" if freq_scheduler.is_done else "")
+            )
+
         row = {
             "epoch": float(epoch),
             "train_steps": float(effective_steps),
             "train_loss": float(train_loss.item()),
             "val_loss": float(val_result["mse"] if config.train_loss_space == "y" else val_result["raw_target_mse"]),
+            "curr_freq": float(freq_scheduler.current_freq),
         }
         error_degrade_steps, error_gain_mean = _error_degrade_stats(error_gain_sequence)
         row["error_degrade_steps"] = float(error_degrade_steps)

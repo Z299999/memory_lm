@@ -32,6 +32,7 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
         "train_loss_tail_steps",
         "train_loss_space",
         "language_readout_norm_penalty",
+        "freq_curriculum",
     ),
     "eval": (
         "eval_steps",
@@ -165,6 +166,47 @@ class ErrorDegradeSchedule:
     min_pct: int | None = None
 
 
+@dataclass
+class FreqCurriculumSchedule:
+    mode: str           # "none" | "adaptive"
+    start_freq: float = 0.001
+    factor: float = 1.5
+    target_steps: int = 2000
+    patience: int = 5
+
+
+def parse_freq_curriculum(spec: object) -> FreqCurriculumSchedule:
+    if spec is None or str(spec).strip().lower() in {"none", "null", "off"}:
+        return FreqCurriculumSchedule(mode="none")
+    m = re.fullmatch(
+        r"adaptive\(\s*([\d.e+\-]+)\s*,\s*([\d.e+\-]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)",
+        str(spec).strip(),
+    )
+    if m:
+        start_freq = float(m.group(1))
+        factor = float(m.group(2))
+        target_steps = int(m.group(3))
+        patience = int(m.group(4))
+        if start_freq <= 0.0 or start_freq > 1.0:
+            raise ValueError("freq_curriculum adaptive: start_freq must be in (0, 1].")
+        if factor <= 1.0:
+            raise ValueError("freq_curriculum adaptive: factor must be > 1.0.")
+        if target_steps <= 0:
+            raise ValueError("freq_curriculum adaptive: target_steps must be > 0.")
+        if patience <= 0:
+            raise ValueError("freq_curriculum adaptive: patience must be > 0.")
+        return FreqCurriculumSchedule(
+            mode="adaptive",
+            start_freq=start_freq,
+            factor=factor,
+            target_steps=target_steps,
+            patience=patience,
+        )
+    raise ValueError(
+        "freq_curriculum must be null or 'adaptive(start_freq, factor, target_steps, patience)'."
+    )
+
+
 def parse_train_window_schedule(spec: str) -> TrainWindowSchedule:
     raw = str(spec).strip()
     fixed_match = re.fullmatch(r"fixed\((\d+)\)", raw)
@@ -294,6 +336,7 @@ class ExperimentConfig:
     train_loss_tail_steps: int | None = None
     train_loss_space: str = "y"
     language_readout_norm_penalty: float = 0.0
+    freq_curriculum: str | None = None
     trunk_dims: tuple[int, ...] = (32,)
     activation: str = "tanh"
     language_dim: int = 4
@@ -635,6 +678,14 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("message_carry_mode must be 'identity', 'learnable_diagonal', or 'learnable_matrix'.")
     window_schedule = parse_train_window_schedule(payload["train_window_schedule"])
     parse_error_degrade(payload["error_degrade"])
+    freq_curr_raw = payload.get("freq_curriculum", None)
+    if freq_curr_raw is None or str(freq_curr_raw).strip().lower() in {"none", "null", "off"}:
+        payload["freq_curriculum"] = None
+    else:
+        payload["freq_curriculum"] = str(freq_curr_raw)
+        parse_freq_curriculum(payload["freq_curriculum"])
+        if payload["target_kind"] != "mixed_sin":
+            raise ValueError("freq_curriculum requires target_kind == 'mixed_sin'.")
     window_min = window_schedule.min_steps
     window_max = window_schedule.max_steps
     if payload["eval_phase_mode"] not in {"reset", "continuous", "both"}:

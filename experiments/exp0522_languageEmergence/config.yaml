@@ -9,7 +9,7 @@ model:
   activation: tanh             # hidden activation: tanh, relu, or leaky_relu
   language_dim: 53              # number of language input/output heads; set to 0 for the no-language control
   language_readout_coverage: 3  # average number of language heads that read each hidden node; try 2 or 3 for redundancy
-  use_error_input: true        # whether the primary model receives the previous prediction error as a separate input node
+  use_error_input: false        # whether the primary model receives the previous prediction error as a separate input node
   use_residual: true           # skip connections on hidden→hidden layers with matching dims (ignored when use_dense is true)
   use_dense: true             # DenseNet trunk: each layer receives concat of all previous layer outputs
   language_readout_all_layers: true  # if true, readout node pool = all hidden layers (concat); false = last layer only
@@ -29,10 +29,10 @@ task:
     # - [0.01, 1]
     # - [0.0005, 2]
     # - [0.029, 1.5]
-    - [0.05, 3]
-    - [0.7, 2]
+    # - [0.05, 3]
+    # - [0.7, 2]
     - [1, 1.0]
-    - [2, 0.5]
+    # - [2, 0.5]
     # - [3, 0.25]
     # - [5, 0.125]
     # - [7, 0.1]
@@ -41,14 +41,14 @@ task:
     
 
 train:
-  epochs: 10000000                # total training epochs
+  epochs: 100                # total training epochs
   lr: 0.0001                  # Adam learning rate
   weight_decay: 0.0            # L2 regularization
   grad_clip: 1.0               # gradient clipping threshold
   sequence_mode: continuous_window         # reset = independent windows; continuous_window = carry state between windows
   train_window_schedule: event_triggered(2.00,10,10000) # rollout length: fixed(32) | random_uniform(5,50) | event_triggered(threshold,min,max), e.g. event_triggered(0.02,10,2000)
-  error_degrade: tail_dim(2000, 5000, 0)          # training-time error dimming
-  early_stop_min_steps: 5000    # stop training if any window reaches this many steps (null = off): none | dim(rate,min,max,pct,ramp), e.g. dim(0.3,20,80,5,10) | tail_dim(start,end,min_pct), e.g. tail_dim(200,2000,5)
+  error_degrade: tail_dim(2000, 5000, 0) # none | dim(rate,min,max,pct,ramp), e.g. dim(0.3,20,80,5,10) random global events | tail_dim(start,end,min_pct), e.g. tail_dim(2000,5000,0) local-window decay to min_pct/100
+  early_stop_min_steps: 5000    # stop training if any window reaches this many steps (null = off)
   message_aux_loss_weight: 0.1  # weight for the 1-step future-prediction aux loss on final message (0 = disabled)
   detach_error_input: true     # whether e_t is detached before being fed into the next step
   carry_error_between_windows: true # in continuous_window mode, carry the final detached error into the next window
@@ -56,6 +56,7 @@ train:
   train_loss_tail_steps: null   # null = all steps; integer N = only last N steps of each window contribute to loss (window termination unaffected)
   train_loss_space: y           # raw | y; space for loss AND event_triggered cutoff SSE. y = MSE on reconstructed position (note: switching to y rescales the event_triggered threshold)
   language_readout_norm_penalty: 0.0  # column-norm regularization for trainable readout; penalizes (||col||_2 - 1)^2
+  freq_curriculum: null   # null = off; adaptive(start_freq, factor, target_steps, patience), e.g. adaptive(0.001, 1.5, 2000, 5)
 
 eval:
   eval_steps: 200              # in-distribution evaluation rollout length
