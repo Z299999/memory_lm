@@ -60,6 +60,7 @@ def _evaluate_rollout(
     error_input_scale: float = 1.0,
     error_input_scale_sequence: torch.Tensor | None = None,
     disable_language: bool = False,
+    initial_pipeline_buffers: list[torch.Tensor] | None = None,
 ) -> dict[str, Any]:
     model.eval()
     device = next(model.parameters()).device
@@ -73,7 +74,7 @@ def _evaluate_rollout(
             mixed_sin_components=mixed_sin_components,
             prediction_target=prediction_target,
         )
-        prediction, raw_prediction, messages, hidden, final_message, final_error = model.rollout(
+        prediction, raw_prediction, messages, hidden, final_message, final_error, final_pipeline_buffers = model.rollout(
             num_steps=num_steps,
             pulse_value=pulse_value,
             target_sequence=target_bundle["train_target"],
@@ -89,6 +90,7 @@ def _evaluate_rollout(
             error_input_scale_sequence=error_input_scale_sequence,
             disable_language=disable_language,
             return_hidden=True,
+            initial_pipeline_buffers=initial_pipeline_buffers,
         )
         mse = torch.mean((prediction - target_bundle["target_y"]) ** 2).item()
         raw_target_mse = torch.mean((raw_prediction - target_bundle["train_target"]) ** 2).item()
@@ -109,6 +111,7 @@ def _evaluate_rollout(
         "hidden": hidden.cpu() if hidden is not None else None,
         "final_message": final_message.cpu(),
         "final_error": final_error.cpu(),
+        "final_pipeline_buffers": final_pipeline_buffers,
         "start_step": int(start_step),
     }
 
@@ -128,6 +131,7 @@ def _evaluate_late_transition_rollout(
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
+    initial_pipeline_buffers: list[torch.Tensor] | None = None,
     detach_error_input: bool = True,
     error_input_scale: float = 1.0,
 ) -> dict[str, Any]:
@@ -144,6 +148,7 @@ def _evaluate_late_transition_rollout(
         start_step=start_step,
         initial_message=initial_message,
         initial_error=initial_error,
+        initial_pipeline_buffers=initial_pipeline_buffers,
         detach_error_input=detach_error_input,
         force_zero_error_input=False,
         error_input_scale=error_input_scale,
@@ -163,6 +168,7 @@ def _evaluate_late_transition_rollout(
         start_step=start_step + effective_transition,
         initial_message=phase1["final_message"],
         initial_error=phase1["final_error"],
+        initial_pipeline_buffers=phase1.get("final_pipeline_buffers"),
         detach_error_input=detach_error_input,
         force_zero_error_input=post_force_zero_error,
         error_input_scale=error_input_scale,
@@ -183,6 +189,7 @@ def _evaluate_late_transition_rollout(
         "hidden": None,
         "final_message": phase2["final_message"],
         "final_error": phase2["final_error"],
+        "final_pipeline_buffers": phase2.get("final_pipeline_buffers"),
         "start_step": int(start_step),
     }
 
@@ -204,12 +211,14 @@ def _evaluate_temporary_loss_rollout(
     start_step: int = 0,
     initial_message: torch.Tensor | None = None,
     initial_error: torch.Tensor | None = None,
+    initial_pipeline_buffers: list[torch.Tensor] | None = None,
     detach_error_input: bool = True,
     phase2_gain_sequence: torch.Tensor | None = None,
 ) -> dict[str, Any]:
     """Full model → temporarily lose a channel [loss_start, loss_end) → full again."""
     def _rollout(n: int, s: int, msg, err, fze: bool, eis: float, dl: bool,
-                 eis_seq: torch.Tensor | None = None) -> dict[str, Any]:
+                 eis_seq: torch.Tensor | None = None,
+                 pipeline_bufs: list[torch.Tensor] | None = None) -> dict[str, Any]:
         return _evaluate_rollout(
             model,
             num_steps=n,
@@ -226,10 +235,12 @@ def _evaluate_temporary_loss_rollout(
             error_input_scale=eis,
             error_input_scale_sequence=eis_seq,
             disable_language=dl,
+            initial_pipeline_buffers=pipeline_bufs,
         )
 
     p1_steps = min(loss_start, num_steps)
-    p1 = _rollout(p1_steps, start_step, initial_message, initial_error, False, 1.0, False)
+    p1 = _rollout(p1_steps, start_step, initial_message, initial_error, False, 1.0, False,
+                  pipeline_bufs=initial_pipeline_buffers)
     if p1_steps >= num_steps:
         return p1
 
@@ -244,6 +255,7 @@ def _evaluate_temporary_loss_rollout(
         phase2_error_input_scale,
         phase2_disable_language,
         eis_seq=p2_seq,
+        pipeline_bufs=p1.get("final_pipeline_buffers"),
     )
     if p1_steps + p2_steps >= num_steps:
         parts = [p1, p2]
@@ -258,6 +270,7 @@ def _evaluate_temporary_loss_rollout(
             False,
             1.0,
             False,
+            pipeline_bufs=p2.get("final_pipeline_buffers"),
         )
         parts = [p1, p2, p3]
 
@@ -288,6 +301,7 @@ def _evaluate_temporary_loss_rollout(
         "hidden": None,
         "final_message": parts[-1]["final_message"],
         "final_error": parts[-1]["final_error"],
+        "final_pipeline_buffers": parts[-1].get("final_pipeline_buffers"),
         "start_step": int(start_step),
     }
     if error_gain is not None:
@@ -328,6 +342,7 @@ def _evaluate_continuous_stream(
     device = next(model.parameters()).device
     initial_message = None
     initial_error = None
+    initial_pipeline_buffers = None
     if warmup_steps > 0:
         with torch.no_grad():
             warmup_bundle = build_rollout_targets(
@@ -339,7 +354,7 @@ def _evaluate_continuous_stream(
                 mixed_sin_components=mixed_sin_components,
                 prediction_target=prediction_target,
             )
-            _prediction, _raw_prediction, _messages, _hidden, final_message, final_error = model.rollout(
+            _prediction, _raw_prediction, _messages, _hidden, final_message, final_error, final_pipeline_buffers = model.rollout(
                 num_steps=warmup_steps,
                 pulse_value=pulse_value,
                 target_sequence=warmup_bundle["train_target"],
@@ -359,6 +374,8 @@ def _evaluate_continuous_stream(
                 initial_message = final_message.detach()
             if model.use_error_input:
                 initial_error = final_error.detach()
+            if model.use_pipeline and final_pipeline_buffers is not None:
+                initial_pipeline_buffers = [b.detach() for b in final_pipeline_buffers]
 
     return _evaluate_rollout(
         model,
@@ -371,6 +388,7 @@ def _evaluate_continuous_stream(
         start_step=warmup_steps,
         initial_message=initial_message,
         initial_error=initial_error,
+        initial_pipeline_buffers=initial_pipeline_buffers,
         detach_error_input=detach_error_input,
         force_zero_error_input=force_zero_error_input,
         error_input_scale=error_input_scale,
@@ -473,7 +491,7 @@ def _build_summary(
             "continuous_eval_steps": config.continuous_eval_steps,
             "eval_conditions": list(config.eval_conditions),
             "enable_continuous_collapse": config.enable_continuous_collapse,
-            "checkpoint_epochs": list(config.checkpoint_epochs),
+
             "pulse_value": config.pulse_value,
             "train_phase_mode": config.train_phase_mode,
             "eval_phase_mode": config.eval_phase_mode,
@@ -534,6 +552,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         language_readout_trainable=config.language_readout_trainable,
         readout_nonlinearity=config.readout_nonlinearity,
         message_carry_mode=config.message_carry_mode,
+        use_pipeline=config.use_pipeline,
         seed=config.seed,
     ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -574,12 +593,15 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         continuous_init_msg   = _ts["final_message"] if model.use_language else None
         continuous_init_err   = _ts["final_error"]   if model.use_error_input else None
         continuous_start_step = int(_ts["final_step"])
+        _raw_pipeline_bufs = _ts.get("final_pipeline_buffers")
+        continuous_init_pipeline_bufs = _raw_pipeline_bufs if model.use_pipeline else None
         has_train_state = True
     else:
         has_train_state = False
         continuous_init_msg   = None
         continuous_init_err   = None
         continuous_start_step = 0
+        continuous_init_pipeline_bufs = None
 
     reset_evals: dict[str, dict] | None = None
     reset_long_evals: dict[str, dict] | None = None
@@ -591,6 +613,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
         start_step: int = 0,
         initial_message=None,
         initial_error=None,
+        initial_pipeline_buffers=None,
     ) -> dict[str, Any]:
         base, params = parse_condition(condition)
         if base in _TEMPORARY_LOSS_FLAGS:
@@ -619,6 +642,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                 start_step=start_step,
                 initial_message=initial_message,
                 initial_error=initial_error,
+                initial_pipeline_buffers=initial_pipeline_buffers,
                 **common_kwargs,
             )
         if base in _LATE_TRANSITION_FLAGS:
@@ -632,6 +656,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                 start_step=start_step,
                 initial_message=initial_message,
                 initial_error=initial_error,
+                initial_pipeline_buffers=initial_pipeline_buffers,
                 **common_kwargs,
             )
         fze, dl = _condition_flags(base)
@@ -643,6 +668,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
             start_step=start_step,
             initial_message=initial_message,
             initial_error=initial_error,
+            initial_pipeline_buffers=initial_pipeline_buffers,
             **common_kwargs,
         )
 
@@ -661,6 +687,7 @@ def evaluate_model(config: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
                     start_step=continuous_start_step,
                     initial_message=continuous_init_msg,
                     initial_error=continuous_init_err,
+                    initial_pipeline_buffers=continuous_init_pipeline_bufs,
                 )
             elif _base in _LATE_TRANSITION_FLAGS or _base in _TEMPORARY_LOSS_FLAGS:
                 warmup_result = _evaluate_rollout(

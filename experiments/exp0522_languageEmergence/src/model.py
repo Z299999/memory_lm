@@ -123,6 +123,7 @@ class ExternalClockMLP(nn.Module):
         language_readout_trainable: bool = False,
         readout_nonlinearity: str = "none",
         message_carry_mode: str = "identity",
+        use_pipeline: bool = False,
         seed: int = 42,
     ) -> None:
         super().__init__()
@@ -135,24 +136,27 @@ class ExternalClockMLP(nn.Module):
         self.use_language = bool(use_language) and self.language_dim > 0
         self.use_residual = bool(use_residual)
         self.use_dense = bool(use_dense)
+        self.use_pipeline = bool(use_pipeline)
+        if self.use_pipeline:
+            language_readout_all_layers = True
         self.readout_nonlinearity = str(readout_nonlinearity)
         self.language_readout_all_layers = bool(language_readout_all_layers)
         self.message_carry_mode = str(message_carry_mode)
         input_dim = self.pulse_dim + self.error_dim + self.language_dim
 
-        if self.use_dense:
+        if self.use_pipeline or not self.use_dense:
+            dims = [input_dim, *trunk_dims]
+            self.trunk = nn.ModuleList(
+                nn.Linear(dims[idx], dims[idx + 1], bias=True)
+                for idx in range(len(dims) - 1)
+            )
+        else:
             cumulative_dim = input_dim
             dense_layers = []
             for out_dim in trunk_dims:
                 dense_layers.append(nn.Linear(cumulative_dim, out_dim, bias=True))
                 cumulative_dim += out_dim
             self.trunk = nn.ModuleList(dense_layers)
-        else:
-            dims = [input_dim, *trunk_dims]
-            self.trunk = nn.ModuleList(
-                nn.Linear(dims[idx], dims[idx + 1], bias=True)
-                for idx in range(len(dims) - 1)
-            )
         for layer in self.trunk:
             _init_linear(layer, self.activation_name)
 
@@ -201,6 +205,22 @@ class ExternalClockMLP(nn.Module):
                 all_hiddens.append(hidden)
         return hidden, all_hiddens
 
+    def _step_pipeline(
+        self,
+        step_input: torch.Tensor,
+        pipeline_buffers: list[torch.Tensor],
+    ) -> tuple[torch.Tensor, list[torch.Tensor], list[torch.Tensor]]:
+        all_hiddens: list[torch.Tensor] = []
+        new_buffers: list[torch.Tensor] = []
+        h = self.activation(self.trunk[0](step_input))
+        all_hiddens.append(h)
+        new_buffers.append(h)
+        for i, layer in enumerate(self.trunk[1:], start=1):
+            h = self.activation(layer(pipeline_buffers[i - 1]))
+            all_hiddens.append(h)
+            new_buffers.append(h)
+        return all_hiddens[-1], all_hiddens, new_buffers
+
     def rollout(
         self,
         *,
@@ -219,7 +239,8 @@ class ExternalClockMLP(nn.Module):
         error_input_scale_sequence: torch.Tensor | None = None,
         disable_language: bool = False,
         return_hidden: bool = False,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
+        initial_pipeline_buffers: list[torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor, list[torch.Tensor] | None]:
         device = self.output_head.weight.device
         batch_size = 1
         hidden_snapshots: list[torch.Tensor] = []
@@ -284,6 +305,17 @@ class ExternalClockMLP(nn.Module):
         else:
             error_prev = torch.zeros(batch_size, 0, device=device)
 
+        if self.use_pipeline:
+            if initial_pipeline_buffers is None:
+                pipeline_buffers: list[torch.Tensor] | None = [
+                    torch.zeros(batch_size, layer.out_features, device=device)
+                    for layer in self.trunk
+                ]
+            else:
+                pipeline_buffers = [b.to(device=device) for b in initial_pipeline_buffers]
+        else:
+            pipeline_buffers = None
+
         if prediction_target == "y":
             reconstruction_y_prev = None
             reconstruction_v_prev = None
@@ -333,7 +365,10 @@ class ExternalClockMLP(nn.Module):
                     language_input = message_prev
                 input_parts.append(language_input)
             step_input = torch.cat(input_parts, dim=1)
-            hidden, all_hiddens = self._step_hidden(step_input)
+            if self.use_pipeline:
+                hidden, all_hiddens, pipeline_buffers = self._step_pipeline(step_input, pipeline_buffers)
+            else:
+                hidden, all_hiddens = self._step_hidden(step_input)
             raw_t = self.output_head(hidden)
             if prediction_target == "y":
                 y_t = raw_t
@@ -383,4 +418,5 @@ class ExternalClockMLP(nn.Module):
             hidden_tensor,
             final_message,
             final_error,
+            pipeline_buffers,
         )

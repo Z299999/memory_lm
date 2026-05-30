@@ -14,7 +14,7 @@ import yaml
 
 SECTION_KEYS: dict[str, tuple[str, ...]] = {
     "run": ("run_name", "seed", "log_every", "output_root"),
-    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "use_dense", "language_readout_all_layers", "message_carry_mode", "language_readout_trainable", "readout_nonlinearity"),
+    "model": ("trunk_dims", "activation", "language_dim", "language_readout_coverage", "use_error_input", "use_residual", "use_dense", "language_readout_all_layers", "message_carry_mode", "language_readout_trainable", "readout_nonlinearity", "use_pipeline"),
     "task": ("cycle_steps", "pulse_value", "target_kind", "mixed_sin_components", "prediction_target"),
     "train": (
         "epochs",
@@ -43,7 +43,6 @@ SECTION_KEYS: dict[str, tuple[str, ...]] = {
     ),
     "analysis": (
         "enable_continuous_collapse",
-        "checkpoint_epochs",
         "checkpoint_every",
     ),
     "plot": (
@@ -303,6 +302,7 @@ class ExperimentConfig:
     use_error_input: bool = False
     use_residual: bool = True
     use_dense: bool = False
+    use_pipeline: bool = False
     language_readout_all_layers: bool = False
     language_readout_trainable: bool = False
     readout_nonlinearity: str = "none"
@@ -316,7 +316,6 @@ class ExperimentConfig:
     continuous_eval_steps: int = 512
     eval_conditions: tuple[str, ...] = ("full", "sole_eye")
     enable_continuous_collapse: bool = True
-    checkpoint_epochs: tuple[int, ...] = (1, 10, 50, 100, 500, 1000)
     checkpoint_every: int | None = None
     pulse_value: float = 1.0
     train_phase_mode: str = "reset"
@@ -559,11 +558,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         if not isinstance(value, (list, tuple)):
             raise ValueError(f"{key} must be a yaml list.")
         payload[key] = tuple(str(item) for item in value)
-    checkpoint_epochs = payload["checkpoint_epochs"]
-    if not isinstance(checkpoint_epochs, (list, tuple)):
-        raise ValueError("checkpoint_epochs must be a yaml list.")
-    payload["checkpoint_epochs"] = tuple(int(item) for item in checkpoint_epochs)
-
     ckpt_every_raw = payload.get("checkpoint_every", None)
     if ckpt_every_raw is None:
         payload["checkpoint_every"] = None
@@ -608,6 +602,7 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         "use_error_input",
         "use_residual",
         "use_dense",
+        "use_pipeline",
         "language_readout_all_layers",
         "language_readout_trainable",
         "enable_continuous_collapse",
@@ -666,9 +661,6 @@ def config_from_user_dict(raw: dict[str, object]) -> ExperimentConfig:
         raise ValueError("prediction_target must be 'y', 'v', or 'a'.")
     if payload["eval_steps"] <= 0 or payload["long_steps"] <= 0 or payload["continuous_eval_steps"] <= 0:
         raise ValueError("eval_steps, long_steps, and continuous_eval_steps must be positive.")
-    if any(epoch <= 0 for epoch in payload["checkpoint_epochs"]):
-        raise ValueError("checkpoint_epochs entries must all be positive.")
-
     _base_names_seen: set[str] = set()
     for _cond_str in payload["eval_conditions"]:
         _base, _params = parse_condition(_cond_str)

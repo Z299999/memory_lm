@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import json
 from pathlib import Path
+import math
 import random
 from typing import Any
 
@@ -92,10 +93,8 @@ def _build_train_target(
     )
 
 
-def _analysis_checkpoint_epochs(config: ExperimentConfig) -> tuple[int, ...]:
-    if not config.enable_continuous_collapse:
-        return ()
-    return tuple(sorted({epoch for epoch in config.checkpoint_epochs if 1 <= epoch < config.epochs}))
+def _analysis_checkpoint_epochs(_config: ExperimentConfig) -> tuple[int, ...]:
+    return ()
 
 
 def _sample_train_steps(config: ExperimentConfig) -> int:
@@ -274,6 +273,7 @@ def _rollout_event_triggered_window(
     max_steps: int,
     initial_message: torch.Tensor | None,
     initial_error: torch.Tensor | None,
+    initial_pipeline_buffers: list[torch.Tensor] | None,
     detach_error_input: bool,
     force_zero_error_input: bool,
     error_degrade_generator: _ErrorDegradeGenerator,
@@ -287,6 +287,7 @@ def _rollout_event_triggered_window(
 
     message_state = initial_message
     error_state = initial_error
+    pipeline_buffers_state = initial_pipeline_buffers
     reconstruction_y_prev = train_bundle["init_y_prev"]
     reconstruction_v_prev = train_bundle["init_v_prev"]
     final_message: torch.Tensor | None = None
@@ -297,7 +298,7 @@ def _rollout_event_triggered_window(
             force_zero_error_input=force_zero_error_input,
             local_step=step_idx,
         )
-        prediction_step, raw_prediction_step, messages_step, _hidden, final_message, final_error = model.rollout(
+        prediction_step, raw_prediction_step, messages_step, _hidden, final_message, final_error, final_pipeline_bufs = model.rollout(
             num_steps=1,
             pulse_value=pulse_value,
             target_sequence=train_bundle["train_target"][step_idx : step_idx + 1],
@@ -312,6 +313,7 @@ def _rollout_event_triggered_window(
             error_input_scale=error_gain,
             disable_language=False,
             return_hidden=False,
+            initial_pipeline_buffers=pipeline_buffers_state,
         )
         predictions.append(prediction_step)
         raw_predictions.append(raw_prediction_step)
@@ -328,13 +330,14 @@ def _rollout_event_triggered_window(
 
         message_state = final_message if model.use_language else None
         error_state = final_error if model.use_error_input else None
+        pipeline_buffers_state = final_pipeline_bufs
         if prediction_target == "v":
             reconstruction_y_prev = prediction_step
         elif prediction_target == "a":
             reconstruction_v_prev = reconstruction_v_prev + raw_prediction_step
             reconstruction_y_prev = prediction_step
 
-        if step_count >= min_steps and cumulative_sse >= threshold:
+        if step_count >= min_steps and not math.isnan(cumulative_sse) and cumulative_sse >= threshold:
             break
 
     realized_steps = len(predictions)
@@ -349,6 +352,7 @@ def _rollout_event_triggered_window(
         "error_gain_sequence": torch.tensor(error_gains, dtype=torch.float32, device=train_bundle["train_target"].device).reshape(realized_steps, 1),
         "final_message": final_message,
         "final_error": final_error,
+        "final_pipeline_buffers": pipeline_buffers_state,
     }
 
 
@@ -391,6 +395,20 @@ def _train_single_model(
     train_time_cursor = 0
     train_message_state: torch.Tensor | None = None
     train_error_state: torch.Tensor | None = None
+    train_pipeline_buffers_state: list | None = None
+
+    if checkpoint_dir is not None:
+        _save_checkpoint(
+            model,
+            checkpoint_dir / f"{model_name}_epoch_0000.pt",
+            metadata={
+                "config": config.to_resolved_dict(),
+                "model_name": model_name,
+                "epoch": 0,
+                "checkpoint_kind": "initial",
+            },
+        )
+
     for epoch in range(1, config.epochs + 1):
         train_window_start = train_time_cursor if config.train_phase_mode == "continuous" else 0
         if schedule.mode == "event_triggered":
@@ -425,6 +443,7 @@ def _train_single_model(
                 max_steps=schedule.max_steps,
                 initial_message=train_message_state,
                 initial_error=train_error_state,
+                initial_pipeline_buffers=train_pipeline_buffers_state,
                 detach_error_input=config.detach_error_input,
                 force_zero_error_input=config.force_zero_error_input,
                 error_degrade_generator=error_degrade_generator,
@@ -437,6 +456,7 @@ def _train_single_model(
             error_gain_sequence = event_result["error_gain_sequence"]
             final_message = event_result["final_message"]
             final_error = event_result["final_error"]
+            final_pipeline_bufs = event_result["final_pipeline_buffers"]
             train_target = train_target[:effective_steps]
             train_target_y = train_target_y[:effective_steps]
         else:
@@ -445,7 +465,7 @@ def _train_single_model(
                 force_zero_error_input=config.force_zero_error_input,
                 device=device,
             )
-            prediction, raw_prediction, messages, _hidden, final_message, final_error = model.rollout(
+            prediction, raw_prediction, messages, _hidden, final_message, final_error, final_pipeline_bufs = model.rollout(
                 num_steps=effective_steps,
                 pulse_value=config.pulse_value,
                 target_sequence=train_target,
@@ -460,6 +480,7 @@ def _train_single_model(
                 error_input_scale_sequence=error_gain_sequence,
                 disable_language=False,
                 return_hidden=False,
+                initial_pipeline_buffers=train_pipeline_buffers_state,
             )
         if config.train_loss_space == "y":
             full_prediction, full_target = prediction, train_target_y
@@ -491,7 +512,7 @@ def _train_single_model(
                 mixed_sin_components=config.mixed_sin_components,
                 prediction_target=config.prediction_target,
             )
-            aux_prediction, aux_raw_prediction, _, _, _, _ = model.rollout(
+            aux_prediction, aux_raw_prediction, _, _, _, _, _ = model.rollout(
                 num_steps=1,
                 pulse_value=config.pulse_value,
                 target_sequence=aux_bundle["train_target"],
@@ -505,6 +526,7 @@ def _train_single_model(
                 force_zero_error_input=config.force_zero_error_input,
                 disable_language=False,
                 return_hidden=False,
+                initial_pipeline_buffers=final_pipeline_bufs,
             )
             if config.train_loss_space == "y":
                 aux_loss = torch.mean((aux_prediction - aux_bundle["target_y"]) ** 2)
@@ -525,8 +547,15 @@ def _train_single_model(
 
         total_loss.backward()
         if config.grad_clip > 0.0:
-            nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
-        optimizer.step()
+            total_grad_norm = nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+        else:
+            total_grad_norm = torch.stack(
+                [p.grad.norm() for p in model.parameters() if p.grad is not None]
+            ).norm()
+        if total_grad_norm.isfinite():
+            optimizer.step()
+        else:
+            optimizer.zero_grad(set_to_none=True)
 
         if config.sequence_mode == "continuous_window" and config.plot_show_training_timeline:
             timeline_window_records.append(
@@ -549,6 +578,10 @@ def _train_single_model(
             train_error_state = final_error.detach()
         else:
             train_error_state = None
+        if config.sequence_mode == "continuous_window" and model.use_pipeline and final_pipeline_bufs is not None:
+            train_pipeline_buffers_state = [b.detach() for b in final_pipeline_bufs]
+        else:
+            train_pipeline_buffers_state = None
         if config.train_phase_mode == "continuous":
             train_time_cursor += effective_steps
 
@@ -626,6 +659,7 @@ def _train_single_model(
             "final_message": train_message_state,
             "final_error": train_error_state,
             "final_step": int(train_time_cursor),
+            "final_pipeline_buffers": train_pipeline_buffers_state,
         },
     }
 
@@ -662,6 +696,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
         language_readout_trainable=config.language_readout_trainable,
         readout_nonlinearity=config.readout_nonlinearity,
         message_carry_mode=config.message_carry_mode,
+        use_pipeline=config.use_pipeline,
         seed=config.seed,
     ).to(device)
 
@@ -698,6 +733,7 @@ def train_model(config: ExperimentConfig, config_path: Path) -> Path:
                 "final_message": fts["final_message"],
                 "final_error":   fts["final_error"],
                 "final_step":    fts["final_step"],
+                "final_pipeline_buffers": fts.get("final_pipeline_buffers"),
             },
             ckpt_dir / "final_train_state.pt",
         )
