@@ -173,20 +173,27 @@ class FreqCurriculumSchedule:
     factor: float = 1.5
     target_steps: int = 2000
     patience: int = 5
+    retreat_patience: int = 0  # 0 = disabled; N = retreat one level after N epochs without promotion
 
 
 def parse_freq_curriculum(spec: object) -> FreqCurriculumSchedule:
     if spec is None or str(spec).strip().lower() in {"none", "null", "off"}:
         return FreqCurriculumSchedule(mode="none")
-    m = re.fullmatch(
+    m4 = re.fullmatch(
         r"adaptive\(\s*([\d.e+\-]+)\s*,\s*([\d.e+\-]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)",
         str(spec).strip(),
     )
+    m5 = re.fullmatch(
+        r"adaptive\(\s*([\d.e+\-]+)\s*,\s*([\d.e+\-]+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)",
+        str(spec).strip(),
+    )
+    m = m5 or m4
     if m:
         start_freq = float(m.group(1))
         factor = float(m.group(2))
         target_steps = int(m.group(3))
         patience = int(m.group(4))
+        retreat_patience = int(m.group(5)) if m5 else 0
         if start_freq <= 0.0 or start_freq > 1.0:
             raise ValueError("freq_curriculum adaptive: start_freq must be in (0, 1].")
         if factor <= 1.0:
@@ -195,15 +202,20 @@ def parse_freq_curriculum(spec: object) -> FreqCurriculumSchedule:
             raise ValueError("freq_curriculum adaptive: target_steps must be > 0.")
         if patience <= 0:
             raise ValueError("freq_curriculum adaptive: patience must be > 0.")
+        if retreat_patience < 0:
+            raise ValueError("freq_curriculum adaptive: retreat_patience must be >= 0.")
         return FreqCurriculumSchedule(
             mode="adaptive",
             start_freq=start_freq,
             factor=factor,
             target_steps=target_steps,
             patience=patience,
+            retreat_patience=retreat_patience,
         )
     raise ValueError(
-        "freq_curriculum must be null or 'adaptive(start_freq, factor, target_steps, patience)'."
+        "freq_curriculum must be null or "
+        "'adaptive(start_freq, factor, target_steps, patience)' or "
+        "'adaptive(start_freq, factor, target_steps, patience, retreat_patience)'."
     )
 
 

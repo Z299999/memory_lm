@@ -183,6 +183,7 @@ class FrequencyScheduler:
             self._done = self._current_freq >= self._target_freq
         self._schedule = schedule
         self._recent: list[int] = []
+        self._epochs_since_change: int = 0
 
     def active_components(self) -> tuple[tuple[float, float], ...]:
         if self._done:
@@ -190,13 +191,14 @@ class FrequencyScheduler:
         amp = self._target_components[0][1]
         return ((self._current_freq, amp),)
 
-    def report_window(self, steps: int) -> bool:
-        """Record window length; return True if a frequency promotion occurred."""
+    def report_window(self, steps: int) -> int:
+        """Record window length. Returns +1 if promoted, -1 if retreated, 0 otherwise."""
         if self._done:
-            return False
+            return 0
         self._recent.append(steps)
         if len(self._recent) > self._schedule.patience:
             self._recent.pop(0)
+        # Check promotion
         if (
             len(self._recent) == self._schedule.patience
             and all(s >= self._schedule.target_steps for s in self._recent)
@@ -204,10 +206,25 @@ class FrequencyScheduler:
             new_freq = min(self._current_freq * self._schedule.factor, self._target_freq)
             self._current_freq = new_freq
             self._recent.clear()
+            self._epochs_since_change = 0
             if self._current_freq >= self._target_freq:
                 self._done = True
-            return True
-        return False
+            return 1
+        # Check retreat
+        self._epochs_since_change += 1
+        if (
+            self._schedule.retreat_patience > 0
+            and self._epochs_since_change >= self._schedule.retreat_patience
+            and self._current_freq > self._schedule.start_freq
+        ):
+            self._current_freq = max(
+                self._current_freq / self._schedule.factor,
+                self._schedule.start_freq,
+            )
+            self._recent.clear()
+            self._epochs_since_change = 0
+            return -1
+        return 0
 
     @property
     def current_freq(self) -> float:
@@ -660,11 +677,15 @@ def _train_single_model(
             force_zero_error_input=config.force_zero_error_input,
             disable_language=False,
         )
-        promoted = freq_scheduler.report_window(effective_steps)
-        if promoted:
+        _freq_action = freq_scheduler.report_window(effective_steps)
+        if _freq_action == 1:
             print(
-                f"[{model_name}] freq_curriculum: promoted → freq={freq_scheduler.current_freq:.5f}"
+                f"[{model_name}] freq_curriculum: promoted → freq={freq_scheduler.current_freq:.3e}"
                 + (" (done)" if freq_scheduler.is_done else "")
+            )
+        elif _freq_action == -1:
+            print(
+                f"[{model_name}] freq_curriculum: retreated → freq={freq_scheduler.current_freq:.3e}"
             )
 
         row = {
@@ -688,12 +709,14 @@ def _train_single_model(
             print(
                 f"[{model_name}] epoch {epoch:4d}/{config.epochs} "
                 f"steps={effective_steps:3d} "
-                f"train={row['train_loss']:.6f} val={row['val_loss']:.6f}"
+                f"train={row['train_loss']:.6f} val={row['val_loss']:.6f} "
+                f"freq={freq_scheduler.current_freq:.3e}"
             )
 
         if (
             config.early_stop_min_steps is not None
             and effective_steps >= config.early_stop_min_steps
+            and freq_scheduler.is_done
         ):
             print(
                 f"[{model_name}] early stop at epoch {epoch}: "
